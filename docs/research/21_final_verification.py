@@ -174,6 +174,37 @@ def check_d34_no_search_in_check() -> None:
     import shutil; shutil.rmtree(work, ignore_errors=True)
 
 
+def check_menu_path() -> None:
+    """菜单路径：用户双击 exe 后的第一条路径。P0 曾在这里（AttributeError: mc）。"""
+    section("6b. 交互菜单主路径（无参数启动）")
+    work = Path(tempfile.mkdtemp(prefix="fin-menu-"))
+    _scan(work, str(SAMPLE), "--profile", "demo", "--yes")
+    nl = "\n"
+    cases = [("菜单[1] 检查（选清单）", "1" + nl + "1" + nl, (0, 1, 2)),
+             ("菜单[2] 扫描", "2" + nl, (0, 3)),
+             ("菜单[3] 管理清单", "3" + nl + "q" + nl, (0,)),
+             ("菜单[4] 设置", "4" + nl + "q" + nl, (0,)),
+             ("菜单[5] 版本列表", "5" + nl, (0,)),
+             ("菜单[0] 退出", "0" + nl, (0,))]
+    for label, stdin, ok_codes in cases:
+        r = run([str(PY), "-m", "modcheck", "--config-dir", str(work)], timeout=300)
+        # 上面那条只是为了确认可导入；真正带输入要走 stdin
+        p = subprocess.run([str(PY), "-m", "modcheck", "--config-dir", str(work)],
+                           cwd=str(ROOT), input=stdin, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=600,
+                           env=dict(os.environ, PYTHONPATH=str(ROOT / "src"),
+                                    PYTHONIOENCODING="utf-8", NO_COLOR="1"))
+        out = (p.stdout or "") + (p.stderr or "")
+        if "程序内部出错" in out or "Traceback" in out:
+            code = next((l for l in out.splitlines() if "Error" in l or "error" in l), "")[:100]
+            record("FAIL", label, f"内部错误：{code}")
+        elif p.returncode not in ok_codes:
+            record("FAIL", label, f"退出码 {p.returncode}，期望 {ok_codes}")
+        else:
+            record("PASS", label, f"exit={p.returncode}")
+    import shutil; shutil.rmtree(work, ignore_errors=True)
+
+
 # ---------------------------------------------------------------- 7. 打包
 def check_packaging() -> None:
     section("7. Nuitka 打包产物（若已构建）")
@@ -201,6 +232,7 @@ def main() -> int:
     check_d31_bom()
     check_d35_unidentified_jars_listed()
     check_d38_identifier_consistency()
+    check_menu_path()
     check_scripts()
     check_packaging()
     section("汇总")
