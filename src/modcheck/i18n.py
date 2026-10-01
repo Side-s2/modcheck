@@ -249,7 +249,7 @@ _MESSAGES: Final[dict[str, str]] = {
     "err.profile.schema": "✗ 清单文件格式不对：{path} 里没有找到「mods」字段。它可能不是本工具的清单文件，或者被别的程序改过。",
     "err.profile.mutex": "✗ --profile 和 --mods-dir 不能同时使用。",
     "err.profile.read_failed": "✗ 清单文件读不了：{path}（{detail}）",
-    "err.dir.not_found": "✗ 找不到文件夹：{path}。请检查路径是否正确（例如 C:\\\\servers\\\\survival\\\\mods）。",
+    "err.dir.not_found": "✗ 找不到文件夹：{path}。请检查路径是否正确（例如 C:\\servers\\survival\\mods）。",
     "err.dir.no_jar": "⚠ 这个文件夹里没有任何 jar 文件（{path}）。如果你选错了文件夹，mods 通常在服务端根目录下。",
     "err.scan.all_broken": "✗ 所有 {count} 个 jar 文件都无法读取（可能都损坏了）。清单未改动。",
     "err.from_list.missing": "✗ 读不到文件名清单：{path}（文件不存在或没有内容）。",
@@ -320,9 +320,17 @@ _MESSAGES: Final[dict[str, str]] = {
     "cli.cache.action": "操作：info / clear",
     "cli.cache.older_than": "只清理早于这个时间的缓存（例如 7d / 12h）",
     "confirm.continue": "按回车继续…",
+    "cli.usage_prefix": "用法：",
+    "cli.section.positional": "位置参数",
+    "cli.section.options": "选项",
+    "cli.help.help": "显示本帮助并退出",
+    "cli.help.command": "要执行的子命令（不带则进入交互式菜单）",
+    "cli.metavar.command": "<命令>",
+    "cli.metavar.value": "<值>",
+    "cli.error.usage": "✗ 参数不对：{detail}",
     # ---------------------------------------------------------------- 单位
-    "unit.seconds": "{value} 秒",
-    "unit.count": "{value} 个",
+    "unit.seconds": "{n} 秒",
+    "unit.count": "{n} 个",
 }
 
 _MISSING_REPORTED: set[str] = set()
@@ -335,6 +343,18 @@ def _report_missing(key: str) -> None:
     _MISSING_REPORTED.add(key)
     try:
         sys.stderr.write("missing i18n key: " + key + "\n")
+    except Exception:
+        pass
+
+
+def _report_bad_format(key: str) -> None:
+    """模板占位符与实参对不上时提醒一次（开发期问题，不当场崩）。"""
+    marker = "format:" + key
+    if marker in _MISSING_REPORTED:
+        return
+    _MISSING_REPORTED.add(marker)
+    try:
+        sys.stderr.write("bad i18n format: " + key + "\n")
     except Exception:
         pass
 
@@ -357,7 +377,7 @@ def t(key: str, /, **kw: object) -> str:
     try:
         return template.format(**kw)
     except (KeyError, IndexError, ValueError):
-        _report_missing(key)
+        _report_bad_format(key)
         return template
 
 
