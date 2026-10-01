@@ -124,10 +124,7 @@ class CheckStats:
     必须是增量而不是总量：检查之前拉 Mojang 版本清单也会发请求，
     但它失败不代表**模组数据源**不可用（实测过这个误报），限流提示同理。
 
-    用法：
-        stats = CheckStats(ctx.client)
-        report = run_check_flow(..., stats=stats)
-        if source_unavailable(report, stats): ...   # 退出码 4
+    调用方通常不需要自己建它：run_check_flow() 会填好并放进 CheckOutcome。
     """
 
     source: StatsSource | None = None
@@ -173,15 +170,30 @@ class CheckStats:
         return self.rate_limited_after - self.rate_limited_before
 
 
-def source_unavailable(report: Report, stats: CheckStats | None) -> bool:
+@dataclass(frozen=True, slots=True)
+class CheckOutcome:
+    """一次检查的完整结果：报告 + 运行统计。
+
+    只有一个返回值，调用方写法统一（GUI 与 CLI 都读同一份）：
+
+        outcome = run_check_flow(...)
+        outcome.report.verdict()          # 结论
+        outcome.report.groups             # 分组条目
+        source_unavailable(outcome)       # 退出码 4 的判据
+    """
+
+    report: Report
+    stats: CheckStats
+
+
+def source_unavailable(outcome: CheckOutcome) -> bool:
     """数据源是否整体不可用（E01 -> 退出码 4）。
 
     判据：**本次检查期间确实发出过请求、但一次都没成功**，且没有任何模组得出结论。
     只看总量会误判：检查前拉 Mojang 版本清单失败也算"请求过"，但那不代表
     **模组数据源**不可用（实测过这个误报）。所以只统计检查区间的增量。
     """
-    if stats is None:
-        return False
+    report, stats = outcome.report, outcome.stats
     data = report.summary
     if data["total_checked"] == 0 or data["unknown"] != data["total_checked"]:
         return False
@@ -193,10 +205,10 @@ def run_check_flow(entries: Sequence[ModEntry], *, provider: "BaseProvider | Non
                    prerelease: bool = False, jobs: int = 6, resolve: bool = False,
                    on_progress: ProgressFn | None = None, on_item: ItemFn | None = None,
                    should_stop: StopFn | None = None, interactive_match: MatchFn | None = None,
-                   stats: CheckStats | None = None, profile_name: str = "",
+                   stats_source: StatsSource | None = None, profile_name: str = "",
                    profile_saved: bool = True,
-                   source_status: tuple[str, str] | None = None) -> Report:
-    """跑完一次兼容性检查并返回报告。
+                   source_status: tuple[str, str] | None = None) -> CheckOutcome:
+    """跑完一次兼容性检查，返回 CheckOutcome（报告 + 运行统计）。
 
     参数：
         entries: 要检查的模组条目。
@@ -210,11 +222,12 @@ def run_check_flow(entries: Sequence[ModEntry], *, provider: "BaseProvider | Non
         on_item: 同一时刻的逐条回调 (已完成, 总数, 条目, 报告项)。
         should_stop: 返回 True 时停下（已完成的判定保留，报告会被标成 interrupted）。
         interactive_match: 交互匹配回调（仅交互模式传；默认路径绝不问、绝不猜）。
-        stats: 可选的运行统计出参（判"数据源整体不可用"、取报告头的请求数）。
+        stats_source: 请求计数器的来源（真实实现是 HttpClient）；不传就没有请求数，
+            也判不了"数据源整体不可用"。
         profile_name / profile_saved / source_status: 报告头要显示的清单与数据源信息。
 
     返回：
-        Report。中断时 interrupted=True、completed 是**已完成**的条数。
+        CheckOutcome。中断时 report.interrupted=True、completed 是**已完成**的条数。
     """
     entries = list(entries)
     report = Report(mc_version=str(mc_version), loader=loader, profile_name=profile_name,
@@ -224,9 +237,9 @@ def run_check_flow(entries: Sequence[ModEntry], *, provider: "BaseProvider | Non
         # Report 的默认文案是"Modrinth 已启用 / CurseForge 未启用"，
         # 真实状态只有调用方（registry.status_line()）知道
         report.source_status = source_status
+    stats = CheckStats(stats_source)
     start = time.monotonic()
-    if stats is not None:
-        stats.take_before()
+    stats.take_before()
 
     def on_done(done: int, total: int, entry: ModEntry, item: ReportItem) -> None:
         if on_item is not None:
@@ -244,9 +257,8 @@ def run_check_flow(entries: Sequence[ModEntry], *, provider: "BaseProvider | Non
         # 注意这里**不填**请求数、限流提示与识别来源 —— 那份报告是"查了多少算多少"。
         report.interrupted = True
         report.elapsed = time.monotonic() - start
-        if stats is not None:
-            stats.take_after()
-        return report
+        stats.take_after()
+        return CheckOutcome(report, stats)
 
     for item in items:
         report.add(item)
@@ -255,20 +267,19 @@ def run_check_flow(entries: Sequence[ModEntry], *, provider: "BaseProvider | Non
     # check_all 只在 should_stop() 为真时少产出条目 —— 那是"用户取消了"，不是"检查完了"
     if should_stop is not None and len(items) < len(entries):
         report.interrupted = True
-    if stats is not None:
-        stats.take_after()
-        # 被限流导致的未判定必须显式告诉用户：否则他会把这 18 条 ⚪ 当成"这些模组查不到"，
-        # 而不会想到"再跑一次就有了"（实测 200 个不同项目冷跑出现过 18 条）。
-        if stats.rate_limited_delta > 0 and report.summary["unknown"] > 0:
-            report.warnings.append(t("warn.rate_limited_summary",
-                                     count=report.summary["unknown"]))
-        report.requests_made, report.cache_hits = stats.requests_made, stats.cache_hits
+    stats.take_after()
+    # 被限流导致的未判定必须显式告诉用户：否则他会把这 18 条 ⚪ 当成"这些模组查不到"，
+    # 而不会想到"再跑一次就有了"（实测 200 个不同项目冷跑出现过 18 条）。
+    if stats.rate_limited_delta > 0 and report.summary["unknown"] > 0:
+        report.warnings.append(t("warn.rate_limited_summary", count=report.summary["unknown"]))
+    report.requests_made, report.cache_hits = stats.requests_made, stats.cache_hits
     for item in items:
         kind = item.mod.source_kind
         if kind is not None:
             report.source_stats[kind] = report.source_stats.get(kind, 0) + 1
-    return report
+    return CheckOutcome(report, stats)
 
 
-__all__ = ["CheckStats", "ItemFn", "MatchFn", "ProfileEntries", "ProgressFn", "StatsSource",
-           "StopFn", "load_profile_entries", "run_check_flow", "source_unavailable"]
+__all__ = ["CheckOutcome", "CheckStats", "ItemFn", "MatchFn", "ProfileEntries", "ProgressFn",
+           "StatsSource", "StopFn", "load_profile_entries", "run_check_flow",
+           "source_unavailable"]

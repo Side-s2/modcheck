@@ -21,8 +21,8 @@ from modcheck.core.models import MatchStatus, ModEntry, ProjectHit
 from modcheck.core.report import Report, Verdict
 from modcheck.errors import (EXIT_NO_SOURCE, ConfigError, ModcheckError, ProviderError,
                              UserCancelled)
-from modcheck.flows.check_flow import CheckStats, load_profile_entries, run_check_flow, \
-    source_unavailable
+from modcheck.flows.check_flow import (load_profile_entries, run_check_flow,
+                                       source_unavailable)
 from modcheck.i18n import t
 from modcheck.providers.mojang import MojangVersions
 from modcheck.storage.profiles import load_profile, save_profile
@@ -196,13 +196,13 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
         console.progress(_progress_line(done, total, entry.best_name, blocked_seen,
                                         time.monotonic() - start, console.width))
 
-    stats = CheckStats(ctx.client)
-    report = run_check_flow(
+    outcome = run_check_flow(
         entries, provider=provider, loader=loader, mc_version=str(mc_version), window=window,
         prerelease=prerelease, jobs=jobs, resolve=bool(getattr(args, "resolve", False)),
-        on_progress=on_progress, on_item=on_item, interactive_match=matcher, stats=stats,
-        profile_name=source.name, profile_saved=source.saved,
+        on_progress=on_progress, on_item=on_item, interactive_match=matcher,
+        stats_source=ctx.client, profile_name=source.name, profile_saved=source.saved,
         source_status=ctx.registry.status_line())
+    report = outcome.report
 
     console.clear_progress()
     if report.interrupted:
@@ -215,7 +215,7 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
     _save_if_changed(changed, entries, source.path, source.saved, ctx)
     render_report(report, console, quiet=quiet)
     _export(report, args, ctx)
-    if source_unavailable(report, stats):
+    if source_unavailable(outcome):
         # E01：一个可用数据源都没有 —— 这比"有几个模组没查到"严重得多，
         # 脚本里必须能靠退出码区分「网络/代理坏了」与「部分未判定」。
         console.line()

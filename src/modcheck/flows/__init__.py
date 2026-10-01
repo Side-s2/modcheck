@@ -14,13 +14,14 @@
 这条边界是 GUI 能复用流程的前提：flows 一旦沾上终端输出，GUI 就得另写一份，
 两份逻辑早晚漂移。docs/research/36_layering_check.py 会静态检查它。
 """
-from modcheck.flows.check_flow import (CheckStats, ProfileEntries, load_profile_entries,
-                                       run_check_flow, source_unavailable)
+from modcheck.flows.check_flow import (CheckOutcome, CheckStats, ProfileEntries,
+                                       load_profile_entries, run_check_flow,
+                                       source_unavailable)
 from modcheck.flows.scan_flow import (DEFAULT_PROFILE, HASH_BATCH, ScanReport, SkipItem,
                                       scan_dirs, scan_from_list)
 
 __all__ = [
-    "CheckStats", "ProfileEntries", "load_profile_entries", "run_check_flow",
+    "CheckOutcome", "CheckStats", "ProfileEntries", "load_profile_entries", "run_check_flow",
     "source_unavailable",
     "DEFAULT_PROFILE", "HASH_BATCH", "ScanReport", "SkipItem", "scan_dirs", "scan_from_list",
 ]

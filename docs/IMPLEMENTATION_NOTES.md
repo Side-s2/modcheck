@@ -164,7 +164,7 @@
 | # | 任务书 | 我的实现 | 理由 |
 |---|---|---|---|
 | 1 | `scan_dirs(directories, *, provider, profiles_dir, ...)` | **没有** `profiles_dir` | 它不写盘（落盘仍在 `run_scan`），加了就是死参数。要统一签名的话我加回去 |
-| 2 | `run_check_flow(...) -> Report` | 仍是 `-> Report`，但多一个**可选出参** `stats: CheckStats` | "数据源整体不可用"是退出码 4 的判据，必须把"检查区间的请求增量"传回 CLI；`Report` 在 core 里（本轮一行不许改），没有别的通道 |
+| 2 | `run_check_flow(...) -> Report` | 初版用可选出参 `stats`；**复核轮按裁决改为返回 `CheckOutcome(report, stats)`**（`stats_source` 作入参，`source_unavailable(outcome)` 作退出码 4 的判据） | 出参是 C 习惯，GUI 照着签名写容易漏传；返回值对 CLI 与 GUI 都只有一个入口 |
 | 3 | 进度回调 `on_progress(done, total, name)` | 保留它，另加**可选** `on_item(done, total, entry, item)` | 终端的 TTY 进度行要显示「已发现 N 个阻塞」（PRD §5.5），它需要每条的 status；GUI 只用 `on_progress` 即可 |
 | 4 | 扫描也要能中途取消 | `ScanReport.cancelled` + 循环内探针（读 jar / 逐目录 / 命名搜索三处） | `cancelled=True` 是"不许落盘"的硬信号；`run_scan` 里加了守卫（CLI 今天不传 `should_stop`，所以这条分支在 CLI 路径上暂不可达） |
 | 5 | 只搬列出的函数 | 顺手删掉 `scan_dirs` 的 `known_mc_versions` 死参数（原代码从未使用） | `scan_from_list` 的同名参数**真的在用**，保留 |
@@ -186,4 +186,17 @@
   30 个场景（含 --mods-dir / 限流 / 退出码 4 / 中断 / 交互匹配 / 导出 / 多目录）逐字节一致。
 - 分层自检：`docs/research/36_layering_check.py` 已把 `flows/` 纳入（20 个模块 0 违规），
   并固化成 `tests/test_layering_flows.py`（AST 检查 + 包结构 + 回调参数存在性）。
+
+### 8.5 复核裁决的落地（主 Agent 5 条）
+
+| 裁决 | 处理 |
+|---|---|
+| 1. `scan_dirs` 不接 `profiles_dir` | 批准，保持现状 |
+| 2. 出参 `stats` 改成返回值 | **已改**：`run_check_flow(...) -> CheckOutcome(report, stats)`；入参名 `stats_source`（`HttpClient` 即可），`source_unavailable(outcome)` 判退出码 4 |
+| 3. `on_progress` + 可选 `on_item` | 批准，保持现状 |
+| 4. 删 `known_mc_versions` 死参数 | 批准，保持现状 |
+| 5. `UserCancelled` 被 `check_one` 吞掉 | 认可为**行为与 PRD 不符**，单独一个提交修（见 §9） |
+
+改完后重跑了两套快照：13 个 golden 用例 + 30 个流水线场景**全部逐字节一致** —— 纯 API 形状调整，CLI 行为零变化。
+
 

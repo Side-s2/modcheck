@@ -1,4 +1,4 @@
-"""flows/check_flow 单测：Report、进度回调、中途取消、数据源可用性（全程离线）。
+"""flows/check_flow 单测：CheckOutcome、进度回调、中途取消、数据源可用性（全程离线）。
 
 流程层不许打印任何东西，也不许写盘；这里断言"返回了什么"与"回调被怎么调用"。
 """
@@ -12,8 +12,8 @@ from fakes import FakeProvider, FakeTransport, json_response
 from modcheck.core.models import Loader, ModEntry, ProjectHit, SourceKind, Status, VersionInfo
 from modcheck.core.report import Report
 from modcheck.errors import ConfigError, ProviderNetworkError, ProviderRateLimited
-from modcheck.flows.check_flow import (CheckStats, load_profile_entries, run_check_flow,
-                                       source_unavailable)
+from modcheck.flows.check_flow import (CheckOutcome, CheckStats, load_profile_entries,
+                                       run_check_flow, source_unavailable)
 from modcheck.providers.http import HttpConfig, HttpClient
 from modcheck.providers.modrinth import ModrinthProvider
 from modcheck.storage.profiles import new_profile, profile_path, save_profile
@@ -31,6 +31,12 @@ def entry(key: str, **kw: object) -> ModEntry:
     """构造清单条目。"""
     return ModEntry(key=key, display_name=str(kw.pop("display", key)), mod_id=key,
                     sources={"modrinth": key}, source_kind=SourceKind.HASH, **kw)  # type: ignore[arg-type]
+
+
+def check(entries: list[ModEntry], provider, **kw: object) -> CheckOutcome:
+    """跑一次流程（固定目标版本与加载器，接口测试只关心返回值与回调）。"""
+    return run_check_flow(entries, provider=provider, loader=Loader.FABRIC, mc_version="26.3",
+                          jobs=1, **kw)  # type: ignore[arg-type]
 
 
 def write_profile(tmp_path: Path, entries: list[ModEntry], name: str = "demo") -> Path:
@@ -73,16 +79,18 @@ class FakeCounters:
         self._rate_limited += 1
 
 
-# ---------------------------------------------------------------- 返回 Report
-def test_run_check_flow_returns_report(tmp_path: Path) -> None:
-    """流程返回 Report（GUI 直接消费它，不需要任何终端）。"""
+# ---------------------------------------------------------------- 返回值
+def test_run_check_flow_returns_outcome() -> None:
+    """流程返回 CheckOutcome（报告 + 统计），GUI 直接消费，不需要任何终端。"""
     provider = FakeProvider(releases={"ok": [V("ok", "26.3", ("26.3",))], "bad": []},
                             any_loader={"bad": []})
     entries = [entry("ok", display="Ok"), entry("bad", display="Bad")]
-    report = run_check_flow(entries, provider=provider, loader=Loader.FABRIC, mc_version="26.3",
-                            profile_name="demo")
+    outcome = check(entries, provider, profile_name="demo")
+    report = outcome.report
 
+    assert isinstance(outcome, CheckOutcome)
     assert isinstance(report, Report)
+    assert isinstance(outcome.stats, CheckStats)
     assert report.completed == 2 and report.total == 2
     assert report.interrupted is False
     assert report.summary["ready"] == 1 and report.summary["blocked"] == 1
@@ -92,12 +100,20 @@ def test_run_check_flow_returns_report(tmp_path: Path) -> None:
     assert report.verify_identities()
 
 
-def test_run_check_flow_uses_given_source_status(tmp_path: Path) -> None:
+def test_outcome_stats_are_readable_fields() -> None:
+    """统计是返回值的一部分（不是出参）：没有计数器也永远拿得到这个字段。"""
+    provider = FakeProvider(releases={"ok": [V("ok", "26.3", ("26.3",))]})
+    outcome = check([entry("ok")], provider)
+    assert outcome.stats.source is None
+    assert outcome.stats.requests_delta == 0
+    assert outcome.stats.requests_made == 0
+
+
+def test_run_check_flow_uses_given_source_status() -> None:
     """报告头的数据源文案由调用方注入（CLI 传 registry.status_line()）。"""
     provider = FakeProvider(releases={"ok": [V("ok", "26.3", ("26.3",))]})
-    report = run_check_flow([entry("ok")], provider=provider, loader=Loader.FABRIC,
-                            mc_version="26.3", source_status=("A", "B"))
-    assert report.source_status == ("A", "B")
+    outcome = check([entry("ok")], provider, source_status=("A", "B"))
+    assert outcome.report.source_status == ("A", "B")
 
 
 # ---------------------------------------------------------------- 进度回调
@@ -109,25 +125,23 @@ def test_progress_callbacks_are_ordered() -> None:
     progress: list[tuple[int, int, str]] = []
     items: list[tuple[int, int, str]] = []
 
-    report = run_check_flow(entries, provider=provider, loader=Loader.FABRIC, mc_version="26.3",
-                            jobs=1,
-                            on_progress=lambda d, t, n: progress.append((d, t, n)),
-                            on_item=lambda d, t, e, i: items.append((d, t, e.key)))
+    outcome = check(entries, provider,
+                    on_progress=lambda d, t, n: progress.append((d, t, n)),
+                    on_item=lambda d, t, e, i: items.append((d, t, e.key)))
 
     assert [done for done, _t, _n in progress] == [1, 2, 3, 4]
     assert {total for _d, total, _n in progress} == {4}
     assert [name for _d, _t, name in progress] == ["Mod 0", "Mod 1", "Mod 2", "Mod 3"]
     assert [done for done, _t, _k in items] == [1, 2, 3, 4]
     assert [key for _d, _t, key in items] == ["m0", "m1", "m2", "m3"]
-    assert report.completed == 4
+    assert outcome.report.completed == 4
 
 
 def test_progress_callbacks_are_optional() -> None:
     """不传回调也能跑完（GUI 一期之外的最小用法）。"""
     provider = FakeProvider(releases={"ok": [V("ok", "26.3", ("26.3",))]})
-    report = run_check_flow([entry("ok")], provider=provider, loader=Loader.FABRIC,
-                            mc_version="26.3")
-    assert report.completed == 1
+    outcome = check([entry("ok")], provider)
+    assert outcome.report.completed == 1
 
 
 # ---------------------------------------------------------------- 中途取消
@@ -140,10 +154,10 @@ def test_should_stop_cancels_midway_without_residue(tmp_path: Path) -> None:
     before = {p for p in tmp_path.rglob("*")}
     done: list[int] = []
 
-    report = run_check_flow(entries, provider=provider, loader=Loader.FABRIC, mc_version="26.3",
-                            jobs=1, profile_name="demo", profile_saved=True,
-                            on_progress=lambda d, t, n: done.append(d),
-                            should_stop=lambda: len(done) >= 2)
+    outcome = check(entries, provider, profile_name="demo", profile_saved=True,
+                    on_progress=lambda d, t, n: done.append(d),
+                    should_stop=lambda: len(done) >= 2)
+    report = outcome.report
 
     assert report.interrupted is True
     assert report.completed == 2 and report.total == 5
@@ -157,22 +171,19 @@ def test_should_stop_false_is_not_interrupted() -> None:
     provider = FakeProvider(releases={("m%d" % i): [V("m%d" % i, "26.3", ("26.3",))]
                                       for i in range(3)})
     entries = [entry("m%d" % i) for i in range(3)]
-    report = run_check_flow(entries, provider=provider, loader=Loader.FABRIC, mc_version="26.3",
-                            jobs=1, should_stop=lambda: False)
-    assert report.interrupted is False
-    assert report.completed == 3
+    outcome = check(entries, provider, should_stop=lambda: False)
+    assert outcome.report.interrupted is False
+    assert outcome.report.completed == 3
 
 
 def test_keyboard_interrupt_returns_interrupted_report() -> None:
     """Ctrl+C（KeyboardInterrupt）不许冒泡：返回"查了多少算多少"的报告。"""
     provider = FakeProvider(raise_on={"releases_for_loader": KeyboardInterrupt()})
-    report = run_check_flow([entry("m%d" % i) for i in range(3)], provider=provider,
-                            loader=Loader.FABRIC, mc_version="26.3", jobs=1,
-                            profile_name="demo")
-    assert report.interrupted is True
-    assert report.completed == 0
-    assert report.total == 3
-    assert report.summary["unknown"] == 0        # 中断路径不填统计（与 CLI 既有行为一致）
+    outcome = check([entry("m%d" % i) for i in range(3)], provider, profile_name="demo")
+    assert outcome.report.interrupted is True
+    assert outcome.report.completed == 0
+    assert outcome.report.total == 3
+    assert outcome.report.summary["unknown"] == 0   # 中断路径不填统计（与 CLI 既有行为一致）
 
 
 # ---------------------------------------------------------------- 数据源可用性
@@ -183,16 +194,15 @@ def test_source_unavailable_when_all_requests_failed() -> None:
 
     client = HttpClient(HttpConfig(rate_limit_per_min=100000, retries=0),
                         transport=FakeTransport(handler))
-    stats = CheckStats(client)
-    report = run_check_flow([entry("carpet")], provider=ModrinthProvider(client),
-                            loader=Loader.FABRIC, mc_version="26.3", jobs=1, stats=stats,
-                            profile_name="demo")
+    outcome = check([entry("carpet")], ModrinthProvider(client), stats_source=client,
+                    profile_name="demo")
+    report, stats = outcome.report, outcome.stats
 
     assert report.completed == 1
     assert report.summary["unknown"] == 1
     assert stats.requests_delta > 0 and stats.successes_delta == 0
     assert stats.requests_made == stats.requests_after
-    assert source_unavailable(report, stats) is True
+    assert source_unavailable(outcome) is True
 
 
 def test_source_available_when_some_request_succeeded() -> None:
@@ -207,12 +217,10 @@ def test_source_available_when_some_request_succeeded() -> None:
 
     client = HttpClient(HttpConfig(rate_limit_per_min=100000, retries=0),
                         transport=FakeTransport(handler))
-    stats = CheckStats(client)
-    report = run_check_flow([entry("carpet")], provider=ModrinthProvider(client),
-                            loader=Loader.FABRIC, mc_version="26.3", jobs=1, stats=stats)
-    assert report.summary["ready"] == 1
-    assert stats.successes_delta > 0
-    assert source_unavailable(report, stats) is False
+    outcome = check([entry("carpet")], ModrinthProvider(client), stats_source=client)
+    assert outcome.report.summary["ready"] == 1
+    assert outcome.stats.successes_delta > 0
+    assert source_unavailable(outcome) is False
 
 
 def test_zero_requests_during_check_is_not_source_unavailable() -> None:
@@ -222,22 +230,20 @@ def test_zero_requests_during_check_is_not_source_unavailable() -> None:
     旧的"看总量"写法会把正常情况报成退出码 4。
     """
     counters = FakeCounters(requests=1, successes=0)     # 已经探测过一次 Mojang 且失败
-    stats = CheckStats(counters)
-    report = run_check_flow([ModEntry(key="mystery", display_name="Mystery")],
-                            provider=FakeProvider(), loader=Loader.FABRIC, mc_version="26.3",
-                            jobs=1, stats=stats)
-    assert report.summary["unknown"] == 1
-    assert stats.requests_delta == 0
-    assert source_unavailable(report, stats) is False
+    outcome = check([ModEntry(key="mystery", display_name="Mystery")], FakeProvider(),
+                    stats_source=counters)
+    assert outcome.report.summary["unknown"] == 1
+    assert outcome.stats.requests_delta == 0
+    assert source_unavailable(outcome) is False
 
 
-def test_source_unavailable_false_without_stats() -> None:
-    """不传 stats 就没有判据（GUI 不关心退出码的时候不该瞎报）。"""
+def test_source_unavailable_false_without_counters() -> None:
+    """没有计数器就没有判据（GUI 不关心退出码的时候不该瞎报）。"""
     provider = FakeProvider(raise_on={"*": ProviderNetworkError("boom")})
-    report = run_check_flow([entry("x")], provider=provider, loader=Loader.FABRIC,
-                            mc_version="26.3", jobs=1)
-    assert report.summary["unknown"] == 1
-    assert source_unavailable(report, None) is False
+    outcome = check([entry("x")], provider)
+    assert outcome.report.summary["unknown"] == 1
+    assert outcome.stats.source is None
+    assert source_unavailable(outcome) is False
 
 
 def test_rate_limited_warning_is_added_by_flow() -> None:
@@ -251,9 +257,8 @@ def test_rate_limited_warning_is_added_by_flow() -> None:
             counters.bump_rate_limited()
             raise ProviderRateLimited("429", status=429, url="https://api.modrinth.com/x")
 
-    stats = CheckStats(counters)
-    report = run_check_flow([entry("x")], provider=RateLimited(), loader=Loader.FABRIC,
-                            mc_version="26.3", jobs=1, stats=stats)
+    outcome = check([entry("x")], RateLimited(), stats_source=counters)
+    report = outcome.report
     assert report.summary["unknown"] == 1
     assert len(report.warnings) == 1
     assert "限流" in report.warnings[0]
@@ -350,8 +355,7 @@ def test_interactive_match_is_forwarded() -> None:
         return "mystery"
 
     entry_obj = ModEntry(key="mystery", display_name="Mystery", mod_id="mystery")
-    report = run_check_flow([entry_obj], provider=provider, loader=Loader.FABRIC,
-                            mc_version="26.3", jobs=1, interactive_match=matcher)
+    outcome = check([entry_obj], provider, interactive_match=matcher)
     assert calls == ["mystery"]
-    assert report.summary["ready"] == 1
-    assert report.groups[Status.READY][0].mod.sources["modrinth"] == "mystery"
+    assert outcome.report.summary["ready"] == 1
+    assert outcome.report.groups[Status.READY][0].mod.sources["modrinth"] == "mystery"
