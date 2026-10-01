@@ -24,6 +24,11 @@
 
 注意：报告头里的"检查时间/用时"天然不可复现，脚本已统一归一化成 <TIME>/<ELAPSED>；
 mods 文件夹只生成一次（zipfile 会把当前时间写进 jar，重生成会让 sha1 变）。
+
+⚠️ 一条**预期内**的差异（R4 复核裁决 5）：交互匹配里选 q 的语义修复
+（core.checker_run.check_one 不再吞 UserCancelled）会让 check_interactive_quit 场景
+从 exit=2（该模组变 ⚪ + 「程序内部出错」）变成 exit=130（已中断）—— 这是规格要求的修正，
+不是回归；除它之外的 29 个场景必须与修复前逐字节一致。
 """
 
 from __future__ import annotations

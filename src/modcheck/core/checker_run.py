@@ -17,7 +17,7 @@ from modcheck.core.matching import candidate_names, match_exact
 from modcheck.core.models import (Loader, MatchStatus, ModEntry, ProjectHit, ReasonCode,
                                   Status)
 from modcheck.core.report import ReportItem
-from modcheck.errors import ProviderError
+from modcheck.errors import ProviderError, UserCancelled
 from modcheck.i18n import t
 
 
@@ -143,6 +143,12 @@ def check_one(entry: ModEntry, provider, *, loader: Loader, mc_version: str,
         return _blank_item(entry, result)
     except ProviderError as exc:
         return _blank_item(entry, for_reason(ReasonCode.ERROR), message=exc.message)
+    except UserCancelled:
+        # 用户主动取消（交互里选 q，PRD §5.7）**不是**"这个模组查不到"：
+        # 必须原样上抛，由编排层结束整轮检查并给 130。
+        # S4 的"单个模组失败不得中断整体检查"只针对真实故障，不覆盖用户取消 ——
+        # 之前被下面的兜底吞掉，用户选了 q 却看到那个模组变成 ⚪ 且检查继续跑完。
+        raise
     except Exception as exc:  # 单个模组失败绝不能中断整体检查（S4）
         return _blank_item(entry, for_reason(ReasonCode.ERROR),
                            message=t("err.internal", detail=type(exc).__name__))

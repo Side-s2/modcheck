@@ -199,4 +199,36 @@
 
 改完后重跑了两套快照：13 个 golden 用例 + 30 个流水线场景**全部逐字节一致** —— 纯 API 形状调整，CLI 行为零变化。
 
+## 9. 第 4 轮补丁（复核裁决 5：交互选 q 必须真的结束检查）
+
+### 9.1 问题（行为与 PRD 不符）
+
+`core/checker_run.check_one` 的兜底 `except Exception` 把 `UserCancelled` 一起吞了：
+用户按 q（PRD §5.7「[q] 退出检查（已完成的部分会显示）」）之后，那个模组变成
+「⚪ 未判定 + ✗ 程序内部出错（UserCancelled）」，检查还会继续跑完剩下的模组，退出码 2。
+我上一轮把它当成"范围外、保持原样"是判断错误 —— 主 Agent 裁决为缺陷，本轮修掉。
+
+### 9.2 修法（最小改动，S4 不受影响）
+
+在 `check_one` 的兜底之前单独 `except UserCancelled: raise`：
+只放行**用户主动取消**；`ProviderError` 与其它 `Exception` 仍然吞掉并标 ⚪。
+`UserCancelled` 一路上抛到 `run_check_flow` → interrupted 报告 → CLI 退出码 130。
+
+### 9.3 证据
+
+- 新增 `tests/test_interactive_cancel.py`（7 条）：check_one 上抛 / 顺序路径不再问后面的模组 /
+  并发路径（jobs>1）同样上抛 / 流程层给 interrupted 报告且 `unknown == 0` /
+  CLI 端到端 130 且不出现「⚪ 未判定」与「程序内部出错」/ 取消不写盘 /
+  对照组：普通 `RuntimeError` 仍是 ⚪ + 退出码 2（S4 语义不变）。
+- 先写测试、在**未修版本**上跑：5 条红（这正是"被吞掉"的证据），再改 core —— 不是先改后补测试。
+- 30 个流水线场景重跑：**只有 `check_interactive_quit` 变化**，且变化正是修复目标
+  （exit 2 → 130、⚪ → 中断），其余 29 个逐字节一致；脚本 docstring 已标注这条预期差异。
+- 13 个 golden 用例不涉及交互路径，复跑仍逐字节一致。
+
+### 9.4 未改（请裁决）
+
+选 q 之后显示的仍是「已中断（按了 Ctrl+C）」（i18n `progress.interrupted`）。
+PRD 没有规定 q 之后的横幅文案，我没擅自改文案；要区分 Ctrl+C 与 q 的话是 i18n 一行的事。
+
+
 
