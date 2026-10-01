@@ -120,10 +120,16 @@ class MainWindow(QMainWindow):
         SettingsDialog(self._service, self).exec()
 
     def _show_about(self) -> None:
-        QMessageBox.about(self, "关于 modcheck",
-                          "Minecraft 模组兼容性检查<br><br>"
-                          "数据来自 Modrinth 与 Mojang 官方版本清单。<br>"
-                          "本程序以 GPL-3.0 发布，不重新分发任何模组文件。")
+        """关于框：版本、数据来源、许可证 —— 用户与分发者都需要看到这三样。"""
+        from modcheck import __version__
+
+        QMessageBox.about(
+            self, "关于 modcheck",
+            f"<b>Minecraft 模组兼容性检查 {__version__}</b><br><br>"
+            "数据来自 <b>Modrinth</b> 与 <b>Mojang 官方版本清单</b>。<br>"
+            "本程序<b>不重新分发任何模组文件</b>：下载的是 Modrinth 官方 CDN 直链。<br><br>"
+            "以 <b>GPL-3.0</b> 发布（因图形界面使用 PyQt6，其许可证为 GPL v3）。<br>"
+            "详见随附的 LICENSE 与 THIRD_PARTY_NOTICES.md。")
 
     def _reload_profiles(self) -> None:
         """重新读清单列表并保持当前选择。"""
