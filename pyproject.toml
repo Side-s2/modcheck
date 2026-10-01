@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Minecraft 服务端模组版本兼容性检查工具（升级前检查模组是否支持目标游戏版本与加载器）"
 readme = "README.md"
 requires-python = ">=3.11"
-# 硬性要求：零第三方运行时依赖，只用标准库
+# CLI 版硬性要求：零第三方运行时依赖，只用标准库。
+# GUI 版的 PyQt6 是**可选依赖**（见下），不装它 CLI 照常工作 ——
+# 这正是"喜欢轻量就 CLI、喜欢易用就 GUI"在依赖层面的体现。
 dependencies = []
 keywords = ["minecraft", "mod", "fabric", "neoforge", "forge", "modrinth", "server"]
 classifiers = [
@@ -21,10 +23,14 @@ classifiers = [
 
 [project.scripts]
 modcheck = "modcheck.cli.main:main"
+modcheck-gui = "modcheck.gui.__main__:main"
 
 [project.optional-dependencies]
 # 仅开发期使用，绝不进入分发包
 dev = ["pytest>=7.4"]
+# 图形界面：pip install "mod-version-checker[gui]" 或单独 pip install PyQt6
+# 注意 PyQt6 是 GPL v3，本项目整体以 GPL-3.0 发布（见 LICENSE 与 THIRD_PARTY_NOTICES.md）
+gui = ["PyQt6>=6.6"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
