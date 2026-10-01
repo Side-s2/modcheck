@@ -10,12 +10,13 @@
     ④ 未命中的用候选名做精确同名搜索
     ⑤ 仍不行 -> 文件名兜底（低置信，标 GUESS）
     ⑥ 同 modid / 同 sha1 合并 + 显式告警
-    ⑦ （调用方）与已有清单合并 -> 原子写盘
+    ⑦ save_scan_result()：与已有清单合并 -> 原子写盘
 
 --from-list 模式（决策 D20）：没有 jar，跳过 ①②③，全部标 GUESS，且不发起指纹请求。
 
-落盘不在本模块：scan_dirs / scan_from_list 只负责"识别出条目"，
-写哪份清单由调用方决定（CLI 是 run_scan），所以这里没有 profiles_dir 参数。
+**识别与落盘分开**：scan_dirs / scan_from_list 只负责"识别出条目"（不碰清单文件），
+写哪份清单由 save_scan_result 决定 —— 半份结果（cancelled）绝不允许落盘。
+这样 GUI 三期可以直接复用同一条流水线，不必自己重写"合并 + 原子写"。
 """
 from __future__ import annotations
 
@@ -28,9 +29,10 @@ from modcheck.core.hashid import sha1_of_file
 from modcheck.core.jarmeta import read_jar_meta
 from modcheck.core.matching import candidate_names, match_exact
 from modcheck.core.models import Detected, MatchStatus, ModEntry, ProjectHit, SourceKind
-from modcheck.errors import ConfigError, ProviderError
+from modcheck.errors import ConfigError, ProviderError, UserCancelled
 from modcheck.i18n import t
-from modcheck.storage.profiles import key_of, merge_entries
+from modcheck.storage.profiles import (MergeStats, key_of, load_profile, merge_entries,
+                                       new_profile, profile_path, save_profile)
 
 if TYPE_CHECKING:  # 只为类型注解；运行时不引入具体数据源（依赖注入）
     from modcheck.providers.base import BaseProvider
@@ -44,6 +46,10 @@ HASH_BATCH = 100
 ProgressFn = Callable[[int, int, str], None]
 #: 取消探针：返回 True 表示调用方要求停下
 StopFn = Callable[[], bool]
+#: 落盘提示回调：(文案 key, **格式化参数)。流程层不打印，只把"该说一句什么"交出去；
+#: 为什么需要它：那句"没有名为 X 的清单，将新建一个"必须出现在**写盘之前**的位置
+#: （CLI 的逐字输出如此），只有回调能在不打印的前提下保住顺序。
+NoticeFn = Callable[..., None]
 
 
 @dataclass(slots=True)
@@ -183,6 +189,63 @@ def scan_dirs(directories: Sequence[Path], *, provider: "BaseProvider | None",
         return report
     _merge_duplicates(report)
     return report
+
+
+# ---------------------------------------------------------------- 落盘
+@dataclass(frozen=True, slots=True)
+class SaveOutcome:
+    """一次扫描结果的落盘结果。"""
+
+    path: Path
+    #: 合并后的条目（已有 + 本次扫描）
+    merged: list[ModEntry]
+    #: 合并统计（新增 / 合并 / 重复文件名告警）
+    stats: MergeStats
+    #: 清单文件此前不存在（调用方据此说一句"将新建一个"）
+    created: bool
+    #: 是否整份替换（--new）
+    replaced: bool
+
+
+def save_scan_result(report: ScanReport, *, profiles_dir: Path, profile_name: str,
+                     new: bool = False, on_notice: NoticeFn | None = None) -> SaveOutcome:
+    """把扫描结果与已有清单合并后原子写盘（流水线第 ⑦ 步）。
+
+    参数：
+        report: scan_dirs / scan_from_list 的结果。
+        profiles_dir: 清单目录（CLI 传 ctx.profiles_dir）。
+        profile_name: 要写入的清单名。
+        new: True 表示忽略已有清单，整份替换（--new）。
+        on_notice: 落盘过程中的提示回调 (key, **kw)；**只在这一个地方会被调用**：
+            清单文件此前不存在时（对应的正是 CLI 那句"没有名为 X 的清单，将新建一个"）。
+            它必须在写盘**之前**触发，否则 CLI 的逐字输出顺序会变。
+
+    返回：
+        SaveOutcome（路径、合并后的条目、统计、是否新建、是否整份替换）。
+
+    抛出：
+        UserCancelled: report.cancelled 为真 —— 半份结果绝不落盘。
+        ProfileError: 读不了已有清单或写不进去（内存与磁盘都不变）。
+        ConfigError: 清单名不合法。
+    """
+    if report.cancelled:
+        # 取消时写盘 = 用户的清单会被悄悄改窄，这是最不能接受的一种"省事"
+        raise UserCancelled(t("scan.cancelled"))
+    path = profile_path(Path(profiles_dir), profile_name)
+    created = not path.exists()
+    if created and on_notice is not None:
+        on_notice("scan.profile_not_exist", name=profile_name)
+    profile = None
+    existing: list[ModEntry] = []
+    if not new and not created:
+        profile = load_profile(path)
+        existing = profile.mods
+    merged, stats = merge_entries(existing, report.entries)
+    if profile is None:
+        profile = new_profile(profile_name)
+    profile.mods = merged
+    save_profile(profile, path)
+    return SaveOutcome(path=path, merged=merged, stats=stats, created=created, replaced=bool(new))
 
 
 def _resolve_slugs(entries: list[ModEntry], provider: "BaseProvider | None") -> None:
@@ -407,5 +470,5 @@ def scan_from_list(path: Path, *, provider: "BaseProvider | None",
     return report
 
 
-__all__ = ["DEFAULT_PROFILE", "HASH_BATCH", "ProgressFn", "StopFn", "SkipItem", "ScanReport",
-           "scan_dirs", "scan_from_list"]
+__all__ = ["DEFAULT_PROFILE", "HASH_BATCH", "NoticeFn", "ProgressFn", "SaveOutcome",
+           "SkipItem", "ScanReport", "StopFn", "save_scan_result", "scan_dirs", "scan_from_list"]

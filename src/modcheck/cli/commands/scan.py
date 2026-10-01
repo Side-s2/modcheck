@@ -1,10 +1,10 @@
 """scan 子命令：解析参数 -> 调 flows.scan_flow -> 渲染终端输出。
 
-流水线本身（列目录、读 jar、指纹反查、同名搜索、合并去重）全在 flows/scan_flow.py，
-这里只剩三件事：
+流水线与落盘（列目录、读 jar、指纹反查、同名搜索、合并去重、与已有清单合并后原子写盘）
+全在 flows/scan_flow.py，这里只剩三件事：
     ① 把命令行参数与数据源交给流程；
     ② 把 console 包成进度回调（TTY 画进度行，非 TTY 每 20% 打一行）；
-    ③ 渲染统计、与已有清单合并后原子写盘。
+    ③ 渲染统计（"将新建一个"那句由流程回调回来，位置与以前完全一致）。
 """
 from __future__ import annotations
 
@@ -13,12 +13,11 @@ from pathlib import Path
 
 from modcheck.cli.context import AppContext, provider_or_none
 from modcheck.core.filename import parse_jar_filename
-from modcheck.core.models import ModEntry
 from modcheck.errors import ConfigError, EXIT_INTERRUPTED
-from modcheck.flows.scan_flow import (DEFAULT_PROFILE, ScanReport, scan_dirs, scan_from_list)
+from modcheck.flows.scan_flow import (DEFAULT_PROFILE, ScanReport, save_scan_result, scan_dirs,
+                                      scan_from_list)
 from modcheck.i18n import t
-from modcheck.storage.profiles import (MergeStats, load_profile, merge_entries, new_profile,
-                                       profile_path, save_profile)
+from modcheck.storage.profiles import MergeStats
 
 
 def scan_progress_callback(console):
@@ -80,25 +79,17 @@ def run_scan(args: argparse.Namespace, ctx: AppContext) -> int:
         console.line(t("err.dir.no_jar", path=paths[0] if not from_list else from_list))
         return 0
 
-    profile_file = profile_path(ctx.profiles_dir, profile_name)
-    existing_entries: list[ModEntry] = []
-    if not getattr(args, "new", False) and profile_file.exists():
-        existing_entries = load_profile(profile_file).mods
-    else:
-        if not profile_file.exists():
-            console.line(t("scan.profile_not_exist", name=profile_name))
+    # 合并 + 原子写盘在流程层（GUI 三期复用同一份）；提示按原位置回调回来
+    outcome = save_scan_result(
+        report, profiles_dir=ctx.profiles_dir, profile_name=profile_name,
+        new=bool(getattr(args, "new", False)),
+        on_notice=lambda key, **kw: console.line(t(key, **kw)))
 
-    merged, stats = merge_entries(existing_entries, report.entries)
-    profile = new_profile(profile_name)
-    if profile_file.exists() and not getattr(args, "new", False):
-        profile = load_profile(profile_file)
-    profile.mods = merged
-    save_profile(profile, profile_file)
-
-    _print_dupe_block(stats, console)
-    console.line(t("scan.summary", profile=profile_name, added=stats.added,
-                   merged=stats.merged, skipped=len(report.skipped), total=len(merged)))
-    console.line(t("scan.profile_file", path=profile_file))
+    _print_dupe_block(outcome.stats, console)
+    console.line(t("scan.summary", profile=profile_name, added=outcome.stats.added,
+                   merged=outcome.stats.merged, skipped=len(report.skipped),
+                   total=len(outcome.merged)))
+    console.line(t("scan.profile_file", path=outcome.path))
     return 0
 
 
