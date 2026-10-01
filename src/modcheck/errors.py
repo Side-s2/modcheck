@@ -111,6 +111,16 @@ class ProviderRateLimited(ProviderHTTPError):
     retryable = True
 
 
+class ProviderVerifyError(ProviderError):
+    """下载内容校验失败（sha1 与预期不符）；坏文件必须已删除。
+
+    R3-B01 的 HttpClient.download 在校验失败时抛这个异常（不是 ProviderParseError：
+    调用方要能区分「下载的文件坏了」与「响应体结构不对」）。
+    """
+
+    exit_code = EXIT_UNKNOWN
+
+
 class ProviderNotFound(ProviderError):
     """项目不存在（404）；不重试。"""
 
@@ -129,4 +139,5 @@ __all__ = [
     "ModcheckError", "ConfigError", "ProfileError", "JarReadError", "UserCancelled",
     "ProviderError", "ProviderUnavailable", "ProviderNetworkError",
     "ProviderHTTPError", "ProviderRateLimited", "ProviderNotFound", "ProviderParseError",
+    "ProviderVerifyError",
 ]

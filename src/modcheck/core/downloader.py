@@ -12,12 +12,17 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Final
+from typing import Callable, Final, Mapping, Sequence
 
 from modcheck.core.models import FileInfo, ModEntry, Status, VersionInfo
 from modcheck.core.report import Report, ReportItem
+from modcheck.errors import (ModcheckError, ProviderError, ProviderRateLimited,
+                             ProviderVerifyError)
 
 #: 允许下载的两组（PRD §14.1）
 DOWNLOADABLE: Final[tuple[Status, ...]] = (Status.READY, Status.DEGRADED)
@@ -194,3 +199,162 @@ def extra_files_count(plan: DownloadPlan) -> int:
 def overwrite_key(item: DownloadItem) -> str:
     """overwrite 映射的键：目标文件名（CLI 与 download_all 必须用同一个）。"""
     return Path(item.target).name
+
+#: 429 最多连续放行几次（限流由 fetcher 自己 pause，这里只防死循环）
+MAX_RATE_RETRIES: Final[int] = 5
+#: 失败重试的退避秒数：第 1 次失败等 1 秒，第 2 次等 2 秒（PRD §14.5 第 7 条）
+BACKOFF_SECONDS: Final[tuple[float, ...]] = (1.0, 2.0)
+#: 用户选择跳过
+SKIP_USER: Final[str] = "download.skip.user"
+
+
+def _error_key(exc: BaseException) -> str:
+    """把 fetcher 抛出的异常映射成失败原因文案 key。"""
+    if isinstance(exc, ProviderVerifyError):
+        return "download.error.verify"
+    if isinstance(exc, OSError):
+        return "download.error.write"
+    if isinstance(exc, ProviderError):
+        return "download.error.net"
+    return "download.error.net"
+
+
+def _error_detail(exc: BaseException) -> str:
+    """失败原因里的 {detail}（领域异常自带中文说明，其它用类名）。"""
+    if isinstance(exc, ModcheckError):
+        return exc.message
+    return type(exc).__name__ + ": " + str(exc)
+
+
+def cleanup_parts(items: Sequence[DownloadItem]) -> int:
+    """删除这些条目残留的 .part 临时文件（返回删掉几个）。
+
+    取消下载时必须调用：PRD §14.5 第 5 条要求"没下完的临时文件已清理"。
+    """
+    removed = 0
+    for item in items:
+        temp = part_path(item.target)
+        try:
+            if temp.exists():
+                temp.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def download_all(plan: DownloadPlan, fetcher, *,
+                 overwrite: Mapping[str, bool] | None = None,
+                 on_progress: Callable[[DownloadItem, int, int], None] | None = None,
+                 cancel: threading.Event | None = None,
+                 retries: int = 2, jobs: int = 3,
+                 sleep: Callable[[float], None] | None = None) -> DownloadReport:
+    """并发下载计划里的全部文件（PRD §14.2 / §14.5，R3-B03）。
+
+    参数：
+        plan: plan_for 生成的计划。
+        fetcher: 实现 download(url, dest, *, sha1, on_chunk, timeout) -> int 的对象
+            （由 CLI 注入 providers/http.py 的 HttpClient；测试注入假 fetcher）。
+        overwrite: 目标文件名 -> 是否覆盖；False 表示用户选择跳过（默认全部覆盖）。
+        on_progress: 进度回调（调用方负责节流）。
+        cancel: 取消事件；置位后停止派发新任务，删掉残留 .part，已下好的文件保留。
+        retries: 每个文件最多重试几次（默认 2，退避 1s / 2s）；429 不计入。
+        jobs: 同时下载几个文件（默认 3，与限速器无关）。
+        sleep: 注入的睡眠函数（测试用；默认 time.sleep）。
+
+    返回：
+        DownloadReport；ok + skipped + failed + cancelled == len(items)。
+    """
+    started = time.monotonic()
+    do_sleep = sleep if sleep is not None else time.sleep
+    workers = max(1, int(jobs))
+    max_tries = max(0, int(retries)) + 1
+    plan_items = list(plan.items)
+    results: dict[int, DownloadItem] = {}
+    queue: list[tuple[int, DownloadItem]] = []
+    for index, item in enumerate(plan_items):
+        if overwrite is not None and overwrite.get(overwrite_key(item)) is False:
+            results[index] = replace(item, status=STATUS_SKIPPED, message_key=SKIP_USER)
+            continue
+        queue.append((index, item))
+
+    def work(index: int, item: DownloadItem) -> DownloadItem:
+        """下载一个文件（含重试）；任何异常都转成失败条目，绝不冒泡。"""
+        attempts = 0
+        rate_limits = 0
+        seen = 0
+        while True:
+            if cancel is not None and cancel.is_set():
+                return replace(item, status=STATUS_CANCELLED, bytes_done=seen)
+            try:
+                written = fetcher.download(item.file.url, item.target,
+                                           sha1=item.file.hashes.get("sha1"),
+                                           on_chunk=make_chunk(item))
+                return replace(item, status=STATUS_OK, bytes_done=written)
+            except ProviderRateLimited:
+                # 限流不是这个文件的问题：不计入重试次数（PRD §14.3）
+                rate_limits += 1
+                if rate_limits > MAX_RATE_RETRIES:
+                    return replace(item, status=STATUS_FAILED, bytes_done=seen,
+                                   message_key="download.error.net")
+                continue
+            except Exception as exc:            # noqa: BLE001 - 单文件失败不能影响其它文件
+                attempts += 1
+                if attempts >= max_tries:
+                    status = (STATUS_VERIFY_FAILED
+                              if isinstance(exc, ProviderVerifyError) else STATUS_FAILED)
+                    # 兜底：fetcher 没清干净的 .part 由这里删掉，绝不留半成品
+                    cleanup_parts([item])
+                    return replace(item, status=status, bytes_done=seen,
+                                   message_key=_error_key(exc))
+                do_sleep(BACKOFF_SECONDS[min(attempts - 1, len(BACKOFF_SECONDS) - 1)])
+
+    def make_chunk(item: DownloadItem) -> Callable[[int], None]:
+        """把 on_chunk 折成 on_progress 回调（含已下载字节数）。"""
+        state = {"done": 0}
+
+        def on_chunk(size: int) -> None:
+            state["done"] += int(size)
+            if on_progress is not None:
+                on_progress(item, state["done"], int(item.file.size or 0))
+
+        return on_chunk
+
+    cancelled = False
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures: dict[object, tuple[int, DownloadItem]] = {}
+        cursor = 0
+        while cursor < len(queue) or futures:
+            while not cancelled and cursor < len(queue) and len(futures) < workers:
+                if cancel is not None and cancel.is_set():
+                    cancelled = True
+                    break
+                index, item = queue[cursor]
+                futures[pool.submit(work, index, item)] = (index, item)
+                cursor += 1
+            if not futures:
+                break
+            done_futures, _ = wait(list(futures), return_when=FIRST_COMPLETED)
+            for future in done_futures:
+                index, item = futures.pop(future)
+                try:
+                    results[index] = future.result()
+                except Exception as exc:        # noqa: BLE001 - 兜底，绝不让线程异常逃逸
+                    results[index] = replace(item, status=STATUS_FAILED,
+                                             message_key=_error_key(exc))
+            if cancel is not None and cancel.is_set():
+                cancelled = True
+
+    if cancelled:
+        remaining = [item for index, item in queue if index not in results]
+        cleanup_parts(remaining)
+        for index, item in queue:
+            results.setdefault(index, replace(item, status=STATUS_CANCELLED))
+    final = tuple(results.get(index, item) for index, item in enumerate(plan_items))
+    ok = sum(1 for item in final if item.status == STATUS_OK)
+    skipped = sum(1 for item in final if item.status == STATUS_SKIPPED)
+    failed = sum(1 for item in final if item.status in (STATUS_FAILED, STATUS_VERIFY_FAILED))
+    bytes_total = sum(item.bytes_done for item in final if item.status == STATUS_OK)
+    return DownloadReport(items=final, ok=ok, skipped=skipped, failed=failed,
+                          bytes_total=bytes_total, elapsed=time.monotonic() - started,
+                          cancelled=cancelled)

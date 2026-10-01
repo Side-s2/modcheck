@@ -415,6 +415,9 @@ _MESSAGES: Final[dict[str, str]] = {
     "download.skip.status.prerelease": "🟠 仅存测试版的模组一律不下载",
     "download.skip.status.unknown": "⚪ 未判定组的模组一律不下载",
     "download.skip.status.ignored": "⚫ 已忽略组的模组一律不下载",
+    "download.error.verify": "校验失败（文件损坏，已删除）",
+    "download.error.write": "写不进去（磁盘满或没有权限）",
+    "download.error.net": "下载失败（{detail}）",
 }
 
 _MISSING_REPORTED: set[str] = set()
