@@ -311,6 +311,9 @@ _MESSAGES: Final[dict[str, str]] = {
     "err.http.5xx": "Modrinth 服务端出错（HTTP {status}），不是你的问题，稍后重试即可",
     "err.http.status": "Modrinth 返回了 HTTP {status}",
     "err.http.404": "请求的资源不存在（HTTP 404）",
+    # 下载的校验失败：坏文件已经删掉，用户的旧文件没有被覆盖（PRD §14.5 第 9 条）
+    "err.download.sha1": "下载的文件和官方记录对不上（sha1 不符）：{name}（期望 {expected}，实际 {actual}）",
+    "err.download.sha1.hint": "文件多半是在传输中损坏了（已经删掉，没有覆盖你原有的文件）。再下载一次通常就好了。",
     "err.rate_limited": "被 Modrinth 限流（请求太频繁），已自动重试仍失败",
     "err.rate_limited.hint": "降低并发重试：modcheck check ... --jobs 2",
     "err.timeout": "查询超时（{timeout} 秒无响应），已自动重试 {retries} 次仍然失败",
