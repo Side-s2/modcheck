@@ -53,14 +53,38 @@
 | 6 | T-09 `classify` 签名没有 `version_count` | 增加 `version_count: int | None = None` | 分支①b（NO_FILES）需要它，否则无法区分"项目已废"与"没有你的加载器" |
 | 7 | PRD §5.3 报告头的识别来源是 3 项，§5.4 是 4 项 | 用 4 项（含"名称搜索"） | §5.4 标注为"报告头，永久保留" |
 
-## 4. 尚未完成 / 下一轮
+## 4. 第 2 轮：主 Agent 裁决的落地（D29~D39）
 
-- **M6 交互（T-21）**：`cli/menu.py` 已能跑通"菜单 → 检查/扫描/清单/设置/版本"主路径，
-  但**匹配交互弹窗**（PRD §5.7 的 `1-5/m/s/i/q` 候选选择）还没接进 check 流程
-  （`check_one` 已预留 `interactive_match` 回调）。
-- **M7 打包（T-22/T-24）**：`build/nuitka_build.py` 已就绪并在真机构建，
-  但 standalone / onefile 两种产物的 `config path` 便携目录冒烟尚未逐条跑完。
-- `tests/record_fixtures.py`（录制真实响应用于 diff 字段变化）尚未添加。
+| 裁决 | 内容 | 落地位置 | 证据 |
+|---|---|---|---|
+| D29 | Nuitka 不设 `sys.frozen`，必须用 `__compiled__`；onefile 的 `sys.executable` 指向会被删除的解包临时目录，必须用 `sys.argv[0]` | `storage/paths.py` | 两种打包模式 `config path` 都落在 exe 同级 |
+| D30 | `key_of()` 首选平台标识：`slug:{provider}:{slug}` → modid → sha1 → 规范化名称；另有 slug/modid/sha1/文件名 四级兜底匹配 | `storage/profiles.py` | from-list(30) → scan 文件夹 → 「新增 0，合并 30，共 30」（此前是 46） |
+| D31 | 读用户可能手工编辑过的文本文件一律 `utf-8-sig` | `scan.py` / `profiles.py` / `settings.py` | 带 BOM 的清单导入后第一条 key 无 U+FEFF |
+| D32 | 表格列宽禁止硬编码空格，表头与数据行必须用同一套 `display_width` 列宽 | `cli/commands/profile.py` | 表头与数据行在相同显示列起始 |
+| D33 | 条目定位必须接受全部标识（modid/slug/名称/中文名/文件名/aliases），未命中给候选提示 | `profile.find_entry()` | carpet / Carpet / CARPET / 文件名 全部命中 |
+| D34 | `check` 默认**不发搜索请求**；显式 `--resolve` 才搜且每模组 ≤2 个候选 | `core/checker_run.py` | search 调用次数 == 0 的单测 |
+| D35 | 无元数据且指纹未命中的 jar **必须进清单**（漏掉比多列危险） | `scan._entry_from_filename()` | 4 jar → 清单 4 条 |
+| D36 | 窄终端必须真机可用 | `render.layout_widths()` + `Console.wrap()` | 40/60/80/100 列：0 超宽行、0 控制字符 |
+| D37 | README 两段式（普通用户 / 开发者），onefile 大小写实测值 | `README.md` | 实测 7 MB |
+| D38 | 两条识别路径统一写 **slug**（hash 路径补一次 `GET /project/{id}`） | `scan._resolve_slugs()` | 不变量单测：两路径同一字符串 |
+| D39 | **表格单元格截断，说明文字折行**（PRD §5.1 第 11 条据此修订） | `Console.prose()` | 40 列下「最高只支持 MC 26.2…」完整可读 |
+
+### 本轮修掉的一个 P0（值得记住的教训）
+
+无参数启动 → 菜单 [1] → 选清单，会抛 `AttributeError: 'Namespace' object has no attribute 'mc'`
+（`main()` 把只有顶层参数的 Namespace 交给了菜单，而菜单要用 check 的参数对象）。
+**根因不是某一处取值写错，而是"菜单与子命令共享参数对象"这个设计缺少初始化环节。**
+修法是集中式的 `main.apply_menu_defaults()`，而不是零散补 `getattr`。
+
+**教训：只测"函数"不测"入口"会漏掉整整一类缺陷。** 现在 `tests/test_menu_flow.py`
+从 `main()` 真实入口覆盖菜单全部 5 个入口，并断言"菜单路径与子命令路径的汇总行逐字相同"。
+
+## 6. 尚未完成
+
+- `tests/record_fixtures.py`（录制真实响应用于 diff 字段变化）—— 可选，未做。
+- 渲染 golden 文件逐字节比对 —— 主 Agent 已认可改用结构化断言（更抗时间戳变动），不做。
+- Nuitka onefile 在**同一 PowerShell 会话里连续构建**偶发失败（`__constants.h` 找不到 /
+  ccache 文件占用），单独重跑即成功。构建脚本已默认 `--remove-output` 并清空输出目录来降低概率。
 
 ## 5. 测试口径
 
