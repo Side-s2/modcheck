@@ -404,6 +404,10 @@ _MESSAGES: Final[dict[str, str]] = {
     "source.filename": "文件名猜测",
     "unit.seconds": "{n} 秒",
     "unit.count": "{n} 个",
+    # ---------------------------------------------------------------- 设置屏（R3-A02 / R3-A11）
+    "settings.jobs.range": "✗ 并发数要在 1 到 8 之间（你输入的是 {value}）。没有改动。",
+    "settings.cache.range": "✗ 缓存有效期要在 1 到 168 小时之间（你输入的是 {value}）。没有改动。",
+    "settings.color.bad": "✗ 颜色只能是 auto / always / never（你输入的是 {value}）。没有改动。",
 }
 
 _MISSING_REPORTED: set[str] = set()

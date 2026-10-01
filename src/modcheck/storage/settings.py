@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any, Final
 
 from modcheck.core.models import Loader, Settings
+# 代理解析规则只有一份（core/settings_ops.py，裁决 D42），这里复用
+from modcheck.core.settings_ops import NULL_WORDS as _CORE_NULL_WORDS
+from modcheck.core.settings_ops import parse_proxy as _core_parse_proxy
 from modcheck.errors import ConfigError, ModcheckError
 from modcheck.i18n import t
 
@@ -98,24 +101,14 @@ def set_setting(settings: Settings, key: str, raw: str) -> Settings:
     return settings
 
 
-#: 表示"清除这一项"的输入（大小写不敏感）
-NULL_WORDS: Final[tuple[str, ...]] = ("", "null", "none", "-", "nil")
+#: 表示"清除这一项"的输入（规则定义在 core/settings_ops.py，这里只做别名导出）
+NULL_WORDS: Final[tuple[str, ...]] = _CORE_NULL_WORDS
 
 
 def _parse_proxy(text: str, raw: str) -> str | None:
-    """解析代理设置：null/none/-/空串 = 清除；其余必须是 scheme://host[:port] 形式。
-
-    实测教训（D42）：`config set proxy null` 会把字符串 "null" 写进配置，
-    此后所有网络请求永久失败，而 config show 显示「代理：null」看起来像没设 ——
-    用户几乎不可能自己排查出来。所以既支持"清除"语义，也拒绝非法值（不落盘）。
-    """
-    if text.strip().lower() in NULL_WORDS:
-        return None
-    candidate = text.strip()
-    scheme, sep, rest = candidate.partition("://")
-    if not sep or not scheme.isalnum() or not rest:  # socks5 这类 scheme 含数字
-        raise ConfigError(t("config.bad_proxy", value=raw))
-    return candidate
+    """解析代理设置（实现与 core/settings_ops.parse_proxy 共用一份，裁决 D42）。"""
+    del text  # 只为兼容旧调用签名，实际用原文解析
+    return _core_parse_proxy(raw)
 
 
 def _as_int(text: str, key: str, raw: str, low: int, high: int) -> int:
