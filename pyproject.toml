@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mod-version-checker"
+version = "0.1.0"
+description = "Minecraft 服务端模组版本兼容性检查工具（升级前检查模组是否支持目标游戏版本与加载器）"
+readme = "README.md"
+requires-python = ">=3.11"
+# 硬性要求：零第三方运行时依赖，只用标准库
+dependencies = []
+keywords = ["minecraft", "mod", "fabric", "neoforge", "forge", "modrinth", "server"]
+classifiers = [
+  "Environment :: Console",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Games/Entertainment",
+]
+
+[project.scripts]
+modcheck = "modcheck.cli.main:main"
+
+[project.optional-dependencies]
+# 仅开发期使用，绝不进入分发包
+dev = ["pytest>=7.4"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+modcheck = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = ["-q", "-m", "not live"]
+markers = [
+  "live: 需要真实网络访问的测试（默认跳过；用 -m live 显式运行）",
+]
+filterwarnings = ["error::DeprecationWarning:modcheck.*"]

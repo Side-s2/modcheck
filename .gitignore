@@ -1,0 +1,35 @@
+# ---- 本地工具链（仅开发机，不入库）----
+.toolchain/
+.toolchain_setup.py
+.toolchain_setup.ps1
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ---- Nuitka / 构建产物 ----
+dist/
+build/out/
+*.build/
+*.dist/
+*.onefile-build/
+*.exe
+
+# ---- 运行时生成的本地配置与缓存（便携模式）----
+config/
+!docs/**
+*.log
+
+# ---- 编辑器 / 系统 ----
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
