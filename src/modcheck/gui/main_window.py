@@ -233,6 +233,11 @@ class MainWindow(QMainWindow):
 
         # ---- 底部 ----
         foot = QHBoxLayout()
+        # 下载按钮：**必须在一次检查之后才能用**（它需要那份报告才知道下什么版本）
+        self.btn_download = QPushButton("下载建议版本…")
+        self.btn_download.setEnabled(False)
+        self.btn_download.clicked.connect(self._on_download)
+        foot.addWidget(self.btn_download)
         self.btn_json = QPushButton("导出 JSON")
         self.btn_md = QPushButton("导出 Markdown")
         self.btn_copy = QPushButton("复制重跑命令")
@@ -282,6 +287,17 @@ class MainWindow(QMainWindow):
         return tbl
 
     # ---------------------------------------------------------------- 交互
+    def _on_download(self) -> None:
+        """打开下载对话框。用最近一次检查的报告决定"下哪些版本"。"""
+        report = getattr(self._service, "last_report", None)
+        if report is None:
+            QMessageBox.information(self, "先跑一次检查",
+                                   "下载建议版本需要先有一次检查结果 —— 请先点「开始检查」。")
+            return
+        from modcheck.gui.download_dialog import DownloadDialog
+
+        DownloadDialog(self._service, report, self).exec()
+
     def _on_export(self, fmt: str) -> None:
         """导出报告 —— 走的是 flows.export，**与 CLI 导出同一份实现**（文件逐字节相同）。"""
         exporter = getattr(self._service, "export_to", None)
@@ -373,7 +389,7 @@ class MainWindow(QMainWindow):
         self._fill(self._rows)
         self.lb_progress.setText(f"检查完成，共 {len(self._rows)} 个模组")
         self.lb_eta.setText("")
-        for b in (self.btn_json, self.btn_md, self.btn_copy):
+        for b in (self.btn_json, self.btn_md, self.btn_copy, self.btn_download):
             b.setEnabled(True)
 
     def _add_page(self, text: str, status: str, rows: list[Row]) -> None:
