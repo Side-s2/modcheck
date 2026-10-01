@@ -1,0 +1,106 @@
+[
+  {
+    "id": "jm-paper",
+    "project_id": "Pjm",
+    "version_number": "26.3-6.0.9+paper",
+    "name": "paper",
+    "date_published": "2026-09-19T12:00:00.000Z",
+    "version_type": "release",
+    "game_versions": [
+      "26.3"
+    ],
+    "loaders": [
+      "paper"
+    ],
+    "files": [
+      {
+        "filename": "journeymap-26.3-6.0.9+paper.jar",
+        "url": "https://cdn.modrinth.com/data/x/journeymap-26.3-6.0.9+paper.jar",
+        "primary": true,
+        "size": 1000,
+        "hashes": {
+          "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sha512": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    ]
+  },
+  {
+    "id": "jm-neo",
+    "project_id": "Pjm",
+    "version_number": "26.3-6.0.9+neoforge",
+    "name": "neoforge",
+    "date_published": "2026-09-19T12:00:00.000Z",
+    "version_type": "release",
+    "game_versions": [
+      "26.3"
+    ],
+    "loaders": [
+      "neoforge"
+    ],
+    "files": [
+      {
+        "filename": "journeymap-26.3-6.0.9-neoforge.jar",
+        "url": "https://cdn.modrinth.com/data/x/journeymap-26.3-6.0.9-neoforge.jar",
+        "primary": true,
+        "size": 1000,
+        "hashes": {
+          "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sha512": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    ]
+  },
+  {
+    "id": "jm-forge",
+    "project_id": "Pjm",
+    "version_number": "26.3-6.0.9+forge",
+    "name": "forge",
+    "date_published": "2026-09-19T12:00:00.000Z",
+    "version_type": "release",
+    "game_versions": [
+      "26.3"
+    ],
+    "loaders": [
+      "forge"
+    ],
+    "files": [
+      {
+        "filename": "journeymap-26.3-6.0.9-forge.jar",
+        "url": "https://cdn.modrinth.com/data/x/journeymap-26.3-6.0.9-forge.jar",
+        "primary": true,
+        "size": 1000,
+        "hashes": {
+          "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sha512": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    ]
+  },
+  {
+    "id": "jm-fabric",
+    "project_id": "Pjm",
+    "version_number": "26.3-6.0.9+fabric",
+    "name": "fabric",
+    "date_published": "2026-09-19T12:00:00.000Z",
+    "version_type": "release",
+    "game_versions": [
+      "26.3"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "files": [
+      {
+        "filename": "journeymap-26.3-6.0.9-fabric.jar",
+        "url": "https://cdn.modrinth.com/data/x/journeymap-26.3-6.0.9-fabric.jar",
+        "primary": true,
+        "size": 1000,
+        "hashes": {
+          "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sha512": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    ]
+  }
+]

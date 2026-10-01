@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
+sys.path.insert(0, str(Path(__file__).parent))
 
 
 def load_fixture(name: str) -> Any:

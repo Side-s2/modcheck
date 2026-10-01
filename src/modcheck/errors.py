@@ -80,10 +80,18 @@ class ProviderUnavailable(ProviderError):
 
 
 class ProviderNetworkError(ProviderError):
-    """网络层错误（连不上、超时、证书问题）。"""
+    """网络层错误（连不上、超时、证书问题）。
+
+    默认可重试；证书错误这类"重试也没用"的情况用 retryable=False 覆盖。
+    """
 
     retryable = True
     exit_code = EXIT_UNKNOWN
+
+    def __init__(self, message: str, *, hint: str = "", code: str = "",
+                 retryable: bool | None = None) -> None:
+        super().__init__(message, hint=hint, code=code)
+        self.retryable = self.__class__.retryable if retryable is None else retryable
 
 
 class ProviderHTTPError(ProviderError):

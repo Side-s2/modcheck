@@ -1,0 +1,28 @@
+[
+  {
+    "id": "carpet261",
+    "project_id": "Pcarpet",
+    "version_number": "26.1",
+    "name": "26.1",
+    "date_published": "2026-04-02T10:00:00.000Z",
+    "version_type": "release",
+    "game_versions": [
+      "26.1"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "files": [
+      {
+        "filename": "fabric-carpet-26.1+v260402.jar",
+        "url": "https://cdn.modrinth.com/data/x/fabric-carpet-26.1+v260402.jar",
+        "primary": true,
+        "size": 1000,
+        "hashes": {
+          "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sha512": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    ]
+  }
+]

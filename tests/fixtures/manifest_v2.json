@@ -1,0 +1,53 @@
+{
+  "latest": {
+    "release": "26.3",
+    "snapshot": "26.4-snapshot-2"
+  },
+  "versions": [
+    {
+      "id": "26.4-snapshot-2",
+      "type": "snapshot",
+      "releaseTime": "2026-10-01T10:00:00+00:00"
+    },
+    {
+      "id": "26.3",
+      "type": "release",
+      "releaseTime": "2026-09-16T10:00:00+00:00"
+    },
+    {
+      "id": "26.2",
+      "type": "release",
+      "releaseTime": "2026-08-05T10:00:00+00:00"
+    },
+    {
+      "id": "26.1.2",
+      "type": "release",
+      "releaseTime": "2026-07-22T10:00:00+00:00"
+    },
+    {
+      "id": "26.1.1",
+      "type": "release",
+      "releaseTime": "2026-07-08T10:00:00+00:00"
+    },
+    {
+      "id": "26.1",
+      "type": "release",
+      "releaseTime": "2026-06-10T10:00:00+00:00"
+    },
+    {
+      "id": "1.21.11",
+      "type": "release",
+      "releaseTime": "2026-03-01T10:00:00+00:00"
+    },
+    {
+      "id": "1.21.4",
+      "type": "release",
+      "releaseTime": "2024-12-03T10:00:00+00:00"
+    },
+    {
+      "id": "24w14a",
+      "type": "snapshot",
+      "releaseTime": "2024-04-03T10:00:00+00:00"
+    }
+  ]
+}

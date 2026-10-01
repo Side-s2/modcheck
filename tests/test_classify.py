@@ -65,8 +65,12 @@ def test_branch_old_version_only() -> None:
 
 
 def test_branch_prerelease_only() -> None:
-    """⑤ 正式版都不支持，只有测试版 -> 🟡 PRERELEASE_ONLY。"""
-    newest = V("V31", "31.8.0.49", mc=("26.3",))
+    """⑤ 正式版都不支持，只有测试版 -> 🟡 PRERELEASE_ONLY。
+
+    注意 A[0] 必须"不支持 26.3"：A（release+loader）与 B（release+loader+26.3）
+    是同一端点加了 game_versions 过滤，若 A[0] 支持 26.3 则 B 不可能为空。
+    """
+    newest = V("V31", "31.8.0.49", mc=("26.2",))
     beta = V("V31b", "31.8.0.49", mc=("26.3",), vtype="beta")
     result = classify(loader=Loader.FABRIC, mc_version="26.3",
                       releases_for_loader=[newest], compat_releases=[], compat_any=[beta])
@@ -161,8 +165,11 @@ def test_gt_jei_261_fabric() -> None:
 
 
 def test_gt_jei_263_fabric() -> None:
-    """jei @ 26.3/fabric -> 🟡 PRERELEASE_ONLY（release 通道无兼容版本，beta 有）。"""
-    newest = V("j31", "31.8.0.49", mc=("26.3",))
+    """jei @ 26.3/fabric -> 🟡 PRERELEASE_ONLY（release 通道无兼容版本，beta 有）。
+
+    实测：31.8.0.49 同时存在 release（不支持 26.3）与 beta（支持 26.3）两条记录。
+    """
+    newest = V("j31", "31.8.0.49", mc=("26.2",))
     beta = V("j31b", "31.8.0.49", mc=("26.3",), vtype="beta")
     result = classify(loader=Loader.FABRIC, mc_version="26.3",
                       releases_for_loader=[newest], compat_releases=[], compat_any=[beta])
@@ -180,6 +187,43 @@ def test_only_first_element_is_used() -> None:
     assert result.status is Status.BLOCKED
     assert result.reason is ReasonCode.NO_MC_VERSION
     assert result.latest_for_loader is first
+
+
+# ---------------------------------------------------------------- 防"误报为绿"加固
+def test_never_ready_when_latest_does_not_support_target() -> None:
+    """主 Agent 抓到的隐患：A 与 B 传同一个"不支持目标版本"的版本时，绝不能 READY。
+
+    即使调用方把 compat_releases 传错（这里是"最新版只支持 26.2"），
+    分支③ 也必须自己验一遍 A[0]，结论只能是 🔴 NO_MC_VERSION。
+    """
+    same = V("q", "9.9", mc=("26.2",), vtype="beta")
+    result = classify(loader=Loader.FABRIC, mc_version="26.3",
+                      releases_for_loader=[same], compat_releases=[same], prerelease=True)
+    assert result.status is not Status.READY
+    assert result.status is Status.BLOCKED
+    assert result.reason is ReasonCode.NO_MC_VERSION
+
+
+def test_never_ready_when_caller_passes_a2_as_b() -> None:
+    """把 A2（只按加载器过滤）误当成 B（兼容版本）传进来时，也必须安全。
+
+    场景：carpet @ 26.1/fabric。A2 的首条是 26.3（不支持 26.1），
+    若只比 version_id 就会得到 READY（误报为绿）；正确结论绝不是 🟢。
+    """
+    v263 = V("c263", "26.3", mc=("26.3",))
+    v261 = V("c261", "26.1", mc=("26.1",))
+    a2 = [v263, v261]
+    result = classify(loader=Loader.FABRIC, mc_version="26.1",
+                      releases_for_loader=[v263], compat_releases=a2)
+    assert result.status is not Status.READY
+
+
+def test_beta_never_counts_as_release_window() -> None:
+    """prerelease=False 时，A 里混进 beta 也不能算"最新正式版支持"。"""
+    beta = V("b", "9.9", mc=("26.3",), vtype="beta")
+    result = classify(loader=Loader.FABRIC, mc_version="26.3",
+                      releases_for_loader=[beta], compat_releases=[beta], prerelease=False)
+    assert result.status is not Status.READY
 
 
 def test_classification_is_frozen_and_typed() -> None:

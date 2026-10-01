@@ -52,6 +52,19 @@ def _first(versions: Sequence[VersionInfo]) -> VersionInfo | None:
     return versions[0] if versions else None
 
 
+def _supports(version: VersionInfo, mc_version: str, loader: Loader) -> bool:
+    """版本本身是否支持"目标 MC 版本 + 目标加载器"。
+
+    判定规则只做字符串精确包含（不做高低比较，见基线 §7）。
+    """
+    return mc_version in version.game_versions and loader.value in version.loaders
+
+
+def _usable(version: VersionInfo, prerelease: bool) -> bool:
+    """该版本能否计入"最新版"：--pre 之前只认正式版通道。"""
+    return prerelease or version.is_release
+
+
 def classify(*, loader: Loader, mc_version: str,
              releases_for_loader: Sequence[VersionInfo] = (),
              compat_releases: Sequence[VersionInfo] = (),
@@ -87,13 +100,18 @@ def classify(*, loader: Loader, mc_version: str,
         return _result(Status.BLOCKED, ReasonCode.NO_LOADER, available_loaders=available_loaders)
 
     # ② A 为空但 A2 非空 -> 该加载器只有 beta/alpha，继续判断 ④⑤
-    # ③ 目标加载器的最新正式版本身就支持 V
-    if latest_compat is not None and latest_loader is not None \
-            and latest_compat.version_id == latest_loader.version_id:
+    #
+    # ③ 目标加载器的最新版本身就支持 V。
+    # ⚠️ 这里**不能**只比 version_id：那样等于完全信任调用方传来的 compat_releases。
+    # 一旦编排层传错（最容易的是把 A2 当成 B 传进来），就会把"最新版不支持 V"
+    # 判成 READY —— 那正是 PRD §1.3 的第一红线（误报为绿，服主升级后服务器崩）。
+    # 所以这里**自己验一遍** A[0]：它就是 latest_for_loader 的定义。
+    if latest_loader is not None and _usable(latest_loader, prerelease) \
+            and _supports(latest_loader, mc_version, loader):
         return _result(Status.READY, ReasonCode.OK,
-                       latest_for_loader=latest_loader, latest_compat=latest_compat)
-    # ④ 有兼容的正式版，但不是最新版
-    if latest_compat is not None:
+                       latest_for_loader=latest_loader, latest_compat=latest_loader)
+    # ④ 有兼容的正式版，但不是最新版（同样自己验一遍 B[0] 是否真的支持 V）
+    if latest_compat is not None and _supports(latest_compat, mc_version, loader):
         return _result(Status.DEGRADED, ReasonCode.OLD_VERSION_ONLY,
                        latest_for_loader=latest_loader, latest_compat=latest_compat)
     # ⑤ 正式版都不支持，但放宽通道后支持 -> 只有测试版能用

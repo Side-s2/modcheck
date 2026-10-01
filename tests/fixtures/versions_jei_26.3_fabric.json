@@ -1,0 +1,59 @@
+{
+  "releases": [
+    {
+      "id": "jei-rel",
+      "project_id": "Pjei",
+      "version_number": "31.8.0.49",
+      "name": "31.8.0.49",
+      "date_published": "2026-09-25T10:00:00.000Z",
+      "version_type": "release",
+      "game_versions": [
+        "26.2"
+      ],
+      "loaders": [
+        "fabric"
+      ],
+      "files": [
+        {
+          "filename": "jei-26.2-fabric-31.8.0.49.jar",
+          "url": "https://cdn.modrinth.com/data/x/jei-26.2-fabric-31.8.0.49.jar",
+          "primary": true,
+          "size": 1000,
+          "hashes": {
+            "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sha512": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      ]
+    }
+  ],
+  "compat": [],
+  "compat_any": [
+    {
+      "id": "jei-beta",
+      "project_id": "Pjei",
+      "version_number": "31.8.0.49",
+      "name": "31.8.0.49",
+      "date_published": "2026-09-25T10:00:00.000Z",
+      "version_type": "beta",
+      "game_versions": [
+        "26.3"
+      ],
+      "loaders": [
+        "fabric"
+      ],
+      "files": [
+        {
+          "filename": "jei-26.3-fabric-31.8.0.49.jar",
+          "url": "https://cdn.modrinth.com/data/x/jei-26.3-fabric-31.8.0.49.jar",
+          "primary": true,
+          "size": 1000,
+          "hashes": {
+            "sha1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sha512": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      ]
+    }
+  ]
+}

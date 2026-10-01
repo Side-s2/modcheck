@@ -260,6 +260,7 @@ _MESSAGES: Final[dict[str, str]] = {
     "err.net.generic": "网络请求失败（{detail}）",
     "err.http.5xx": "Modrinth 服务端出错（HTTP {status}），不是你的问题，稍后重试即可",
     "err.http.status": "Modrinth 返回了 HTTP {status}",
+    "err.http.404": "请求的资源不存在（HTTP 404）",
     "err.rate_limited": "被 Modrinth 限流（请求太频繁），已自动重试仍失败",
     "err.rate_limited.hint": "降低并发重试：modcheck check ... --jobs 2",
     "err.timeout": "查询超时（{timeout} 秒无响应），已自动重试 {retries} 次仍然失败",
