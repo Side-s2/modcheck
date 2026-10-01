@@ -24,7 +24,10 @@ DISABLED_TOKENS: Final[tuple[str, ...]] = (".disabled", ".old", ".bak", ".off")
 #: 可能出现在文件名里的加载器 token
 LOADER_TOKENS: Final[tuple[str, ...]] = ("fabric", "forge", "neoforge", "quilt", "paper")
 
-_VERSION_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^\d+(\.\d+)*([-+].*)?$")
+#: 版本样式：1.2.3 / 0.2.0+alpha.11.50 / **v1.81.0**（带 v 前缀的非常常见）
+_VERSION_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^v?\d+(\.\d+)*([-+].*)?$", re.IGNORECASE)
+#: MC 版本标记 token（mc26.1.2 / mc1.20.1.x），可安全地从名字尾部剥掉
+_MC_TAGGED_RE: Final[re.Pattern[str]] = re.compile(r"^mc\d", re.IGNORECASE)
 # 通道词必须自成一段，否则 "servercore" 里的 "rc" 会被误判成版本的一部分
 _CHANNEL_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^(alpha|beta|rc|pre)([-.]?\d+)*$", re.IGNORECASE)
 _MC_PREFIX_RE: Final[re.Pattern[str]] = re.compile(r"^(?:mc|v)(?=\d)", re.IGNORECASE)
@@ -110,8 +113,32 @@ def is_disabled_like(name: str) -> bool:
 
 
 def _versionish(token: str) -> bool:
-    """是否是"纯版本样式"或纯测试通道词的 token。"""
+    """是否是"纯版本样式"（含 v 前缀）或纯测试通道词的 token。"""
     return bool(_VERSION_TOKEN_RE.match(token)) or bool(_CHANNEL_TOKEN_RE.match(token))
+
+
+def _strippable(token: str) -> bool:
+    """能否作为"版本尾巴"从候选名上剥掉（版本号 / 通道词 / mc 标记）。"""
+    return _versionish(token) or bool(_MC_TAGGED_RE.match(token))
+
+
+def _name_variants(tokens: list[str]) -> list[str]:
+    """从完整形态逐级剥掉尾部版本 token，产出候选名（长 -> 短）。
+
+    顺序至关重要（实测反例）：
+        carpet-extra-26.1      -> carpet-extra       ✅
+        carpet-extra-extras    -> 必须停在自身，**绝不**退化成 carpet-extra（那是另一个项目）
+    所以调用方必须按"从长到短"的顺序尝试，命中唯一的完全同名就停。
+    """
+    out: list[str] = []
+    current = list(tokens)
+    while current:
+        out.append("-".join(current))
+        if _strippable(current[-1]):
+            current = current[:-1]
+        else:
+            break
+    return out
 
 
 def parse_jar_filename(filename: str, *,
@@ -177,7 +204,10 @@ def parse_jar_filename(filename: str, *,
                     removed_versions.append(tokens.pop(index))
                     changed = True
                     break
-        if tokens and _versionish(tokens[-1]) and tokens[-1] not in removed_versions:
+        # 注意：这里**不能**加 "值不在 removed_versions 里" 的条件 ——
+        # carpet-extra-26.1-26.1.jar 这种情况两个 token 文本相同，
+        # 加了条件第二个就剥不掉，名字会残留成 carpet-extra-26.1。
+        if tokens and _versionish(tokens[-1]):
             tail = tokens.pop()
             removed_versions.append(tail)
             changed = True
@@ -187,11 +217,13 @@ def parse_jar_filename(filename: str, *,
                 mod_version = mod_version or tail
 
     name = "-".join(tokens) if tokens else None
-    full = "-".join(tok for tok in original_tokens if tok not in removed_versions)
-    candidates: list[str] = []
-    for item in (name, full):
-        if item and item not in candidates:
-            candidates.append(item)
+    stripped_tokens = list(tokens)
+    full_tokens = [tok for tok in original_tokens if tok not in removed_versions]
+    raw: list[str] = []
+    raw.extend(_name_variants(full_tokens))
+    raw.extend(_name_variants(stripped_tokens))
+    # 从长到短：先试完整形态，避免"carpet-extra-extras"退化成"carpet-extra"
+    candidates = sorted(dict.fromkeys(item for item in raw if item), key=len, reverse=True)
 
     return ParsedName(
         raw=raw,

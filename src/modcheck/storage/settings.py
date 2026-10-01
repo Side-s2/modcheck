@@ -30,7 +30,7 @@ def load_settings(path: Path) -> Settings:
     """读取设置；文件不存在时返回默认值（**不写盘**，写盘由调用方决定）。"""
     target = Path(path)
     try:
-        with target.open("r", encoding="utf-8") as handle:
+        with target.open("r", encoding="utf-8-sig") as handle:  # 容忍记事本写的 BOM
             raw = json.load(handle)
     except FileNotFoundError:
         return _defaults()

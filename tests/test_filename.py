@@ -134,7 +134,38 @@ def test_fabric_api_keeps_both_forms() -> None:
     这个模组真的就叫 fabric-api，只给 "api" 会搜不到。
     """
     parsed = parse_jar_filename("fabric-api-0.92.2+1.20.1.jar")
-    assert parsed.name_candidates == ("api", "fabric-api")
+    assert set(parsed.name_candidates) == {"api", "fabric-api"}
+
+
+def test_v_prefixed_version_is_stripped_from_candidates() -> None:
+    """实测：文件名里的 v1.81.0 / mc26.1.x 这类尾巴要被剥掉，否则搜不到项目。"""
+    known = {"26.1", "26.1.2", "26.2", "26.3", "1.20.1"}
+    assert "carpet-tis-addition" in parse_jar_filename(
+        "carpet-tis-addition-v1.81.0-mc26.1.2.jar", known_mc_versions=known).name_candidates
+    assert "carpet-org-addition" in parse_jar_filename(
+        "carpet-org-addition-mc26.1.x-v1.45.1-2606231615.jar",
+        known_mc_versions=known).name_candidates
+    assert "carpet-ams-addition" in parse_jar_filename(
+        "carpet-ams-addition-v26.2-mc26.1.2.jar", known_mc_versions=known).name_candidates
+
+
+def test_candidates_are_longest_first_to_avoid_over_stripping() -> None:
+    """危险样本对：carpet-extra-extras 绝不能退化成 carpet-extra（那是另一个项目）。"""
+    known = {"26.1", "26.3"}
+    extras = parse_jar_filename("carpet-extra-extras-26.1-1.4.0.jar",
+                                known_mc_versions=known).name_candidates
+    plain = parse_jar_filename("carpet-extra-26.1-26.1.jar",
+                               known_mc_versions=known).name_candidates
+    assert extras[0] == "carpet-extra-extras"
+    assert plain[0] == "carpet-extra"
+    assert "carpet-extra" not in extras  # 不得退化
+
+
+def test_candidates_are_ordered_longest_first() -> None:
+    """候选顺序：从长到短（命中唯一的完全同名就停）。"""
+    parsed = parse_jar_filename("fabric-api-0.92.2+1.20.1.jar")
+    lengths = [len(item) for item in parsed.name_candidates]
+    assert lengths == sorted(lengths, reverse=True)
 
 
 def test_empty_and_chinese_only_names() -> None:

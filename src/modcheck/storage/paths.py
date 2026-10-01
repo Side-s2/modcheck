@@ -85,11 +85,31 @@ def ensure_config_dir(path: Path) -> tuple[Path, bool]:
     return fallback, True
 
 
+def is_packaged() -> bool:
+    """是否运行在打包产物里。
+
+    Nuitka **不设置** sys.frozen（实测 4.2.2 三种模式都没有），它用模块级
+    __compiled__ 标记；PyInstaller 才设 sys.frozen。两个都要认。
+    """
+    return "__compiled__" in globals() or bool(getattr(sys, "frozen", False))
+
+
 def detect_exe_dir() -> Path | None:
-    """打包运行时返回 exe 所在目录，源码运行时返回 None。"""
-    if getattr(sys, "frozen", False):
+    """打包运行时返回 exe 所在目录，源码运行时返回 None。
+
+    ⚠️ 实测（2026-10-01，Nuitka 4.2.2 / Python 3.11.9）：
+      * Nuitka standalone：sys.executable 是 <dist>/python.exe（恰好同目录，能用）；
+      * Nuitka **onefile**：sys.executable 指向 %TEMP%/onefile_xxx/python.exe，
+        那是解包临时目录，**进程退出即删** —— 用它会把用户清单写丢；
+      * sys.argv[0] 在两种模式下都是真正的 exe 路径，所以**必须优先用它**。
+    """
+    if not is_packaged():
+        return None
+    raw = (sys.argv[0] if sys.argv and sys.argv[0] else "") or sys.executable
+    try:
+        return Path(raw).resolve().parent
+    except OSError:
         return Path(sys.executable).resolve().parent
-    return None
 
 
 def cache_dir(config_dir: Path) -> Path:
@@ -113,5 +133,5 @@ def settings_path(config_dir: Path) -> Path:
 
 
 __all__ = ["ENV_CONFIG_DIR", "PORTABLE_DIRNAME", "is_writable", "fallback_config_dir",
-           "resolve_config_dir", "ensure_config_dir", "detect_exe_dir", "cache_dir",
-           "http_cache_dir", "profiles_dir", "settings_path"]
+           "resolve_config_dir", "ensure_config_dir", "detect_exe_dir", "is_packaged",
+           "cache_dir", "http_cache_dir", "profiles_dir", "settings_path"]

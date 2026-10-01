@@ -92,7 +92,8 @@ def load_profile(path: Path) -> Profile:
     """
     target = Path(path)
     try:
-        with target.open("r", encoding="utf-8") as handle:
+        # 用户可能用记事本编辑过清单 -> 必须容忍 BOM
+        with target.open("r", encoding="utf-8-sig") as handle:
             raw = json.load(handle)
     except FileNotFoundError as exc:
         raise ProfileError(t("err.profile.read_failed", path=target, detail=str(exc))) from exc
@@ -152,7 +153,20 @@ def rename_profile(source: Path, target: Path) -> None:
 
 
 def key_of(entry: ModEntry) -> str:
-    """稳定唯一键：mod_id -> sha1:<sha1> -> 规范化展示名。"""
+    """稳定唯一键（决策 D30）。
+
+    优先级：**平台项目标识 -> mod_id -> sha1 -> 规范化名称**。
+
+    为什么平台标识排第一：两条识别路径（--from-list 与扫 jar）唯一能达成一致的
+    东西就是"平台上的哪个项目"。实测反例：gugle-carpet-addition 的 jar 内 modid 是
+    gca-wrapper、fabric-permissions-api 的 modid 是 fabric-permissions-api-v0，
+    都对不上 slug；而"先导入文件名清单、再扫 jar"这种程序自己提示用户走的路径，
+    只有 slug 能让两次扫描收敛到同一条记录（否则同一模组会出现两次）。
+    """
+    for provider in sorted(entry.sources or {}):
+        slug = (entry.sources or {}).get(provider)
+        if slug:
+            return "slug:" + provider + ":" + str(slug).strip().lower()
     if entry.mod_id:
         return entry.mod_id.strip().lower()
     if entry.sha1:
@@ -198,7 +212,21 @@ def merge_entries(existing: list[ModEntry], incoming: list[ModEntry]) -> tuple[l
     """把 incoming 合并进 existing（幂等：合并两次结果相同）。"""
     stats = MergeStats()
     index: dict[str, ModEntry] = {}
+    #: slug / sha1 / 文件名 的兜底索引：任一相同都说明是同一条记录
+    aliases: dict[str, ModEntry] = {}
     result: list[ModEntry] = []
+
+    def remember(entry: ModEntry) -> None:
+        for provider, slug in (entry.sources or {}).items():
+            if slug:
+                aliases.setdefault("slug:" + provider + ":" + str(slug).lower(), entry)
+        if entry.mod_id:
+            aliases.setdefault("modid:" + entry.mod_id.strip().lower(), entry)
+        if entry.sha1:
+            aliases.setdefault("sha1:" + entry.sha1.lower(), entry)
+        if entry.file_name:
+            aliases.setdefault("file:" + entry.file_name, entry)
+
     for entry in existing:
         key = key_of(entry)
         entry.key = key
@@ -209,12 +237,20 @@ def merge_entries(existing: list[ModEntry], incoming: list[ModEntry]) -> tuple[l
                                     kept=index[key].best_name))
             continue
         index[key] = entry
+        remember(entry)
         result.append(entry)
 
     for entry in incoming:
         key = key_of(entry)
         entry.key = key
         current = index.get(key)
+        if current is None:
+            current = _find_by_identity(entry, aliases)
+            if current is not None:
+                _merge_two(current, entry)
+                remember(current)
+                stats.merged += 1
+                continue
         if current is None:
             index[key] = entry
             result.append(entry)
@@ -228,8 +264,29 @@ def merge_entries(existing: list[ModEntry], incoming: list[ModEntry]) -> tuple[l
         elif incoming_file and incoming_file == current.file_name:
             stats.skipped += 1
         _merge_two(current, entry)
+        remember(current)
         stats.merged += 1
     return result, stats
+
+
+def _find_by_identity(entry: ModEntry, aliases: dict[str, ModEntry]) -> ModEntry | None:
+    """按 slug / sha1 / 文件名 找同一条记录（key 对不上时的兜底）。"""
+    for provider, slug in (entry.sources or {}).items():
+        if slug:
+            found = aliases.get("slug:" + provider + ":" + str(slug).lower())
+            if found is not None:
+                return found
+    if entry.mod_id:
+        found = aliases.get("modid:" + entry.mod_id.strip().lower())
+        if found is not None:
+            return found
+    if entry.sha1:
+        found = aliases.get("sha1:" + entry.sha1.lower())
+        if found is not None:
+            return found
+    if entry.file_name:
+        return aliases.get("file:" + entry.file_name)
+    return None
 
 
 def dedupe_by_key(mods: list[ModEntry]) -> tuple[list[ModEntry], list[str]]:

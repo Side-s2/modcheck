@@ -57,8 +57,15 @@ class ReportItem:
     provider_message: str = ""
 
     def to_dict(self) -> dict[str, object]:
-        """序列化（导出 JSON / 未来 GUI 用）。"""
+        """序列化（导出 JSON / 未来 GUI 用）。
+
+        顶层的 key / slug / file_name 是给脚本消费的便利字段
+        （否则要 dig 进 mod.sources.modrinth 两层）。
+        """
         return {
+            "key": self.mod.key,
+            "slug": (self.mod.sources or {}).get("modrinth"),
+            "file_name": self.mod.file_name,
             "mod": self.mod.to_dict(),
             "status": self.status.value,
             "reason": self.reason.value,
@@ -97,6 +104,9 @@ class Report:
     completed: int = 0
     total: int = 0
     profile_saved: bool = True
+    #: 数据源状态文案（Modrinth / CurseForge），由 CLI 注入
+    source_status: tuple[str, str] = (t("source.modrinth.enabled"),
+                                      t("source.curseforge.disabled"))
 
     def add(self, item: ReportItem) -> None:
         """把一条结论放进对应分组。"""

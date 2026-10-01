@@ -257,10 +257,12 @@ def scan_from_list(path: Path, ctx: AppContext, *,
     target = Path(path)
     report = ScanReport()
     try:
-        text = target.read_text(encoding="utf-8")
+        # utf-8-sig：Windows 记事本/PowerShell 写的 UTF-8 清单**带 BOM**，
+        # 用 utf-8 读会把 U+FEFF 粘在第一条记录上，导致它永远匹配不上。
+        text = target.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         raise ConfigError(t("err.from_list.missing", path=target)) from exc
-    lines = [line.strip() for line in text.splitlines()]
+    lines = [line.lstrip("\ufeff").strip() for line in text.splitlines()]
     lines = [line for line in lines if line and not line.startswith("#")]
     report.files_seen = len(lines)
     if not lines:
@@ -302,7 +304,12 @@ def run_scan(args: argparse.Namespace, ctx: AppContext) -> int:
         console.line(t("scan.from_list.header", path=source, lines=_count_lines(source)))
         console.line(t("scan.from_list.warn"))
         report = scan_from_list(source, ctx)
-        console.line(t("scan.from_list.parsed", total=len(report.entries), named=report.guessed))
+        candidates_total = sum(len(parse_jar_filename(entry.file_name or "").name_candidates)
+                               for entry in report.entries)
+        named = sum(1 for entry in report.entries
+                    if parse_jar_filename(entry.file_name or "").name_candidates)
+        console.line(t("scan.from_list.parsed", total=len(report.entries),
+                       candidates=candidates_total, named=named))
         _print_from_list_stats(report, console)
     else:
         paths = [Path(p) for p in (getattr(args, "paths", None) or [])]
@@ -342,7 +349,7 @@ def run_scan(args: argparse.Namespace, ctx: AppContext) -> int:
 def _count_lines(path: Path) -> int:
     """数一下文件行数（读不到就返回 0）。"""
     try:
-        return len(path.read_text(encoding="utf-8").splitlines())
+        return len(path.read_text(encoding="utf-8-sig").splitlines())
     except OSError:
         return 0
 
