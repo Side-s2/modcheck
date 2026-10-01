@@ -1254,3 +1254,403 @@ match_status == "ignored"      → ⚫ IGNORED（不参与统计）
 3. **整轮末尾补跑**：所有模组跑完后，对待补跑队列做一轮**串行、低速**（≤ 60 次/分钟）重试，仍失败才落 ⚪；
 4. **报告头标注**：最终仍有 ⚪ 由限流导致时，报告头加一行 `⚠ 本次有 {n} 个模组因 Modrinth 限流未判定，建议稍后重跑（缓存已保存，重跑很快）`，且**结论行必须标注结论不完整**；
 5. **可复现验收**：同一清单 + 同一目标 + 同一缓存状态，连续两次运行的**每个模组状态完全一致**；用假 clock 单测断言 ① 任意 60 秒窗口 ≤ 240，② 桶初始为空、第一个请求不会连发。
+
+---
+
+## 13. R3-A：菜单 [3] 管理清单 / [4] 设置 的交互式界面
+
+> 用户已确认的操作范围（**不含"给模组改名"**）。所有操作必须在**纯控制台**下可用（用户在推单文件 exe，双击场景也必须能走完），且必须落在 core 层以便未来 GUI 复用。
+
+### 13.1 分层契约（硬性）
+
+| 层 | 放什么 | 禁止 |
+|---|---|---|
+| `core/profile_ops.py`（新增） | 对 `Profile` 的**纯函数**操作：删模组、改平台项目、忽略/取消忽略、新增、重命名、按标识定位 | print / input / 写盘 |
+| `core/settings_ops.py`（新增） | 对 `Settings` 的纯函数操作 + 取值校验（复用 `storage/settings.set_setting` 的校验逻辑） | 同上 |
+| `storage/profiles.py` / `settings.py`（已有） | 唯一写盘入口（`save_profile` / `save_settings`，原子写） | 业务规则 |
+| `cli/menu.py` + 新增 `cli/screens_profiles.py` / `cli/screens_settings.py` | 屏幕、逐字文案、编号菜单、确认 | 直接改 `Profile` 字段 |
+| `i18n.py` | 下面所有逐字文案 | — |
+
+**函数签名（契约）**：
+
+```python
+# core/profile_ops.py
+@dataclass(frozen=True, slots=True)
+class OpResult:
+    changed: bool
+    profile: Profile                       # 返回**新的** Profile，不原地修改
+    message_key: str                       # i18n key（成功语）
+    message_args: dict[str, str] = field(default_factory=dict)
+    warnings: tuple[str, ...] = ()         # 需要展示的 ⚠
+
+@dataclass(frozen=True, slots=True)
+class ResolveResult:
+    entry: ModEntry | None
+    candidates: tuple[ModEntry, ...]       # 多命中时的候选（供"你是想找…？"文案）
+    reason_key: str                        # found / not_found / ambiguous
+
+def resolve_selector(profile: Profile, selector: str) -> ResolveResult      # D33 全标识匹配
+def remove_mods(profile: Profile, selectors: Sequence[str]) -> OpResult
+def set_source(profile: Profile, selector: str, *, provider: str, slug: str,
+               title: str = "") -> OpResult
+def set_ignored(profile: Profile, selector: str, ignored: bool) -> OpResult
+def add_mod(profile: Profile, *, display_name: str, mod_id: str | None = None,
+            source_slug: str | None = None) -> OpResult
+def page_of(profile: Profile, page: int, *, size: int = 20) -> tuple[list[ModEntry], int]
+
+# core/settings_ops.py
+def set_default_mc(settings: Settings, value: str | None, *, known: Collection[str]) -> Settings
+def set_default_loader(settings: Settings, value: str | None) -> Settings
+def set_color(settings: Settings, value: str) -> Settings
+def set_concurrency(settings: Settings, value: int) -> Settings
+def set_cache_ttl(settings: Settings, key: str, hours: float) -> Settings
+def set_curseforge_key(settings: Settings, value: str | None) -> Settings
+def reset_settings() -> Settings
+```
+
+### 13.2 菜单 [3] 逐字文案
+
+**清单列表屏**：
+```
+=== 管理模组清单 ===
+配置目录：{config_dir}/profiles
+
+  [1] 服务器A（120 个模组，更新于 2026-10-01 21:40）
+  [2] 测试服（45 个模组，更新于 2026-09-20 11:02）
+
+  [1-9] 打开某个清单进行管理
+  [n]   新建空清单
+  [q]   返回主菜单
+请选择 > 
+```
+没有任何清单时，把列表替换为这一行（其余选项不变）：
+```
+  ⚠ 这里还没有任何模组清单。选 [n] 新建一个，或回主菜单选 [2] 扫描 mods 文件夹。
+```
+
+**单个清单的管理屏**：
+```
+=== 管理清单「服务器A」（120 个模组）===
+  [1] 查看模组列表
+  [2] 删除模组
+  [3] 指定平台项目（手动匹配）
+  [4] 忽略 / 取消忽略模组
+  [r] 重命名这个清单
+  [d] 删除这个清单
+  [b] 返回清单列表
+  [q] 返回主菜单
+请选择 > 
+```
+
+**查看模组列表**（每页 20 条，列与 `profile show` 保持一致，第二列=平台标识，**保持不动**）：
+```
+清单「服务器A」的模组（共 120 个，第 1/6 页）：
+    #  名称                         modid           来源       匹配        当前版本
+    1  [地毯] Carpet                carpet          modrinth   完全同名    26.1+v260402
+    ...
+   20  [锂] Lithium                 lithium         modrinth   完全同名    0.12.1
+
+  [n] 下一页  [p] 上一页  [b] 返回
+请选择 > 
+```
+空清单：`这个清单里还没有模组。回上一层用 [b]，或回主菜单选 [2] 扫描 mods 文件夹。`
+翻页越界：`已经是最后一页了。` / `已经是第一页了。`
+
+**删除模组**：
+```
+请输入要删除的模组编号（多个用逗号分隔，例如 3,7,12），或直接输入模组名 / modid：
+（输入 [b] 返回）> 
+```
+确认语（**二次确认，说清后果**）：
+```
+即将从清单「服务器A」删除 2 个模组：
+    [锂] Lithium（lithium）
+    [钠] Sodium（sodium）
+
+这只会从清单记录里删掉它们：不会删除你 mods 文件夹里的 jar 文件。
+确认删除？(y/N) > 
+```
+成功：`✓ 已删除 2 个模组，清单「服务器A」现在有 118 个模组。（想让它们回来，可以重新扫描 mods 文件夹）`
+选不到：`✗ 清单「服务器A」里没有叫「xxx」的模组。你要找的是不是：地毯（modid=carpet）？`（沿用现有 D33 的候选建议）
+
+**指定平台项目**：
+```
+请选择要指定平台项目的模组（编号 / 模组名 / modid / 文件名），[b] 返回 > 
+```
+```
+请输入 Modrinth 项目 slug 或链接（例如 carpet 或 https://modrinth.com/mod/carpet），[b] 返回 > 
+```
+成功：`✓ 已把「Carpet TIS Addition」指定为 Modrinth 项目「Carpet TIS Addition」（carpet-tis-addition）。下次检查直接用这个项目，不再询问。`
+失败：`✗ 在 Modrinth 上找不到「carpet-xyz」。请检查拼写，或直接粘贴项目链接。`
+网络失败：`✗ 现在连不上 Modrinth，没法校验这个项目。请稍后再试。（清单没有改动）`
+
+**忽略 / 取消忽略**：
+```
+请选择模组（编号 / 名称 / modid），[b] 返回 > 
+[1] 忽略它（以后检查不再判定，也不计入统计）
+[2] 取消忽略（恢复正常的兼容性检查）
+请选择 > 
+```
+`✓ 已忽略「OldStuff」。以后检查不再判定它；列表里会显示在 ⚫ 已忽略组。`
+`✓ 已取消忽略「OldStuff」，下次检查会正常判定它。`
+
+**重命名清单**：
+```
+请输入新的清单名称（不能包含 \ / : * ? " < > | 这些字符），[b] 返回 > 
+```
+重名：`✗ 已经有一个叫「测试服」的清单了。换一个名字，或先用 [d] 删掉它。`
+成功：`✓ 清单「服务器A」已重命名为「主服」。文件也已经改名。`
+
+**删除清单（最危险，双保险确认）**：
+```
+⚠ 即将删除清单「服务器A」（120 个模组）。
+   这个操作不能撤销：清单文件会被直接删除，里面记录的中文名、备注、手动指定的平台项目都会一起消失。
+   （不会删除你 mods 文件夹里的任何 jar 文件。）
+
+如果确定要删除，请输入这个清单的名称（服务器A）：
+> 
+```
+输入不符：`已取消，清单没有被删除。（你输入的是「xxx」，需要完整输入「服务器A」）`
+成功：`✓ 清单「服务器A」已删除。还剩 1 个清单。`
+写盘失败：`✗ 删除失败：{路径} 删不掉（磁盘或权限问题）。清单没有被删除。`
+
+**新建空清单**：
+```
+请输入新清单的名称（例如 服务器B），[b] 返回 > 
+```
+`✓ 已创建空清单「服务器B」（0 个模组）。可以回主菜单选 [2] 把 mods 文件夹的内容扫描进来。`
+
+### 13.3 菜单 [4] 逐字文案
+
+```
+=== 设置 ===
+配置文件：{config_dir}/settings.json
+
+  [1] 默认游戏版本       26.3
+  [2] 默认加载器         Fabric（fabric）
+  [3] 代理               未设置
+  [4] 颜色               auto（终端支持就用彩色）
+  [5] 并发数             6（上限 8）
+  [6] 缓存有效期         官方版本清单 24 小时 ｜ Modrinth 6 小时
+  [7] CurseForge API Key 未设置（本期未启用）
+  [8] 重置为默认设置
+  [q] 返回主菜单
+请选择 > 
+```
+
+| 选项 | 子屏逐字 | 校验与提示 |
+|---|---|---|
+| [1] 默认游戏版本 | `[1] 26.3（最新正式版）… [m] 手动输入 [c] 清除（不设默认） [b] 返回` | 非法 → PRD E07/E08/E09；清除 → `✓ 已清除默认游戏版本。` |
+| [2] 默认加载器 | `[1] Fabric  [2] NeoForge  [3] Forge  [c] 清除  [b] 返回` | — |
+| [3] 代理 | `请输入代理地址（例如 http://127.0.0.1:7890）。输入 null 表示不使用代理。[b] 返回 > ` | 非法 → `✗「{输入}」不像一个代理地址。正确格式像 http://127.0.0.1:7890。没有改动。` |
+| [4] 颜色 | `[1] auto（自动）  [2] always（总是彩色）  [3] never（从不用色）  [b] 返回` | — |
+| [5] 并发数 | `请输入并发数（1-8，数字越大越快，但更容易被 Modrinth 限流）。当前 6：[b] 返回 > ` | 越界 → `✗ 并发数要在 1 到 8 之间（你输入的是 12）。没有改动。` |
+| [6] 缓存有效期 | `[1] 官方版本清单（当前 24 小时）  [2] Modrinth（当前 6 小时）  [b] 返回` → 输入 1-168 小时 | 越界 → 提示范围 |
+| [7] CurseForge API Key | `请输入 CurseForge API Key（输入 null 清除）。提示：本工具当前没有启用 CurseForge，填了也不会联网，只为以后留用。[b] 返回 > ` | 回显只显示后 4 位：`当前：****abcd` |
+| [8] 重置为默认设置 | 见下 | — |
+
+**重置的二次确认**：
+```
+⚠ 即将把设置恢复成出厂状态：
+   默认游戏版本、默认加载器、代理、颜色、并发数、缓存有效期、CurseForge API Key 都会回到初始值。
+   （模组清单和下载缓存不会被删除。）
+
+确认重置？(y/N) > 
+```
+成功：`✓ 设置已重置为默认值。`
+
+写盘失败（所有设置项共用）：
+```
+✗ 设置没能保存到 {路径}（磁盘满或没有权限）。这次的修改只在本次运行有效。
+```
+
+### 13.4 返回 / 取消 / 校验 的统一规则
+
+1. **没有死胡同**：每个输入点都接受 `b`（返回上一层）与 `q`（直接回主菜单）；列表屏用 `q`，输入屏用 `b` + `q` 都提示在行尾。
+2. **默认值保护**：所有确认语默认是 `N`（危险操作绝不默认 Yes），用户直接回车 = 取消。
+3. **非法输入不退出**：就地提示 + 重问，最多 3 次后回上一层（`输入错误太多次，返回上一层。`）。
+4. **空清单**：查看/删除/指定/忽略 四个操作都会先判空并给专门文案（见上）。
+5. **不存在的清单名**：列表屏不会给出不存在的编号；手输名称的场景一律走 `✗ 没有名为「X」的清单。可用的清单：…`。
+6. **重名**：新建/重命名都拒绝并给出改名建议。
+7. **写盘**：只有"删除模组 / 指定平台项目 / 忽略切换 / 新建 / 重命名 / 删除清单 / 改设置"这 7 类会写盘；写盘前先把新的 `Profile` / `Settings` 交给 `save_*`（原子写），失败则**内存与磁盘都不变**，并给上面那句 ✗ 文案。
+8. **GUI 前瞻**：以上全部逻辑都在 `core/*_ops.py`，GUI 只需要自己画屏幕 + 调这些函数。
+
+---
+
+## 14. R3-B：自动下载模组
+
+> 用户原话：「增加一个选项，选后按原本模组检查的路径走一次，走完提示是否需要下载建议的模组版本（不会下载阻塞和测试版模组）；选是则弹文件夹选择窗口，开始下载到该文件夹。」
+
+### 14.1 下载范围（已确认）
+
+| 组 | 是否下载 | 下哪个版本 |
+|---|---|---|
+| 🟢 就绪 | ✅ | 目标加载器的最新正式版（报告里"→"右边那个） |
+| 🟡 需注意 | ✅ | **「可用：」那一行的版本**（支持目标 MC 的旧稳定版） |
+| 🔴 阻塞 / 🟠 仅存测试版 / ⚪ 未判定 / ⚫ 已忽略 | ❌ 跳过 | — |
+
+**只下主文件**：`files[i].primary == True`；没有 primary 标记时取第一个 `.jar`。附加文件（sources/javadoc 等）**不下载**，并在汇总里说明有几个模组存在附加文件。
+
+### 14.2 分层契约（硬性）
+
+```python
+# core/downloader.py（新增，纯逻辑：不 print / 不 input / 不直接联网）
+@dataclass(frozen=True, slots=True)
+class DownloadItem:
+    entry: ModEntry
+    version: VersionInfo
+    file: FileInfo
+    target: Path
+    status: str = "pending"     # pending/ok/skipped/failed/verify_failed/cancelled
+    message_key: str = ""
+    bytes_done: int = 0
+
+@dataclass(frozen=True, slots=True)
+class DownloadPlan:
+    items: tuple[DownloadItem, ...]
+    skipped: tuple[tuple[ModEntry, str], ...]   # (entry, 跳过原因 key)
+
+@dataclass(frozen=True, slots=True)
+class DownloadReport:
+    items: tuple[DownloadItem, ...]
+    ok: int; skipped: int; failed: int
+    bytes_total: int; elapsed: float; cancelled: bool
+
+def plan_for(report: Report, target_dir: Path) -> DownloadPlan
+def conflicts(plan: DownloadPlan) -> tuple[DownloadItem, ...]      # 目标目录里已存在的同名文件
+def safe_filename(name: str, *, fallback: str) -> str              # 非法字符替换 + 空名兜底
+def download_all(plan: DownloadPlan, fetcher: "Fetcher", *,
+                 overwrite: Mapping[str, bool] | None = None,
+                 on_progress: Callable[[DownloadItem, int, int], None] | None = None,
+                 cancel: threading.Event | None = None,
+                 retries: int = 2, jobs: int = 3) -> DownloadReport
+```
+
+**Fetcher 契约**（由 `providers/http.py` 实现，CLI 注入）：
+```python
+class HttpClient:
+    def download(self, url: str, dest: Path, *, sha1: str | None = None,
+                 on_chunk: Callable[[int], None] | None = None,
+                 timeout: float | None = None) -> int: ...
+    # 1) limiter.acquire() 2) 流式写入 dest.with_suffix(dest.suffix + ".part")
+    # 3) 边写边算 sha1 4) 校验通过 → os.replace 成正式名；不通过 → 删掉 .part 并抛 ProviderVerifyError
+```
+
+### 14.3 并发与限速：**共用同一个 240/分钟限速器**（决定 + 理由）
+
+| 项 | 决定 | 理由 |
+|---|---|---|
+| 限速器 | **下载与 API 共用 `context.py` 里那一个 `RateLimiter(240)`** | ① Modrinth 的限额是按**请求数**算的，CDN 直链也是请求；② 若各用一套，实际就是 480 次/分钟，必踩 429，而 429 会让"某个文件下失败"，用户看到的是随机失败；③ 共用一个计数器，行为可解释、可测试（"任意 60 秒窗口 ≤240" 对两者一起成立） |
+| 每文件计几个名额 | **1 个**（不按分片/字节计数） | 200 个模组 = 200 个名额 ≈ 50 秒窗口，可接受；按字节计数会让限速器语义混乱 |
+| 同时下载几个文件 | `jobs = 3`（独立于限速器） | 限速器管"多久发一个新请求"，并发管"同时几个连接"；3 是"不把用户带宽打满 + 不触发 CDN 侧限制"的折中 |
+| 429 的处理 | 复用 `limiter.pause(Retry-After)`；**限流不计入该文件的 2 次重试** | 限流不是文件的问题，重试次数应该留给真正的失败 |
+| 可调 | `settings.download_jobs`（默认 3，范围 1~8）与 `--download-jobs`（P2，可后补） | 给高级用户留出口，但默认值不暴露给普通用户 |
+
+### 14.4 完整流程逐字文案
+
+**入口（主菜单新增一项）**：
+```
+[5] 检查并下载模组        （检查完可以直接把可用的版本下下来）
+```
+（原 [5] 查看官方游戏版本列表顺延为 [6]，[0] 退出不变。）
+
+**检查结束后询问**：
+```
+要不要把可用的版本下载下来？(y/N) > 
+    · 只会下载 🟢 就绪（最新版）和 🟡 需注意（可用的旧稳定版）的模组。
+    · 🔴 阻塞、🟠 仅存测试版、⚪ 未判定、⚫ 已忽略 一律跳过。
+    · 不会动你现在的 mods 文件夹，只会往你选的文件夹里写文件。
+```
+
+**一个模组都没得下**：
+```
+没有需要下载的模组：这次检查里没有 🟢 就绪 或 🟡 需注意 的条目（🔴 {b} ｜ 🟠 {p} ｜ 🟡 0 ｜ ⚪ {u} ｜ 🟢 0）。
+```
+
+**选择文件夹**（Windows 弹原生对话框；非 Windows 或对话框不可用时手输）：
+```
+请选择下载到哪个文件夹。
+建议新建一个空文件夹，不要直接选你正在用的 mods 文件夹。
+下载目标：[b] 取消下载 > 
+```
+手输校验：
+- 不存在 → `这个文件夹不存在。要现在创建吗？(Y/n) > ` → 创建失败 `✗ 建不了这个文件夹：{路径}（没有权限）。换个位置试试。`
+- 不可写 → `✗ 这个文件夹写不进去（没有权限）。请换一个文件夹。`
+- 是文件不是文件夹 → `✗ {路径} 是一个文件，不是文件夹。`
+
+**同名文件确认**（逐个问，默认不覆盖）：
+```
+开始前先确认：目标文件夹里已经有 {n} 个同名文件。
+ℹ 默认是「跳过」，不会覆盖你已经有的文件。
+```
+```
+⚠ 已存在同名文件：fabric-carpet-26.3+v260915.jar
+   现在这个：{大小} MB，修改于 {时间}
+   将要下载：{大小} MB，来自 Modrinth（{项目名} {版本号}）
+   [o] 覆盖它  [s] 跳过这个  [a] 后面的全部覆盖  [k] 后面的全部跳过  [q] 取消下载
+请选择 > 
+```
+
+**确认开跑**：
+```
+即将下载 {n} 个文件到：
+   {目标文件夹}
+（已选：覆盖 {o} 个 ｜ 跳过 {s} 个）
+开始下载？(Y/n) > 
+```
+
+**进度**（每秒刷新；TTY 单行原地刷新，非 TTY 每完成一个文件打一行）：
+```
+正在下载 {n} 个文件……  [####------]  {done}/{n}  当前：fabric-carpet-26.3+v260915.jar  {已下载}/{总大小} MB  已用 {秒} 秒
+```
+非 TTY：`已下载 {done}/{n}：{文件名}（{大小} MB）`
+
+**取消**（Ctrl+C 或 q）：
+```
+已取消下载。已经下好的 {done} 个文件保留在 {目标文件夹} 里，没下完的临时文件已清理。
+```
+
+**完成汇总（逐字）**：
+```
+下载完成：{n} 个文件里 {ok} 个成功、{skipped} 个跳过、{failed} 个失败。用时 {秒} 秒，共 {MB} MB。
+  ✓ 成功 {ok} 个 → {目标文件夹}
+  ⏭ 跳过 {skipped} 个：{文件名}（你选择了跳过）
+  ✗ 失败 {failed} 个：
+      lithium-fabric-0.26.2+mc26.3.jar —— 校验失败（文件损坏，已删除），已重试 2 次
+      sodium-fabric-0.9.2+mc26.3.jar —— 写不进去（磁盘满或没有权限）
+提示：把下好的 .jar 复制到服务端的 mods 文件夹，然后重启服务器。
+ℹ 有 {k} 个模组除了主文件还有附加文件（源码/文档），本次只下载了主文件。
+```
+全部失败时追加：`✗ 一个都没下成功。可以稍后重试；如果是网络问题，先检查代理设置：modcheck config set proxy …`
+
+### 14.5 边界情况（逐条）
+
+| # | 场景 | 行为 | 用户看到 |
+|---|---|---|---|
+| 1 | 一个模组多个文件（primary + 附加） | 只下 primary；没有 primary 取第一个 `.jar` | 汇总里的 `ℹ 有 {k} 个模组…只下载了主文件` |
+| 2 | 该版本一个 `.jar` 文件都没有（只有 sources.jar） | 跳过该模组，记为失败原因"没有可下载的 .jar 文件" | 汇总失败列表里列出 |
+| 3 | `filename` 为空 | 用 `{slug}-{version_number}.jar` 生成 | 无感 |
+| 4 | 文件名含 Windows 非法字符 | 替换成 `_`（`safe_filename`） | 无感 |
+| 5 | 下载中途取消（Ctrl+C / q） | 删掉所有 `.part`，保留已完成的正式文件 | 上面那句"已取消下载…" |
+| 6 | 磁盘满 / 无权限 | 该文件失败，**继续其它文件**；不删已下好的 | 失败列表里写明原因 |
+| 7 | 网络中断 | 每文件重试 2 次（退避 1s/2s）；仍失败 → 记失败 | 失败列表 |
+| 8 | 429 限流 | 全局 pause 后继续；**不计入 2 次重试** | 进度行临时出现 `ℹ 被 Modrinth 限流，正在放慢速度…` |
+| 9 | sha1 校验失败 | 删掉坏文件，记 `verify_failed`，重试 2 次后仍失败 → 记失败 | `校验失败（文件损坏，已删除）` |
+| 10 | 目标文件夹不存在 | 询问是否创建 | 见 14.4 |
+| 11 | 目标文件夹不可写 | 拒绝并让用户换 | 见 14.4 |
+| 12 | 一个模组都没得下 | 直接给结论，不弹文件夹选择 | 见 14.4 |
+| 13 | 目标文件夹里已有同名但**大小/时间完全相同** | 仍然走覆盖询问（不做隐式跳过） | 覆盖确认屏 |
+| 14 | 用户选的文件夹就是当前 mods 文件夹 | **允许**，但先给一次提醒：`⚠ 你选的是 {路径}，看起来像正在使用的 mods 文件夹。同名文件会被询问是否覆盖。继续？(y/N) > ` | 提醒 + 确认 |
+| 15 | 下载目录里有非 .jar 的同名文件 | 同样走覆盖询问（按文件名判断） | 覆盖确认屏 |
+| 16 | 空间不足但事先可查（`shutil.disk_usage`） | 预检查：剩余空间 < 总大小 × 1.1 → `⚠ 目标磁盘剩余 {x} MB，可能要下载 {y} MB。继续？(y/N) > ` | 提醒 |
+| 17 | 模组在报告里是 🟡 但"可用"版本缺失 | 跳过（无版本可下） | 汇总里标注 |
+
+### 14.6 明确不做
+
+1. ❌ 不做依赖解析（缺前置模组照下，不提示）。
+2. ❌ 不下载快照、不下载 CurseForge（未启用）、不下载测试版（🟠 直接跳过）。
+3. ❌ 不删除、不移动、不修改用户现有的 mods 文件夹。
+4. ❌ 不自动安装到服务端、不改 `server.properties`。
+5. ❌ 不做断点续传、不做分片多线程（单文件单连接，重试重头下）。
+6. ❌ 不把下载逻辑写进 `cli/`：一切在 `core/downloader.py` + `HttpClient.download`。
+7. ❌ 不引入任何第三方库（含 `requests` / `tqdm` / `aiohttp`）。
