@@ -145,6 +145,16 @@ class ScanDialog(QDialog):
         if self.bar.maximum() != total:
             self.bar.setRange(0, total)
         self.bar.setValue(done)
+        # ⚠️ 读完最后一个 jar **不等于扫完**：后面还有「联网识别」阶段
+        # （_resolve_slugs / _resolve_by_name），那里没有逐条进度回调，
+        # 而且是**逐个出网搜索**的，几十个模组可能要好几分钟。
+        # 之前界面就停在 "30/30" 一动不动，用户会以为程序卡死了 —— 这是真实反馈。
+        if total and done >= total:
+            self.bar.setRange(0, 0)          # 不确定进度：表明"在忙，但说不准还要多久"
+            self.lb_progress.setText(
+                "正在联网识别还没认出来的模组……（这一步要逐个搜索，可能要一会儿；"
+                "可以点「取消」中止）")
+            return
         self.lb_progress.setText(f"正在读取 {done}/{total}：{name}")
 
     def _on_done(self, report) -> None:

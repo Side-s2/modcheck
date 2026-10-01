@@ -129,7 +129,8 @@ class MainWindow(QMainWindow):
             "数据来自 <b>Modrinth</b> 与 <b>Mojang 官方版本清单</b>。<br>"
             "本程序<b>不重新分发任何模组文件</b>：下载的是 Modrinth 官方 CDN 直链。<br><br>"
             "以 <b>GPL-3.0</b> 发布（因图形界面使用 PyQt6，其许可证为 GPL v3）。<br>"
-            "详见随附的 LICENSE 与 THIRD_PARTY_NOTICES.md。")
+            "详见随附的 LICENSE 与 THIRD_PARTY_NOTICES.md。<br><br>"
+            "<b>DEVELOPED BY SIDE_LF</b>")
 
     def _reload_profiles(self) -> None:
         """重新读清单列表并保持当前选择。"""

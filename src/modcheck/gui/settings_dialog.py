@@ -105,18 +105,30 @@ class SettingsDialog(QDialog):
     def _collect(self):
         """把界面上的值交给 core 的 setter 逐个校验；任何一个非法就报错并中止。"""
         ops, s = self._ops, self._ops.clone(self._settings)
-        s = ops.set_default_mc(s, self.ed_mc.text().strip() or None)
-        from modcheck.core.models import Loader
-
+        # ⚠️ known 是**必填**关键字参数（官方正式版清单）：漏传会直接 TypeError，
+        # 表现就是用户改默认版本时弹「参数缺失」。取不到版本清单时传空集合，
+        # set_default_mc 会跳过「是否存在」检查（离线也不该拦住用户改设置）。
+        try:
+            known = tuple(self._backend.versions())
+        except Exception:
+            known = ()
+        s = ops.set_default_mc(s, self.ed_mc.text().strip() or None, known=known)
+        # ⚠️ set_default_loader 收的是**字符串**（value: str | None），不是 Loader 枚举 ——
+        # 传枚举会被 str() 成 "Loader.FABRIC" 然后报「暂不支持加载器 Loader.FABRIC」。
+        # CLI 那边传的是 chosen.value，这里保持一致。
         name = self.cb_loader.currentText()
-        s = ops.set_default_loader(s, None if name.startswith("（") else Loader.parse(name.lower()))
+        s = ops.set_default_loader(s, None if name.startswith("（") else name.lower())
         s = ops.set_proxy(s, self.ed_proxy.text().strip() or None)
         s = ops.set_color(s, self.cb_color.currentText())
         s = ops.set_concurrency(s, self.sp_jobs.value())
         s = ops.set_cache_ttl(s, "api", float(self.sp_ttl.value()))
         key = self.ed_cf.text().strip()
         # 掩码值原样写回，避免把 **** 存进去
-        if key != (ops.mask_secret(self._settings.curseforge_key) if self._settings.curseforge_key else ""):
+        # 掩码值原样写回，避免把 ****xxxx 当成新 key 存进配置里。
+        # ⚠️ key 存在 providers["curseforge"]["api_key"]，**没有** Settings.curseforge_key 这个属性
+        current = self._cf_key()
+        masked = ops.mask_secret(current) if current else ""
+        if key != masked:
             s = ops.set_curseforge_key(s, key or None)
         return s
 

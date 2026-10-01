@@ -183,7 +183,11 @@ def scan_dirs(directories: Sequence[Path], *, provider: "BaseProvider | None",
             report.entries.append(entry)
             candidates.append((jar, entry))
 
-    _resolve_slugs(report.entries, provider)
+    # 这两个阶段都要能被打断：它们逐个出网，实测合计要几分钟。
+    # 中断必须体现在 report.cancelled 上 —— 半份结果绝不允许落盘（save_scan_result 依赖它）。
+    if _resolve_slugs(report.entries, provider, should_stop=should_stop):
+        report.cancelled = True
+        return report
     _resolve_by_name(candidates, provider, report, should_stop=should_stop)
     if report.cancelled:                      # 搜索阶段被叫停：不再做合并（结果要丢就给个干净信号）
         return report
@@ -248,8 +252,13 @@ def save_scan_result(report: ScanReport, *, profiles_dir: Path, profile_name: st
     return SaveOutcome(path=path, merged=merged, stats=stats, created=created, replaced=bool(new))
 
 
-def _resolve_slugs(entries: list[ModEntry], provider: "BaseProvider | None") -> None:
-    """把"项目 ID"换成人类可读的 slug（裁决 D38）。
+def _resolve_slugs(entries: list[ModEntry], provider: "BaseProvider | None", *,
+                   should_stop: StopFn | None = None) -> bool:
+    """把"项目 ID"换成人类可读的 slug（裁决 D38）；返回 True 表示被叫停。
+
+    ⚠️ 这个阶段**逐个出网**，实测 30 个模组要几分钟（本机 372 秒）。
+    原先它没有 should_stop —— 那几分钟里界面上的「取消」按了**完全没反应**，
+    用户会认为程序真的死了。慢可以忍，停不下来不能忍。
 
     两条识别路径原本写进去的是不同种类的标识：hash 反查给的是 project_id，
     搜索命中给的是 slug。Modrinth 两种都接受，所以查询不会出错，但：
@@ -258,12 +267,15 @@ def _resolve_slugs(entries: list[ModEntry], provider: "BaseProvider | None") -> 
     这里统一成 slug —— 只在首次扫描、且条目还没解析过 slug 时发生。
     """
     if provider is None:
-        return
+        return False
     pending = {entry.sources.get("modrinth") for entry in entries if entry.sources.get("modrinth")}
     if not pending:
-        return
+        return False
     resolved: dict[str, str] = {}
     for entry in entries:
+        # 每一条之前都查一次：一次网络调用可能要好几秒，攒着查会让「取消」迟到很久
+        if should_stop is not None and should_stop():
+            return True
         ident = entry.sources.get("modrinth")
         if not ident:
             continue
@@ -277,6 +289,7 @@ def _resolve_slugs(entries: list[ModEntry], provider: "BaseProvider | None") -> 
         if resolved[ident] != ident:
             entry.sources["modrinth"] = resolved[ident]
             entry.key = key_of(entry)
+    return False
 
 
 def _lookup_hashes(digests: dict[Path, str], provider: "BaseProvider | None",
