@@ -68,7 +68,7 @@ rm -rf $MODCHECK_CONFIG_DIR
 
 ---
 
-## B. 扫描与清单（15 条）
+## B. 扫描与清单（16 条）
 
 - [ ] **B1** 运行 `.toolchain\Python311\python.exe tests\make_fixtures.py` → 生成 `tests\_fixtures\mods_demo\`（6 个文件）与 `tests\_fixtures\profiles\demo.json`
 - [ ] **B2** 运行 `modcheck.cmd scan tests\_fixtures\mods_demo --profile demo --yes` → 输出含 `读到 N 个 jar 文件`、`跳过`（分类列出 `broken.jar / server-extra.jar / old-mod.jar.disabled`）、`识别结果：`三段、`清单「demo」已更新`
@@ -88,7 +88,9 @@ rm -rf $MODCHECK_CONFIG_DIR
 
 ---
 
-## C. 检查：三态判定与回归（16 条，**最重要的一组**）
+- [ ] **B16** 在清单里加一条没有 `sources.modrinth`、名字正好是 `chunky` 的条目，然后**交互式**检查 → **不弹出候选选择**（slug 唯一命中 `chunky`），直接认定；报告里该条目正常分组。这验证「slug 唯一命中优先于多个 title 命中」
+
+## C. 检查：三态判定与回归（17 条
 
 - [ ] **C1** 运行 `modcheck.cmd check --profile demo --mc 26.3 --loader fabric --no-color` → 分组顺序为 🔴 → 🟡 → ⚪ → 🟢（🔴 在最前）；Carpet 出现在 🟢 就绪组；**退出码 1**（清单里有 create / create-fabric / no-such-mod-xyz 三个阻塞）
 - [ ] **C2** 接 C1，看 Carpet 行 → 版本列显示 `26.1 (v260402) → 26.3 (v260915)`
@@ -103,11 +105,13 @@ rm -rf $MODCHECK_CONFIG_DIR
 - [ ] **C11** 运行 `modcheck.cmd check --profile demo --mc 26.3 --loader fabric --no-color --pre` → JEI 不再是「仅测试版可用」的 🟡（应变为 🟢 就绪，或至少分组与原因文案随之变化）
 - [ ] **C12** 分别用 `--jobs 1` 与 `--jobs 6` 跑同一条检查 → 两组结论（每个模组的状态与分组）**完全一致**，只有耗时不同
 - [ ] **C13** 用一个 200 条的清单跑 `check` → 不崩溃；每个模组都出现在某一组里；无重复条目
-- [ ] **C14** 接 C13，核对汇总行 → `就绪 + 需降级 + 阻塞 + 未判定 = 总数`，且总数**不含**已忽略
-- [ ] **C15** 在清单里把某个模组标为 `"match_status": "ignored"` 后跑检查 → 它出现在 ⚫ 已忽略组（最后），且不计入汇总总数
+- [ ] **C14** 接 C13，核对汇总行的**两条恒等式**（逐条算给主 Agent 看）→ ① ¤就绪 + 需降级 + 阻塞 + 未判定 = 本次检查数¤；② ¤本次检查数 + 已忽略 = 共 N 个模组¤；且报告头的「模组清单：X（N 个模组）」的 N 等于「共 N 个模组」
+- [ ] **C15** 在清单里把某个模组标为 ¤"match_status": "ignored"¤ 后跑检查 → 它出现在 ⚫ 已忽略组（**最后**），**不计入「本次检查」的四个数**，但**计入「共 N 个模组」**；且汇总行两数关系仍满足 C14 的两条恒等式
 - [ ] **C16** 运行 `modcheck.cmd check --mods-dir tests\_fixtures\mods_demo --mc 26.3 --loader fabric --no-color` → 报告头标明「临时清单（未保存）」；退出后 `profiles\` 目录里**没有**新增清单文件
 
 ---
+
+- [ ] **C17** 重跑一次 C1 并与上一次报告逐行比对 → **同一清单 + 同一目标版本，两次运行的组内顺序完全一致**（数据源返回顺序不得影响报告顺序）
 
 ## D. 文案准确性（13 条，逐字比对 PRD §5）
 
@@ -144,7 +148,7 @@ rm -rf $MODCHECK_CONFIG_DIR
 
 ---
 
-## F. 边界与异常（16 条）
+## F. 边界与异常（25 条）
 
 - [ ] **F1** `modcheck.cmd config set proxy http://127.0.0.1:9` 后跑 `check --profile demo --mc 26.3 --loader fabric` → 全部 ⚪ 未判定；报告完整；结论行标注结论不完整；退出码 **4**（首个请求即失败）；文案含代理设置提示
 - [ ] **F2** 200 条清单里混入一个必然超时的条目（例如指向 `no-such-host.invalid` 的 slug）→ 该条 ⚪，**其余 199 条结论正常**；退出码 **2**
@@ -165,6 +169,16 @@ rm -rf $MODCHECK_CONFIG_DIR
 
 ---
 
+- [ ] **F17** 让 Modrinth 返回非 JSON（无法构造时改为核对单元测试 `tests/test_http.py` 的 parse-error 用例）→ 该模组 ⚪，文案含「返回的数据看不懂」；**不崩**
+- [ ] **F18** 证书错误（无法构造时核对单元测试 cert-error 用例）→ 该模组 ⚪；文案含「证书验证失败」；**不崩**
+- [ ] **F19** 让 Mojang 不可达（把 `piston-meta.mojang.com` 指向 127.0.0.1 或断网后只恢复 Modrinth）→ `versions` 提示「没取到官方版本列表」；`check --mc 26.3 --profile demo` **仍能跑完**，不因 Mojang 失败而退出
+- [ ] **F20** `--window 1` → 正常完成；`--debug` 下能看到「窗口过小可能误判」的提示
+- [ ] **F21** `modcheck.cmd scan --from-list tests\_fixtures\nope.txt --profile demo --yes` → 「读不到文件名清单」文案；退出码 3
+- [ ] **F22** 造两条 `mod_id` 相同但中文名不同的记录后 `scan` → 合并为一条；两个文件名与两个中文名都保留在 `aliases` 里（`profile show` 可见）
+- [ ] **F23** 造一个文件名写 `sodium-fabric-x.jar`、内部 `fabric.mod.json` 的 `id` 却是 `carpet` 的 jar 后 `scan` → 输出「以 jar 内信息为准」；清单里记的是 `carpet`
+- [ ] **F24** 放入一个 200 MB 以上的大 jar（可用随机数据改名）后 `scan` → 不爆内存、不卡死、正常跳过或解析；**不崩**
+- [ ] **F25** 把清单某条目的 `sources.modrinth` 手工改成不存在的 slug（如 `carpet-old`）后跑检查 → 自动重新搜索并更新为 `carpet`，打印「项目地址已变更」；该条目结论正确
+
 ## G. 颜色、编码与终端兼容（8 条）
 
 - [ ] **G1** `--no-color` 输出 → 没有 ANSI 转义序列（搜 ESC 字符零命中）
@@ -178,7 +192,7 @@ rm -rf $MODCHECK_CONFIG_DIR
 
 ---
 
-## H. 退出码与导出（12 条）
+## H. 退出码与导出（13 条）
 
 - [ ] **H1** 全绿清单 → 退出码 **0**
 - [ ] **H2** 含 🔴 的清单 → 退出码 **1**
@@ -194,6 +208,8 @@ rm -rf $MODCHECK_CONFIG_DIR
 - [ ] **H12** 导出到只读路径 → PRD E22 文案；退出码 3
 
 ---
+
+- [ ] **H13** 用 PRD §5.3 的样例清单（3 阻塞 + 2 未判定 + 1 已忽略）跑检查 → **退出码必须是 1**（不是 2、不是 130）；验证「🔴 优先于 ⚪」的退出码优先级
 
 ## I. 性能与体感（7 条）
 

@@ -178,6 +178,43 @@ set "PYTHONPATH=%ROOT%src"
   `warn.config.not_writable` `warn.cache.not_writable` `warn.encoding.failed` `warn.dupe_modid`
   `warn.mojang_unavailable` `warn.guess_count`
   `profile.list.header` `profile.show.header` `versions.header` `config.show.header` `cache.info.header`
+
+**PRD §5.10 的 E01~E28 必须与本表的 key 一一对应（漏一条，程序员就会自己造文案）**：
+
+| 错误编号 | 必须存在的 key | 说明 |
+|---|---|---|
+| E01 | `err.net.offline` + `err.net.offline.hint` | 断网（含代理提示） |
+| E02 | `group.unknown.detail.timeout` + `group.unknown.hint.timeout` | 单模组超时（报告内） |
+| E03 | `err.rate_limited` + `group.unknown.detail.rate_limited` + `group.unknown.hint.rate_limited` | 429 |
+| E04 | `group.unknown.detail.http_5xx` + `group.unknown.hint.http_5xx` | 5xx |
+| E05 | `group.blocked.detail.not_found` + `group.blocked.hint.not_found` | 项目不存在 |
+| E06 | `info.project.renamed` | 项目改名已自动更新 |
+| E07 | `err.mc.invalid` | 版本号格式错 |
+| E08 | `err.mc.snapshot` | 快照版本 |
+| E09 | `err.mc.unknown` | 官方清单里没有 |
+| E10 | `err.loader.unsupported` | 加载器不支持 |
+| E11 | `err.profile.corrupt` | 清单 JSON 损坏 |
+| E12 | `err.profile.schema` | 缺 mods 字段 |
+| E13 | `scan.skipped.broken` + `group.unknown.detail.jar_unreadable` | jar 读不了 |
+| E14 | `report.verdict.all_blocked` + `report.verdict.all_blocked.tip` | 全部阻塞 |
+| E15 | `report.empty.title` + `report.empty.next1` + `report.empty.next2` | 空清单 |
+| E16 | `progress.interrupted` + `progress.interrupted.hint` | Ctrl+C |
+| E17 | `warn.config.not_writable` | 配置目录只读 |
+| E18 | —（重定向无文案） | — |
+| E19 | `debug.color.disabled` | 仅 `--debug` |
+| E20 | `err.source.none` | 无可用数据源 |
+| E21 | —（缓存坏数据无文案） | — |
+| E22 | `err.export.failed` | 导出失败 |
+| E23 | `debug.jobs.clamped` | 仅 `--debug` |
+| E24 | `warn.merge_modid` | 载入时合并 |
+| E25 | `err.hash.miss` | 指纹未命中 |
+| E26 | `group.blocked.detail.no_loader` + `group.blocked.hint.no_loader` | 没有该加载器 |
+| E27 | `warn.encoding.failed` | 编码设置失败 |
+| E28 | `group.blocked.detail.no_files` + `group.blocked.hint.no_files` | 项目没有任何文件 |
+
+**审计补充的必备 key**（v1.1 自洽审计发现，PRD §11）：`err.from_list.missing`、`warn.rate_limited_slow`、`warn.dupe_modid`、`info.large_profile`、`debug.window.small`、`progress.tick`（非 TTY 每 20% 一行）、`report.ready_hint`（就绪组 > 30 时的提示）、`report.quiet.ready_omitted`（`--quiet` 下就绪组的折叠行）、`scan.identify.filename`。
+
+**命名铁律**：每一个 `reason_code` 都必须有**成对**的 key —— `group.<组>.detail.<code>`（原因行）与 `group.<组>.hint.<code>`（建议行）；每个分组都必须有 `group.<status>.title` 与 `group.<status>.desc`（标题 + 说明句）。缺任何一半都算未完成。
 - **依赖**：无
 - **验收**：随机抽 10 个 key 与 PRD §5 逐字比对一致（含全角标点与空格）。
 - **单测**：`tests/test_i18n.py`：所有 key 存在、格式化不抛异常、文案里不含未替换的 `{`。
@@ -493,7 +530,14 @@ set "PYTHONPATH=%ROOT%src"
       requests_made: int = 0; cache_hits: int = 0
       interrupted: bool = False; completed: int = 0; total: int = 0
       @property
-      def summary(self) -> dict[str, int]: ...      # total/ready/degraded/blocked/unknown/ignored（total 不含 ignored）
+      def summary(self) -> dict[str, int]: ...
+          # 必须返回：{"total_all", "total_checked", "ready", "degraded", "blocked", "unknown", "ignored"}
+          # 恒等式（在 to_dict() 与渲染前各断言一次，assert 失败即编程错误）：
+          #   ① ready + degraded + blocked + unknown == total_checked
+          #   ② total_checked + ignored == total_all
+          # total_all  = len(profile.mods)
+          # total_checked = total_all - ignored
+          # 报告头的（N 个模组）用 total_all；结论行的「{n} 个模组」用 total_checked
       def verdict(self) -> Verdict: ...
       def to_dict(self) -> dict: ...                # {"schema_version": 1, ...} 供 JSON 导出与未来 GUI
       def iter_items(self) -> Iterator[ReportItem]: ...
@@ -780,7 +824,16 @@ set "PYTHONPATH=%ROOT%src"
   def default_filename(profile_name: str, mc: str, loader: Loader, ext: str,
                        when: datetime | None = None) -> str: ...   # report_服务器A_26.3_fabric_20261001-2103.json
   ```
-- **`run_check` 的退出码**：根据 `report.verdict()` → `BLOCKED/ALL_BLOCKED = 1`；`INCOMPLETE/ALL_UNKNOWN = 2`；`INTERRUPTED = 130`；其余 = 0；数据源整体不可用 = 4；参数错误 = 3。
+- **`run_check` 的退出码（优先级从高到低，先命中者胜出）**：
+
+1. 参数 / 配置错误 → **3**
+2. 数据源整体不可用（首个请求即失败）→ **4**
+3. 用户中断 → **130**
+4. 存在 🔴 阻塞项 → **1**（**即使同时存在 ⚪ 未判定，也返回 1** —— 决策 D2 的优先级）
+5. 有 ⚪ 且无 🔴 → **2**
+6. 其余（全绿或仅 🟡）→ **0**
+
+> 断言用例：§5.3 的样例（3 阻塞 + 2 未判定 + 1 已忽略）必须返回 **1**，不是 2、也不是 130。
 - **导出文件路径**：相对路径 → 当前工作目录；写入失败 → `ConfigError(t("err.export.failed", path=...))`（退出 3），但**报告已经在屏幕上输出过**。
 - **依赖**：T-10, T-12, T-15, T-17, T-18
 - **验收**：`--json` 输出含 `schema_version`、每个 item 的 `reason` 与 `status`；`--md` 可以直接贴到群里。

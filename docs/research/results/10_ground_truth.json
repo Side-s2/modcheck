@@ -1,0 +1,263 @@
+{
+  "generated_by": "10_ground_truth.py（独立实现，不 import modcheck）",
+  "known_data_hazard": {
+    "title": "作者重新上传旧版本 → 按 date_published 取到的『最新版』可能版本号更旧",
+    "evidence": "jei 在 26.1/fabric 下：请求 A 的首条是 19.51.0.418（release），但 latest_compat 是 29.34.0.90。原因是 JEI 作者近期重新发布了 19.51.0.418 / 30.29.0.201 / 15.56.0.205 等旧版本，它们的 date_published 很新。",
+    "impact": "报告里会出现『你当前 29.34.0.90 → Fabric 最新 19.51.0.418』这种看起来像降级的显示；判定本身（DEGRADED:OLD_VERSION_ONLY）没错，但文案会让服主困惑。",
+    "suggested_handling": "当『你当前版本』与 latest_compat 相同、或当前版本号语义上高于展示的 latest 时，文案改为『你已经是最新的兼容版本，无需处理』，不要显示看起来像降级的箭头。",
+    "decision": "留给 PM 在验收轮裁决；不影响 core 判定逻辑。"
+  },
+  "window": 25,
+  "cases": {
+    "26.3/fabric": {
+      "carpet": {
+        "file": "[地毯] fabric-carpet-26.1+v260402.jar",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "26.3",
+          "date": "2026-09-18"
+        }
+      },
+      "journeymap": {
+        "file": "[旅程地图] journeymap-26.1-fabric.jar",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "26.3-6.0.9+fabric",
+          "date": "2026-09-19"
+        }
+      },
+      "jei": {
+        "file": "jei-26.1-fabric.jar",
+        "status": "DEGRADED",
+        "reason": "PRERELEASE_ONLY",
+        "detail": {
+          "channel": "beta",
+          "version": "31.8.0.49"
+        }
+      },
+      "lithium": {
+        "file": "lithium-fabric.jar",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "mc26.3-0.26.2-fabric",
+          "date": "2026-09-28"
+        }
+      },
+      "fabric-api": {
+        "file": "fabric-api-26.1.jar",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.161.0+26.3",
+          "date": "2026-09-18"
+        }
+      },
+      "create": {
+        "file": "create-1.20.1-forge.jar",
+        "status": "BLOCKED",
+        "reason": "NO_LOADER",
+        "detail": {
+          "available_loaders": [
+            "forge",
+            "neoforge"
+          ]
+        }
+      }
+    },
+    "26.1/fabric": {
+      "carpet": {
+        "file": "[地毯] fabric-carpet-26.1+v260402.jar",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "26.3",
+          "latest_compat": "26.1",
+          "latest_compat_date": "2026-06-16"
+        }
+      },
+      "journeymap": {
+        "file": "[旅程地图] journeymap-26.1-fabric.jar",
+        "status": "DEGRADED",
+        "reason": "PRERELEASE_ONLY",
+        "detail": {
+          "channel": "beta",
+          "version": "26.1-6.0.0-beta.67+fabric"
+        }
+      },
+      "jei": {
+        "file": "jei-26.1-fabric.jar",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "19.51.0.418",
+          "latest_compat": "29.34.0.90",
+          "latest_compat_date": "2026-08-30"
+        }
+      },
+      "lithium": {
+        "file": "lithium-fabric.jar",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "mc26.3-0.26.2-fabric",
+          "latest_compat": "mc26.1.2-0.24.7-fabric",
+          "latest_compat_date": "2026-07-29"
+        }
+      },
+      "fabric-api": {
+        "file": "fabric-api-26.1.jar",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.161.0+26.3",
+          "latest_compat": "0.155.3+26.1.2",
+          "latest_compat_date": "2026-09-07"
+        }
+      },
+      "create": {
+        "file": "create-1.20.1-forge.jar",
+        "status": "BLOCKED",
+        "reason": "NO_LOADER",
+        "detail": {
+          "available_loaders": [
+            "forge",
+            "neoforge"
+          ]
+        }
+      }
+    },
+    "26.3/neoforge": {
+      "carpet": {
+        "file": "[地毯] fabric-carpet-26.1+v260402.jar",
+        "status": "BLOCKED",
+        "reason": "NO_LOADER",
+        "detail": {
+          "available_loaders": [
+            "fabric"
+          ]
+        }
+      },
+      "journeymap": {
+        "file": "[旅程地图] journeymap-26.1-fabric.jar",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "26.3-6.0.9+neoforge",
+          "date": "2026-09-19"
+        }
+      },
+      "jei": {
+        "file": "jei-26.1-fabric.jar",
+        "status": "DEGRADED",
+        "reason": "PRERELEASE_ONLY",
+        "detail": {
+          "channel": "beta",
+          "version": "31.8.0.49"
+        }
+      },
+      "lithium": {
+        "file": "lithium-fabric.jar",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "mc26.3-0.26.2-neoforge",
+          "date": "2026-09-28"
+        }
+      },
+      "fabric-api": {
+        "file": "fabric-api-26.1.jar",
+        "status": "BLOCKED",
+        "reason": "NO_LOADER",
+        "detail": {
+          "available_loaders": [
+            "fabric"
+          ]
+        }
+      },
+      "create": {
+        "file": "create-1.20.1-forge.jar",
+        "status": "BLOCKED",
+        "reason": "NO_MC_VERSION",
+        "detail": {
+          "max_supported_mc": "1.21.1"
+        }
+      }
+    },
+    "26.3/forge": {
+      "carpet": {
+        "file": "[地毯] fabric-carpet-26.1+v260402.jar",
+        "status": "BLOCKED",
+        "reason": "NO_LOADER",
+        "detail": {
+          "available_loaders": [
+            "fabric"
+          ]
+        }
+      },
+      "journeymap": {
+        "file": "[旅程地图] journeymap-26.1-fabric.jar",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "26.3-6.0.9+forge",
+          "date": "2026-09-19"
+        }
+      },
+      "jei": {
+        "file": "jei-26.1-fabric.jar",
+        "status": "BLOCKED",
+        "reason": "NO_MC_VERSION",
+        "detail": {
+          "max_supported_mc": "1.21.1"
+        }
+      },
+      "lithium": {
+        "file": "lithium-fabric.jar",
+        "status": "BLOCKED",
+        "reason": "NO_LOADER",
+        "detail": {
+          "available_loaders": [
+            "fabric",
+            "neoforge",
+            "quilt"
+          ]
+        }
+      },
+      "fabric-api": {
+        "file": "fabric-api-26.1.jar",
+        "status": "BLOCKED",
+        "reason": "NO_LOADER",
+        "detail": {
+          "available_loaders": [
+            "fabric"
+          ]
+        }
+      },
+      "create": {
+        "file": "create-1.20.1-forge.jar",
+        "status": "BLOCKED",
+        "reason": "NO_MC_VERSION",
+        "detail": {
+          "max_supported_mc": "1.20.1"
+        }
+      }
+    }
+  },
+  "extra": {
+    "no-such-mod-xyz": {
+      "expect": "BLOCKED:NOT_FOUND",
+      "note": "搜索无精确同名 → 非交互下应为 UNMATCHED 还是 NOT_FOUND，见 PRD §4.3"
+    },
+    "expected_sha1_map": {
+      "[地毯] fabric-carpet-26.1+v260402.jar": "f786a53c97e7caaa5b34c94309e79ed1201c0114",
+      "[旅程地图] journeymap-26.1-fabric.jar": "0836d3c81b2bd14fb37e4e0b64aeb33a165e79eb",
+      "jei-26.1-fabric.jar": "d4d916cb8a982959d443b155e7fadc14bf5f159e",
+      "lithium-fabric.jar": "7959f418969ee8bfe50c0f21f352ed08b382f133",
+      "fabric-api-26.1.jar": "16c30dfcceaed1ac3b6ac84cbd348a906dc5093e",
+      "create-1.20.1-forge.jar": "b13d912b9247a38d66d11598c121442585a1c1e9"
+    }
+  }
+}
