@@ -153,6 +153,54 @@ def many_mods(count: int) -> list[ModEntry]:
             for i in range(count)]
 
 
+# ---------------------------------------------------------------- R3-A07 忽略 / 取消忽略
+def test_ignore_and_unignore(tmp_path: Path) -> None:
+    """忽略 -> match_status=ignored；取消忽略 -> 恢复正常判定（两条逐字文案）。"""
+    write_entries(tmp_path, "服务器A", many_mods(2))
+    ctx = make_ctx(tmp_path, ["1", "4", "1", "1", "q"])
+    run_profiles_screen(ctx)
+    assert "✓ 已忽略「Mod0」。以后检查不再判定它；列表里会显示在 ⚫ 已忽略组。" in out(ctx)
+    assert status_of(tmp_path, "服务器A", 0) == "ignored"
+
+    ctx2 = make_ctx(tmp_path, ["1", "4", "Mod0", "2", "q"])
+    run_profiles_screen(ctx2)
+    assert "✓ 已取消忽略「Mod0」，下次检查会正常判定它。" in out(ctx2)
+    assert status_of(tmp_path, "服务器A", 0) == "manual"
+
+
+def test_ignore_is_idempotent_and_does_not_rewrite(tmp_path: Path) -> None:
+    """已经是已忽略时再忽略：给同样的回执，但不改文件（幂等）。"""
+    write_entries(tmp_path, "服务器A", many_mods(1))
+    ctx = make_ctx(tmp_path, ["1", "4", "1", "1", "q"])
+    run_profiles_screen(ctx)
+    path = tmp_path / "profiles" / "服务器A.json"
+    after_first = path.stat().st_mtime_ns
+    ctx2 = make_ctx(tmp_path, ["1", "4", "1", "1", "q"])
+    run_profiles_screen(ctx2)
+    assert "✓ 已忽略「Mod0」" in out(ctx2)
+    assert path.stat().st_mtime_ns == after_first
+
+
+def test_ignore_invalid_choice_reprompts(tmp_path: Path) -> None:
+    """忽略屏里的非法选择就地重问（最多 3 次）。"""
+    write_entries(tmp_path, "服务器A", many_mods(1))
+    ctx = make_ctx(tmp_path, ["1", "4", "1", "9", "1", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "✗ 没有这个选项，请重新选择。" in text
+    assert "✓ 已忽略「Mod0」" in text
+
+
+def test_ignore_unknown_mod(tmp_path: Path) -> None:
+    """定位不到 -> 候选文案，且不问忽略/取消。"""
+    write_entries(tmp_path, "服务器A", many_mods(2))
+    ctx = make_ctx(tmp_path, ["1", "4", "zzz", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "✗ 清单「服务器A」里没有叫「zzz」的模组。" in text
+    assert "[1] 忽略它" not in text
+
+
 # ---------------------------------------------------------------- R3-A06 指定平台项目
 def carpet_provider(**kw):
     """带 carpet 项目的假数据源。"""
@@ -168,6 +216,13 @@ def carpet_provider(**kw):
     provider.name = "modrinth"
     provider.display_name = "Modrinth"
     return provider
+
+
+def status_of(tmp_path: Path, name: str, index: int = 0) -> str:
+    """读回清单里第 index 条的 match_status。"""
+    from modcheck.storage.profiles import load_profile
+
+    return load_profile(profile_path(tmp_path / "profiles", name)).mods[index].match_status.value
 
 
 def sources_of(tmp_path: Path, name: str) -> dict:

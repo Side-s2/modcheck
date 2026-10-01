@@ -16,7 +16,7 @@ from modcheck.console import display_width
 from modcheck.core.models import ModEntry
 from modcheck.core.profile_ops import (INVALID_NAME_CHARS, PAGE_SIZE, page_of,
                                        parse_project_selector, remove_mods, resolve_selector,
-                                       set_source, validate_profile_name)
+                                       set_ignored, set_source, validate_profile_name)
 from modcheck.errors import ConfigError, ModcheckError, ProviderError
 from modcheck.i18n import t
 from modcheck.storage.profiles import (ProfileSummary, list_profiles, load_profile,
@@ -35,6 +35,7 @@ MANAGE_ITEMS: Final[tuple[tuple[str, str], ...]] = (
     ("1", "manage.one.view"),
     ("2", "manage.one.remove"),
     ("3", "manage.one.set_source"),
+    ("4", "manage.one.ignore"),
 )
 
 #: 匹配状态列的文字（PRD §13.2 的「匹配」列）
@@ -408,11 +409,59 @@ def _report_missing(console, profile_name: str, selector: str, candidates) -> No
     console.line(t("manage.remove.not_found", profile=profile_name, name=selector))
 
 
+def _op_ignore(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
+    """[4] 忽略 / 取消忽略模组（PRD §13.2 / R3-A07）。"""
+    console = ctx.console
+    profile = _load_profile(ctx, name)
+    if profile is None:
+        return None
+    if not profile.mods:
+        console.line(t("manage.one.empty"))
+        return None
+    kind, selector = read_line(prompter, t("manage.ignore.pick"))
+    if kind == QUIT:
+        return QUIT
+    if kind == BACK or not selector:
+        return None
+    found = resolve_selector(profile, selector)
+    if found.entry is None:
+        _report_missing(console, profile.name, selector, found.candidates)
+        return None
+    console.line(t("manage.ignore.menu1"))
+    console.line(t("manage.ignore.menu2"))
+    tries = 0
+    choice = ""
+    while True:
+        kind, value = read_line(prompter, t("manage.ignore.ask"))
+        if kind == QUIT:
+            return QUIT
+        if kind == BACK:
+            return None
+        if value in ("1", "2"):
+            choice = value
+            break
+        tries += 1
+        console.line(t("menu.invalid_choice"))
+        if tries >= MAX_INVALID_TRIES:
+            console.line(t("screen.too_many_invalid"))
+            return None
+    result = set_ignored(profile, selector, choice == "1")
+    if not result.changed:
+        # 幂等：已经是这个状态，也要给用户一句明确的回执，但不写盘
+        console.line(t(result.message_key, **result.message_args))
+        return None
+    if not _save_or_report(ctx, profile_path(ctx.profiles_dir, name), result.profile):
+        return None
+    console.line(t(result.message_key, **result.message_args))
+    return None
+
+
 #: 按键 -> 处理函数（R3-A04~A09 逐条填进来）；返回 QUIT 表示直接回主菜单
 MANAGE_HANDLERS: dict[str, Callable[[AppContext, Prompter, str], str | None]] = {
     "1": _op_view,
     "2": _op_remove,
     "3": _op_set_source,
+    "4": _op_ignore,
 }
 
 
