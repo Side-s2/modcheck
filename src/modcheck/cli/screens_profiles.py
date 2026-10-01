@@ -38,6 +38,7 @@ MANAGE_ITEMS: Final[tuple[tuple[str, str], ...]] = (
     ("3", "manage.one.set_source"),
     ("4", "manage.one.ignore"),
     ("r", "manage.one.rename"),
+    ("d", "manage.one.delete"),
 )
 
 #: 匹配状态列的文字（PRD §13.2 的「匹配」列）
@@ -498,13 +499,43 @@ def _op_rename(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
     return None
 
 
-#: 按键 -> 处理函数（R3-A04~A09 逐条填进来）；返回 QUIT 表示直接回主菜单
+def _op_delete(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
+    """[d] 删除清单（必须完整输入清单名，PRD §13.2 / R3-A09）。"""
+    console = ctx.console
+    profile = _load_profile(ctx, name)
+    if profile is None:
+        return None
+    console.line(t("manage.delete.warn1", name=profile.name, count=len(profile.mods)))
+    console.line(t("manage.delete.warn2"))
+    console.line(t("manage.delete.warn3"))
+    console.line()
+    console.line(t("manage.delete.ask", name=profile.name))
+    kind, value = read_line(prompter, t("manage.delete.prompt"))
+    if kind == QUIT:
+        return QUIT
+    # 双重保险：名称必须**完整一致**（大小写敏感），b 与任何不符输入都取消
+    if kind != KIND_OK or value != profile.name:
+        console.line(t("manage.delete.cancel", value=value or "b", name=profile.name))
+        return None
+    path = profile_path(ctx.profiles_dir, name)
+    try:
+        delete_profile(path)
+    except OSError:
+        console.line(t("manage.delete.failed", path=path))
+        return None
+    left = len(list_profiles(ctx.profiles_dir))
+    console.line(t("manage.delete.done", name=profile.name, left=left))
+    return None
+
+
+#: 按键 -> 处理函数（R3-A04~A09）；返回 QUIT 表示直接回主菜单
 MANAGE_HANDLERS: dict[str, Callable[[AppContext, Prompter, str], str | None]] = {
     "1": _op_view,
     "2": _op_remove,
     "3": _op_set_source,
     "4": _op_ignore,
     "r": _op_rename,
+    "d": _op_delete,
 }
 
 

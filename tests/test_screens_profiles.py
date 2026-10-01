@@ -161,6 +161,71 @@ def many_mods(count: int) -> list[ModEntry]:
             for i in range(count)]
 
 
+# ---------------------------------------------------------------- R3-A09 删除清单
+def test_delete_profile_requires_exact_name(tmp_path: Path) -> None:
+    """输入不符（服务器B）-> 取消，文件仍在。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(3))
+    ctx = make_ctx(tmp_path, ["1", "d", "服务器B", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "⚠ 即将删除清单「服务器A」（3 个模组）。" in text
+    assert "   这个操作不能撤销：清单文件会被直接删除，里面记录的中文名、备注、手动指定的平台项目都会一起消失。" in text
+    assert "   （不会删除你 mods 文件夹里的任何 jar 文件。）" in text
+    assert "已取消，清单没有被删除。（你输入的是「服务器B」，需要完整输入「服务器A」）" in text
+    assert path.exists()
+
+
+def test_delete_profile_with_exact_name(tmp_path: Path) -> None:
+    """输入完整名称 -> 文件删除 + 剩余数量正确。"""
+    write_entries(tmp_path, "服务器A", many_mods(3))
+    write_entries(tmp_path, "测试服", many_mods(1))
+    ctx = make_ctx(tmp_path, ["1", "d", "服务器A", "q"])
+    run_profiles_screen(ctx)
+    assert "✓ 清单「服务器A」已删除。还剩 1 个清单。" in out(ctx)
+    assert not (tmp_path / "profiles" / "服务器A.json").exists()
+    assert (tmp_path / "profiles" / "测试服.json").exists()
+
+
+def test_delete_last_profile_counts_zero(tmp_path: Path) -> None:
+    """删掉最后一个清单 -> 还剩 0 个清单。"""
+    write_entries(tmp_path, "独苗", many_mods(1))
+    ctx = make_ctx(tmp_path, ["1", "d", "独苗", "q"])
+    run_profiles_screen(ctx)
+    assert "✓ 清单「独苗」已删除。还剩 0 个清单。" in out(ctx)
+
+
+def test_delete_profile_b_cancels(tmp_path: Path) -> None:
+    """输入 b 也算取消（PRD §13.4）。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+    ctx = make_ctx(tmp_path, ["1", "d", "b", "q"])
+    run_profiles_screen(ctx)
+    assert "已取消，清单没有被删除。" in out(ctx)
+    assert path.exists()
+
+
+def test_delete_profile_failure_keeps_file(tmp_path: Path, monkeypatch) -> None:
+    """删不掉 -> ✗ 文案，文件仍在。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+
+    def boom(*_args, **_kwargs):
+        raise OSError("locked")
+
+    monkeypatch.setattr("modcheck.cli.screens_profiles.delete_profile", boom)
+    ctx = make_ctx(tmp_path, ["1", "d", "服务器A", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "✗ 删除失败：" in text and "清单没有被删除。" in text
+    assert path.exists()
+
+
+def test_delete_profile_quit_returns_to_main_menu(tmp_path: Path) -> None:
+    """确认输入处按 q 直接回主菜单，不删任何东西。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+    ctx = make_ctx(tmp_path, ["1", "d", "q"])
+    assert run_profiles_screen(ctx) == QUIT
+    assert path.exists()
+
+
 # ---------------------------------------------------------------- R3-A08 重命名清单
 def test_rename_profile_updates_file_and_name(tmp_path: Path) -> None:
     """成功：文件名与 profile.name 同时更新，旧文件不再存在。"""
