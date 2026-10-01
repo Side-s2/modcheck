@@ -408,6 +408,13 @@ _MESSAGES: Final[dict[str, str]] = {
     "settings.jobs.range": "✗ 并发数要在 1 到 8 之间（你输入的是 {value}）。没有改动。",
     "settings.cache.range": "✗ 缓存有效期要在 1 到 168 小时之间（你输入的是 {value}）。没有改动。",
     "settings.color.bad": "✗ 颜色只能是 auto / always / never（你输入的是 {value}）。没有改动。",
+    # ---------------------------------------------------------------- 下载计划（R3-B02）
+    "download.skip.no_version": "没有可用于目标版本的版本（🟡 的「可用」版本缺失）",
+    "download.skip.no_jar": "这个版本没有可下载的 .jar 文件",
+    "download.skip.status.blocked": "🔴 阻塞组的模组一律不下载",
+    "download.skip.status.prerelease": "🟠 仅存测试版的模组一律不下载",
+    "download.skip.status.unknown": "⚪ 未判定组的模组一律不下载",
+    "download.skip.status.ignored": "⚫ 已忽略组的模组一律不下载",
 }
 
 _MISSING_REPORTED: set[str] = set()
