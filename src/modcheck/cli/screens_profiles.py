@@ -14,8 +14,8 @@ from modcheck.cli.prompts import (KIND_BACK, KIND_OK, KIND_QUIT, MAX_INVALID_TRI
 from modcheck.cli.render import assemble_row
 from modcheck.console import display_width
 from modcheck.core.models import ModEntry
-from modcheck.core.profile_ops import (INVALID_NAME_CHARS, PAGE_SIZE, page_of,
-                                       parse_project_selector, remove_mods, rename,
+from modcheck.core.profile_ops import (INVALID_NAME_CHARS, PAGE_SIZE, display_name_of,
+                                       page_of, parse_project_selector, remove_mods, rename,
                                        resolve_selector, set_ignored, set_source,
                                        validate_profile_name)
 from modcheck.errors import ConfigError, ModcheckError, ProviderError
@@ -201,7 +201,7 @@ def match_cell(entry: ModEntry) -> str:
 
 def _table_rows(entries: list[ModEntry], *, offset: int) -> list[tuple[str, ...]]:
     """模组列表的行（列与 profile show 一致，第五列改成「匹配」）。"""
-    return [(str(offset + index), entry.best_name, entry.mod_id or entry.key,
+    return [(str(offset + index), display_name_of(entry), entry.mod_id or entry.key,
              str(entry.sources.get("modrinth") or t("report.item.empty_cell")),
              match_cell(entry),
              entry.current_version or t("report.item.empty_cell"))
@@ -263,7 +263,7 @@ def _op_view(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
 
 def candidate_text(entries) -> str:
     """候选建议文本：地毯（modid=carpet）、钠（modid=sodium）。"""
-    return "、".join(t("manage.candidate.item", name=entry.best_name,
+    return "、".join(t("manage.candidate.item", name=display_name_of(entry),
                        modid=entry.mod_id or entry.key) for entry in entries)
 
 
@@ -309,7 +309,7 @@ def _op_remove(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
         return None
     console.line(t("manage.remove.title", profile=profile.name, count=len(targets)))
     for entry in targets:
-        console.line(t("manage.remove.item", name=entry.best_name,
+        console.line(t("manage.remove.item", name=display_name_of(entry),
                        modid=entry.mod_id or entry.key))
     console.line()
     console.line(t("manage.remove.note"))

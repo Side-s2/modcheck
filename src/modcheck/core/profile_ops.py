@@ -164,6 +164,18 @@ def _suggest(mods: Sequence[ModEntry], wanted: str) -> list[ModEntry]:
     return out
 
 
+def display_name_of(entry: ModEntry) -> str:
+    """界面上的模组名：有中文名就显示「[中文名] 英文名」（与报告的名称列一致）。
+
+    PRD §13.2 的删除确认屏写的就是「[锂] Lithium（lithium）」，
+    所以清单管理屏一律用这个格式，不要退化成只有中文名。
+    """
+    base = entry.display_name or entry.mod_id or entry.key or ""
+    if entry.cn_name:
+        return "[" + entry.cn_name + "] " + base
+    return base
+
+
 def clone_entry(entry: ModEntry) -> ModEntry:
     """深拷贝一条记录（经 to_dict/from_dict，保证 sources / aliases 不共享）。"""
     return ModEntry.from_dict(entry.to_dict())
@@ -239,7 +251,7 @@ def set_source(profile: Profile, selector: str, *, provider: str, slug: str,
     mods = [entry if item is target else item for item in profile.mods]
     new_profile = _new_profile(profile, mods)
     return OpResult(True, new_profile, "manage.source.done",
-                    {"name": target.best_name, "title": title or str(slug),
+                    {"name": display_name_of(target), "title": title or str(slug),
                      "slug": str(slug)})
 
 
@@ -258,7 +270,7 @@ def set_ignored(profile: Profile, selector: str, ignored: bool) -> OpResult:
     wanted = MatchStatus.IGNORED if ignored else (
         MatchStatus.MANUAL if has_source else MatchStatus.UNMATCHED)
     key = "manage.ignore.done" if ignored else "manage.ignore.undone"
-    args = {"name": target.best_name}
+    args = {"name": display_name_of(target)}
     if target.match_status is wanted:
         return OpResult(False, profile, key, args)
     entry = clone_entry(target)
@@ -371,7 +383,7 @@ __all__ = [
     "INVALID_NAME_CHARS", "PAGE_SIZE", "REASON_FOUND", "REASON_NOT_FOUND",
     "REASON_AMBIGUOUS", "MAX_SUGGESTS", "IDENTIFIER_LEVELS",
     "OpResult", "ResolveResult", "now_iso", "validate_profile_name",
-    "entry_identifiers", "resolve_selector", "clone_entry", "remove_mods",
+    "entry_identifiers", "resolve_selector", "display_name_of", "clone_entry", "remove_mods",
     "set_source", "set_ignored", "add_mod", "rename", "page_of",
     "parse_project_selector",
 ]

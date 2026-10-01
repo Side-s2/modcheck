@@ -5,8 +5,11 @@ import string
 
 from modcheck import i18n
 
+# R3-A15：菜单 [3]/[4] 的逐字文案 key 由 test_r3_a15_i18n 维护，这里一起守住
+from test_r3_a15_i18n import R3_KEYS as _R3_KEYS
+
 #: T-03 明确要求必须存在的 key（节选 + 实现用到的全部关键 key）
-REQUIRED_KEYS = (
+REQUIRED_KEYS = _R3_KEYS + (
     "app.title", "menu.item.check", "menu.item.scan", "menu.item.manage",
     "menu.item.settings", "menu.item.versions", "menu.item.quit", "menu.hint.no_profile",
     "report.header.title", "report.header.profile", "report.header.target",

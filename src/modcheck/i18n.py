@@ -470,6 +470,7 @@ _MESSAGES: Final[dict[str, str]] = {
     "download.error.verify": "校验失败（文件损坏，已删除）",
     "download.error.write": "写不进去（磁盘满或没有权限）",
     "download.error.net": "下载失败（{detail}）",
+    "download.skip.user": "你选择了跳过",
     # ---------------------------------------------------------------- 清单管理屏（R3-A03 ~ R3-A10）
     "manage.title": "=== 管理模组清单 ===",
     "manage.config_dir": "配置目录：{path}",
