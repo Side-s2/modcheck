@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from modcheck.cli.commands.export import (default_filename, export_csv, export_json,
                                           export_markdown)
@@ -21,7 +21,7 @@ from modcheck.core.models import MatchStatus, ModEntry, ProjectHit
 from modcheck.core.report import Report, Verdict
 from modcheck.errors import (EXIT_NO_SOURCE, ConfigError, ModcheckError, ProviderError,
                              UserCancelled)
-from modcheck.flows.check_flow import (load_profile_entries, run_check_flow,
+from modcheck.flows.check_flow import (CheckOutcome, load_profile_entries, run_check_flow,
                                        source_unavailable)
 from modcheck.i18n import t
 from modcheck.providers.mojang import MojangVersions
@@ -134,8 +134,14 @@ def make_interactive_matcher(ctx: AppContext, changed: dict[str, bool],
     return matcher
 
 
-def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
-    """执行一次兼容性检查；返回退出码。"""
+def run_check(args: argparse.Namespace, ctx: AppContext,
+              on_outcome: Callable[[CheckOutcome], None] | None = None) -> int:
+    """执行一次兼容性检查；返回退出码。
+
+    参数：
+        on_outcome: 可选回调，拿到本次检查的 CheckOutcome（菜单 [5]「检查并下载」用它选品）。
+            不影响任何输出与退出码；不需要报告的调用方（含全部测试与脚本）不用传。
+    """
     console = ctx.console
     source = load_profile_entries(
         profiles_dir=ctx.profiles_dir,
@@ -206,6 +212,9 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
         stats_source=ctx.client, profile_name=source.name, profile_saved=source.saved,
         source_status=ctx.registry.status_line())
     report = outcome.report
+    if on_outcome is not None:
+        # 菜单 [5] 靠它拿到报告去选品；中断的报告也会回调（调用方自己看 interrupted）
+        on_outcome(outcome)
 
     console.clear_progress()
     if report.interrupted:

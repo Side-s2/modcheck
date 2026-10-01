@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from modcheck.core.downloader import (SKIP_NO_JAR, SKIP_NO_VERSION, STATUS_CANCE
 from modcheck.core.models import FileInfo, Loader, ModEntry, ReasonCode, Status, VersionInfo
 from modcheck.core.report import Report, ReportItem
 from modcheck.errors import ProviderHTTPError, ProviderRateLimited, ProviderVerifyError
+from modcheck.providers.http import HttpConfig, HttpClient
 from modcheck.flows.download_flow import (TARGET_IS_FILE, TARGET_MISSING, TARGET_NOT_WRITABLE,
                                           UNKNOWN_FREE, check_target_dir, ensure_target_dir,
                                           looks_like_mods_dir, plan_skips, prepare_download,
@@ -217,6 +219,59 @@ def test_prepare_does_not_print_anything(tmp_path: Path, capsys) -> None:
 
 
 # ---------------------------------------------------------------- 下载（run_download_flow）
+# ---------------------------------------------------------------- 端到端（真 HttpClient）
+def real_client(transport):
+    """真的 HttpClient.download + 假 stream transport（不联网，其余全是真的）。"""
+    from test_http_download import CountingLimiter
+
+    return HttpClient(HttpConfig(rate_limit_per_min=100000), limiter=CountingLimiter(),
+                      stream_transport=transport)
+
+
+def test_flow_with_real_http_client_writes_verified_file(tmp_path: Path) -> None:
+    """整条链：prepare -> download_all -> HttpClient.download（.part + sha1 校验 + os.replace）。
+
+    这条用例是"接口对不上"的守门员：流程用假 fetcher、http 用假 transport，
+    两边各自全绿也可能在**接缝处**对不上（参数名、返回值、期望的字段）。
+    """
+    payload = b"REAL-STACK" * 512
+    digest = hashlib.sha1(payload).hexdigest()
+    report = make_report(report_item(
+        entry("carpet"), Status.READY,
+        latest=version("26.3", files=(file_info("carpet-26.3.jar", primary=True,
+                                                size=len(payload), sha1=digest),))))
+    from test_http_download import FakeStreamTransport, make_stream
+
+    prep = prepare_download(report, tmp_path)
+    client = real_client(FakeStreamTransport(make_stream(payload, size=64)))
+    outcome = run_download_flow(prep, client, sleep=no_sleep)
+    assert outcome.summary.ok == 1 and outcome.summary.failed == 0
+    assert (tmp_path / "carpet-26.3.jar").read_bytes() == payload
+    assert not list(tmp_path.glob("*.part"))
+    assert client.stats[0] == 1                     # 下载计入请求数（D45）
+
+
+def test_flow_with_real_http_client_sha1_mismatch_retries_and_fails(tmp_path: Path) -> None:
+    """sha1 不符：重试 2 次（一共 3 次请求）、坏文件删掉、状态 verify_failed。"""
+    payload = b"corrupted" * 100
+    wrong = hashlib.sha1(b"what-the-server-promised").hexdigest()
+    report = make_report(report_item(
+        entry("carpet"), Status.READY,
+        latest=version("26.3", files=(file_info("carpet-26.3.jar", primary=True,
+                                                size=len(payload), sha1=wrong),))))
+    from test_http_download import FakeStreamTransport, make_stream
+
+    transport = FakeStreamTransport(make_stream(payload, size=32))
+    prep = prepare_download(report, tmp_path)
+    client = real_client(transport)
+    outcome = run_download_flow(prep, client, sleep=no_sleep)
+    assert transport.count == 3                      # retries=2 -> 3 次尝试
+    assert outcome.report.items[0].status == STATUS_VERIFY_FAILED
+    assert outcome.summary.failure_rows[0][:2] == ("carpet-26.3.jar", "download.error.verify")
+    assert not (tmp_path / "carpet-26.3.jar").exists()
+    assert not list(tmp_path.glob("*.part"))
+
+
 def test_run_download_flow_ok(tmp_path: Path) -> None:
     """正常一轮：三个文件下好，汇总数字自洽，没有残留 .part。"""
     prep = prepare_download(sample_report(), tmp_path)
@@ -265,7 +320,7 @@ def test_run_download_flow_disk_write_failure_is_isolated(tmp_path: Path) -> Non
     fetcher = FakeFetcher(error=OSError(28, "disk full"), fail_names=("carpet-26.3.jar",))
     outcome = run_download_flow(prep, fetcher, sleep=no_sleep)
     assert (outcome.summary.ok, outcome.summary.failed) == (1, 1)
-    assert outcome.summary.failure_rows[0] == ("carpet-26.3.jar", "download.error.write")
+    assert outcome.summary.failure_rows[0][:2] == ("carpet-26.3.jar", "download.error.write")
     assert (tmp_path / "lithium-26.1.jar").exists()
     assert not (tmp_path / "carpet-26.3.jar").exists()
 
@@ -288,7 +343,9 @@ def test_run_download_flow_verify_failure_is_reported_as_such(tmp_path: Path) ->
     outcome = run_download_flow(prep, FakeFetcher(verify_times=99), sleep=no_sleep)
     assert outcome.report.items[0].status == STATUS_VERIFY_FAILED
     assert outcome.summary.failed == 1
-    assert outcome.summary.failure_rows == (("carpet-26.3.jar", "download.error.verify"),)
+    rows = outcome.summary.failure_rows
+    assert [row[:2] for row in rows] == [("carpet-26.3.jar", "download.error.verify")]
+    assert rows[0][2]                     # 具体原因要带上，否则用户看到的是空括号
 
 
 def test_run_download_flow_404_is_network_failure(tmp_path: Path) -> None:
@@ -297,7 +354,8 @@ def test_run_download_flow_404_is_network_failure(tmp_path: Path) -> None:
     fetcher = FakeFetcher(error=ProviderHTTPError("not found", status=404, url="u"),
                           fail_names=("carpet-26.3.jar",))
     outcome = run_download_flow(prep, fetcher, retries=0, sleep=no_sleep)
-    assert ("carpet-26.3.jar", "download.error.net") in outcome.summary.failure_rows
+    assert ("carpet-26.3.jar", "download.error.net") in [row[:2]
+                                                          for row in outcome.summary.failure_rows]
     assert outcome.summary.ok == 1
     assert (tmp_path / "lithium-26.1.jar").exists()
 
@@ -323,7 +381,7 @@ def test_run_download_flow_no_jar_entries_listed_in_failures(tmp_path: Path) -> 
     outcome = run_download_flow(prepare_download(report, tmp_path), FakeFetcher(),
                                 sleep=no_sleep)
     rows = outcome.summary.failure_rows
-    assert ("jei", SKIP_NO_JAR) in rows           # 条目没有 file_name 时用显示名
+    assert ("jei", SKIP_NO_JAR, "") in rows       # 条目没有 file_name 时用显示名
     assert outcome.summary.failed == 0            # 它不是"下载失败"，但要在清单里可见
 
 

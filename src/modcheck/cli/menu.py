@@ -13,13 +13,14 @@ from modcheck.errors import ModcheckError, ProviderError, UserCancelled
 from modcheck.i18n import t
 from modcheck.storage.profiles import list_profiles
 
-#: 主菜单（PRD §5.2 的编号顺序）
+#: 主菜单（PRD §5.2 的编号顺序；[5] 是下载，原 [5] 版本列表按裁决 D46 顺延为 [6]）
 MENU_ITEMS = (
     ("1", "menu.item.check"),
     ("2", "menu.item.scan"),
     ("3", "menu.item.manage"),
     ("4", "menu.item.settings"),
-    ("5", "menu.item.versions"),
+    ("5", "menu.item.download"),
+    ("6", "menu.item.versions"),
     ("0", "menu.item.quit"),
 )
 
@@ -97,6 +98,8 @@ def run_menu(args: argparse.Namespace, *, input_fn: Callable[[str], str] | None 
             elif choice == "4":
                 _menu_settings(ctx)
             elif choice == "5":
+                _menu_download(args, ctx, prompter)
+            elif choice == "6":
                 from modcheck.cli.commands.misc import run_versions
 
                 run_versions(argparse.Namespace(limit=10, json_out=False), ctx)
@@ -125,32 +128,65 @@ def _profile_label(summary) -> str:
     return t("profile.option.nodate", name=summary.name, count=summary.mod_count)
 
 
-def _menu_check(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -> None:
-    """功能①：交互式检查。"""
-    from modcheck.cli.commands.check import run_check
+def _prepare_check(args: argparse.Namespace, ctx: AppContext,
+                   prompter: Prompter) -> int | None:
+    """检查前的四屏（选清单 -> 目标版本 -> 加载器 -> 确认）；返回模组数。
 
+    抽出来是因为 [1] 与 [5] 共用同一套前置屏：下载入口的前半段就是一次检查，
+    两份实现迟早会漂移（例如以后加一个"数据源不可用"的确认，只改了一边）。
+    None 表示用户回退了（含"没有清单"的情况）。
+    """
     profiles = list_profiles(ctx.profiles_dir)
     if not profiles:
         if prompter.confirm(t("menu.need_profile")):
             _menu_scan(ctx, prompter)
-        return
+        return None
     console = ctx.console
     options = [Choice(key=summary.name, label=_profile_label(summary)) for summary in profiles]
     selected = prompter.choose(t("profile.list.header", count=len(profiles),
                                  dir=ctx.profiles_dir), options, allow_back=True)
     if selected in ("b", "q"):
-        return
+        return None
     args.profile = selected
     mod_count = next((s.mod_count for s in profiles if s.name == selected), 0)
     if not _screen_version(args, ctx, prompter):        # 屏②：选目标版本
-        return
+        return None
     if not _screen_loader(args, ctx, prompter):          # 屏③：选加载器
-        return
+        return None
     if not _screen_confirm(args, ctx, prompter, mod_count):   # 屏④：确认页
         console.line(t("menu.check.aborted"))
+        return None
+    return mod_count
+
+
+def _menu_check(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -> None:
+    """功能①：交互式检查。"""
+    from modcheck.cli.commands.check import run_check
+
+    if _prepare_check(args, ctx, prompter) is None:
         return
-    console.line()
+    ctx.console.line()
     run_check(args, ctx)
+
+
+def _menu_download(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -> None:
+    """功能⑤：检查并下载（PRD §14.4，R3-B04 ~ R3-B09）。
+
+    前半段与 [1] 完全相同（同一套屏、同一个 run_check），只是顺手接住报告；
+    后半段（询问 / 选文件夹 / 同名冲突 / 进度 / 汇总）全在 cli/screens_download.py，
+    真正的下载在 flows/download_flow.py。
+    """
+    from modcheck.cli.commands.check import run_check
+    from modcheck.cli.screens_download import post_check_download
+
+    if _prepare_check(args, ctx, prompter) is None:
+        return
+    box: dict = {}
+    ctx.console.line()
+    run_check(args, ctx, on_outcome=lambda outcome: box.setdefault("outcome", outcome))
+    outcome = box.get("outcome")
+    if outcome is not None:
+        post_check_download(ctx, outcome.report)
 
 
 def _screen_version(args: argparse.Namespace, ctx: AppContext, prompter: Prompter, *,

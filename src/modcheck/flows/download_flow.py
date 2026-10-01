@@ -130,15 +130,18 @@ class DownloadSummary:
         return self.total > 0 and self.ok == 0 and not self.cancelled
 
     @property
-    def failure_rows(self) -> tuple[tuple[str, str], ...]:
-        """失败清单的 (文件名, 原因 key)。
+    def failure_rows(self) -> tuple[tuple[str, str, str], ...]:
+        """失败清单的 (文件名, 原因 key, 具体原因)。
+
+        具体原因（detail）只有"网络失败"那条文案用得上（"下载失败（{detail}）"），
+        其它原因 key 自带完整句子，多传一个参数不会影响格式化。
 
         PRD §14.5 第 2 条要求"没有可下载的 .jar"的模组也列在失败清单里，
         所以这里把它和正式失败条目合并给出 —— 渲染方不必自己拼。
         """
-        rows = [(item.target.name, item.message_key or "download.error.net")
+        rows = [(item.target.name, item.message_key or "download.error.net", item.detail)
                 for item in self.failed_items]
-        rows += [((entry.file_name or entry.best_name or entry.key), SKIP_NO_JAR)
+        rows += [((entry.file_name or entry.best_name or entry.key), SKIP_NO_JAR, "")
                  for entry in self.no_jar]
         return tuple(rows)
 

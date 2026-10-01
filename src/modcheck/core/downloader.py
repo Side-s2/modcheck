@@ -59,6 +59,9 @@ class DownloadItem:
     target: Path
     status: str = STATUS_PENDING
     message_key: str = ""
+    #: 失败的具体原因（领域异常的中文说明）。渲染方把它填进"下载失败（{detail}）"，
+    #: 否则用户只看到"下载失败（）"—— 排查时最需要的那句话反而没了。
+    detail: str = ""
     bytes_done: int = 0
 
 
@@ -302,12 +305,13 @@ def download_all(plan: DownloadPlan, fetcher, *,
                                            sha1=item.file.hashes.get("sha1"),
                                            on_chunk=make_chunk(item))
                 return replace(item, status=STATUS_OK, bytes_done=written)
-            except ProviderRateLimited:
+            except ProviderRateLimited as exc:
                 # 限流不是这个文件的问题：不计入重试次数（PRD §14.3）
                 rate_limits += 1
                 if rate_limits > MAX_RATE_RETRIES:
                     return replace(item, status=STATUS_FAILED, bytes_done=seen,
-                                   message_key="download.error.net")
+                                   message_key="download.error.net",
+                                   detail=_error_detail(exc))
                 continue
             except Exception as exc:            # noqa: BLE001 - 单文件失败不能影响其它文件
                 attempts += 1
@@ -317,7 +321,7 @@ def download_all(plan: DownloadPlan, fetcher, *,
                     # 兜底：fetcher 没清干净的 .part 由这里删掉，绝不留半成品
                     cleanup_parts([item])
                     return replace(item, status=status, bytes_done=seen,
-                                   message_key=_error_key(exc))
+                                   message_key=_error_key(exc), detail=_error_detail(exc))
                 do_sleep(BACKOFF_SECONDS[min(attempts - 1, len(BACKOFF_SECONDS) - 1)])
 
     def make_chunk(item: DownloadItem) -> Callable[[int], None]:

@@ -27,6 +27,7 @@ _MESSAGES: Final[dict[str, str]] = {
     "menu.item.scan": "扫描 mods 文件夹建立清单",
     "menu.item.manage": "管理模组清单",
     "menu.item.settings": "设置                    （默认版本、加载器、代理、颜色、并发、缓存）",
+    "menu.item.download": "检查并下载模组        （检查完可以直接把可用的版本下下来）",
     "menu.item.versions": "查看官方游戏版本列表",
     "menu.item.quit": "退出",
     "menu.press_enter": "按回车键关闭窗口……",
@@ -476,10 +477,58 @@ _MESSAGES: Final[dict[str, str]] = {
     "download.error.write": "写不进去（磁盘满或没有权限）",
     "download.error.net": "下载失败（{detail}）",
     "download.skip.user": "你选择了跳过",
+    # "下载失败（{detail}）"的兜底 detail（拿不到异常说明时用它，绝不显示空括号）
+    "download.error.detail.unknown": "网络问题或连接中断",
     # 目标文件夹预检查（PRD §14.5 第 10 / 11 条；"要现在创建吗"那句属于询问层）
     "download.target.missing": "这个文件夹不存在。",
     "download.target.is_file": "✗ {path} 是一个文件，不是文件夹。",
     "download.target.not_writable": "✗ 这个文件夹写不进去（没有权限）。请换一个文件夹。",
+    # ---------------------------------------------------------------- 下载屏（PRD §14.4，R3-B04 ~ B09）
+    # 顺序说明：PRD 把问句写在三条说明之前，但本项目所有确认屏都是"先说明、后 (y/N) 问句"
+    # （manage.remove / settings.reset 同样），否则光标会停在说明的最后一行上、还要再打一遍问句。
+    "download.ask.note1": "    · 只会下载 🟢 就绪（最新版）和 🟡 需注意（可用的旧稳定版）的模组。",
+    "download.ask.note2": "    · 🔴 阻塞、🟠 仅存测试版、⚪ 未判定、⚫ 已忽略 一律跳过。",
+    "download.ask.note3": "    · 不会动你现在的 mods 文件夹，只会往你选的文件夹里写文件。",
+    "download.ask.prompt": "要不要把可用的版本下载下来？(y/N) > ",
+    "download.nothing": "没有需要下载的模组：这次检查里没有 🟢 就绪 或 🟡 需注意 的条目（🔴 {blocked} ｜ 🟠 {prerelease} ｜ 🟡 0 ｜ ⚪ {unknown} ｜ 🟢 0）。",
+    # 选择文件夹
+    "download.folder.dialog_title": "选择下载到哪个文件夹",
+    "download.folder.header": "请选择下载到哪个文件夹。",
+    "download.folder.hint": "建议新建一个空文件夹，不要直接选你正在用的 mods 文件夹。",
+    "download.folder.prompt": "下载目标：[b] 取消下载 > ",
+    "download.folder.missing_ask": "这个文件夹不存在。要现在创建吗？(Y/n) > ",
+    "download.folder.create_failed": "✗ 建不了这个文件夹：{path}（没有权限）。换个位置试试。",
+    "download.folder.looks_like_mods": "⚠ 你选的是 {path}，看起来像正在使用的 mods 文件夹。同名文件会被询问是否覆盖。继续？(y/N) > ",
+    "download.folder.low_space": "⚠ 目标磁盘剩余 {free} MB，可能要下载 {needed} MB。继续？(y/N) > ",
+    # 同名文件（逐个问，默认跳过）
+    "download.conflict.header": "开始前先确认：目标文件夹里已经有 {count} 个同名文件。",
+    "download.conflict.note": "ℹ 默认是「跳过」，不会覆盖你已经有的文件。",
+    "download.conflict.title": "⚠ 已存在同名文件：{name}",
+    "download.conflict.existing": "   现在这个：{size} MB，修改于 {time}",
+    "download.conflict.incoming": "   将要下载：{size} MB，来自 Modrinth（{project} {version}）",
+    "download.conflict.options": "   [o] 覆盖它  [s] 跳过这个  [a] 后面的全部覆盖  [k] 后面的全部跳过  [q] 取消下载",
+    "download.prompt": "请选择 > ",
+    # 开跑确认
+    "download.confirm.title": "即将下载 {count} 个文件到：",
+    "download.confirm.dir": "   {dir}",
+    "download.confirm.selection": "（已选：覆盖 {overwrite} 个 ｜ 跳过 {skipped} 个）",
+    "download.confirm.ask": "开始下载？(Y/n) > ",
+    # 进度
+    "download.progress.line": "正在下载 {total} 个文件……  [{bar}]  {done}/{total}  当前：{name}  {done_mb}/{total_mb} MB  已用 {seconds} 秒",
+    "download.progress.plain": "已下载 {done}/{total}：{name}（{mb} MB）",
+    "download.progress.rate_limited": "ℹ 被 Modrinth 限流，正在放慢速度…",
+    # 取消 / 汇总
+    "download.cancelled": "已取消下载。已经下好的 {done} 个文件保留在 {dir} 里，没下完的临时文件已清理。",
+    "download.summary.line": "下载完成：{count} 个文件里 {ok} 个成功、{skipped} 个跳过、{failed} 个失败。用时 {seconds} 秒，共 {mb} MB。",
+    "download.summary.ok": "  ✓ 成功 {count} 个 → {dir}",
+    "download.summary.skipped": "  ⏭ 跳过 {count} 个：{name}（你选择了跳过）",
+    "download.summary.skipped_more": "      {name}（你选择了跳过）",
+    "download.summary.failed": "  ✗ 失败 {count} 个：",
+    "download.summary.failed_item": "      {name} —— {reason}",
+    "download.summary.failed_item.retried": "      {name} —— {reason}，已重试 {retries} 次",
+    "download.summary.hint": "提示：把下好的 .jar 复制到服务端的 mods 文件夹，然后重启服务器。",
+    "download.summary.extras": "ℹ 有 {count} 个模组除了主文件还有附加文件（源码/文档），本次只下载了主文件。",
+    "download.summary.all_failed": "✗ 一个都没下成功。可以稍后重试；如果是网络问题，先检查代理设置：modcheck config set proxy …",
     # ---------------------------------------------------------------- 清单管理屏（R3-A03 ~ R3-A10）
     "manage.title": "=== 管理模组清单 ===",
     "manage.config_dir": "配置目录：{path}",

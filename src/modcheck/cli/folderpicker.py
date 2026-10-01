@@ -14,6 +14,12 @@ import ctypes
 import sys
 import uuid
 from ctypes import POINTER, byref, c_uint32, c_void_p, c_wchar_p
+from typing import Final
+
+#: pick_folder_ex 的状态：拿到了路径 / 用户取消 / 这台机器没有对话框
+FOLDER_OK: Final[str] = "ok"
+FOLDER_CANCELLED: Final[str] = "cancelled"
+FOLDER_UNAVAILABLE: Final[str] = "unavailable"
 
 #: IFileDialog 的 vtable 下标（IUnknown 0-2，IModalWindow 3，IFileDialog 从 4 起）
 _VT_RELEASE = 2
@@ -102,16 +108,28 @@ def _pick_folder_windows(title: str) -> str | None:
 
 
 def pick_folder(title: str) -> str | None:
-    """弹出系统"选择文件夹"窗口，返回绝对路径；取消或不可用返回 None。
+    """弹出系统"选择文件夹"窗口，返回绝对路径；取消或不可用返回 None。"""
+    _status, path = pick_folder_ex(title)
+    return path
 
-    非 Windows、无 COM、用户取消 —— 三者都返回 None，调用方据此回退为手输。
+
+def pick_folder_ex(title: str) -> tuple[str, str | None]:
+    """弹出选择文件夹窗口，返回 (状态, 路径)。
+
+    与 pick_folder 的区别：把"用户按了取消"和"这台机器没有对话框"分开 ——
+    PRD §14.4 要求前者视为"取消下载（不是错误）"，后者回退成手输路径。
+    合成一个 None 就分不出来了：Windows 用户按取消会被当成"没有对话框"再问一遍。
     """
     if sys.platform != "win32":
-        return None
+        return FOLDER_UNAVAILABLE, None
     try:
-        return _pick_folder_windows(title)
+        path = _pick_folder_windows(title)
     except Exception:
-        return None
+        return FOLDER_UNAVAILABLE, None
+    if path:
+        return FOLDER_OK, path
+    return FOLDER_CANCELLED, None
 
 
-__all__ = ["pick_folder"]
+__all__ = ["pick_folder", "pick_folder_ex", "FOLDER_OK", "FOLDER_CANCELLED",
+           "FOLDER_UNAVAILABLE"]
