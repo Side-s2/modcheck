@@ -15,7 +15,8 @@ from modcheck.core.matching import candidate_names, format_downloads, rank_candi
 from modcheck.core.mcversion import validate_target_version
 from modcheck.core.models import MatchStatus, ModEntry, ProjectHit
 from modcheck.core.report import Report, ReportItem, Verdict
-from modcheck.errors import ConfigError, ModcheckError, ProviderError, UserCancelled
+from modcheck.errors import (EXIT_NO_SOURCE, ConfigError, ModcheckError, ProviderError,
+                             UserCancelled)
 from modcheck.i18n import t
 from modcheck.providers.mojang import MojangVersions
 from modcheck.storage.profiles import (list_profiles, load_profile, profile_path,
@@ -209,6 +210,8 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
     if len(entries) < 3 and not quiet:
         console.progress(t("progress.simple"))
 
+    # 只为"数据源是否整体不可用"统计检查区间的请求增量（不含之前的 Mojang 探测）
+    stats_before = (ctx.client.stats[0], ctx.client.successes)
     # 交互模式才允许弹窗（PRD §5.7）；非交互模式绝不问、也绝不猜
     changed: dict[str, bool] = {"flag": False}
     matcher = None
@@ -254,7 +257,30 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
     _export(report, args, ctx)
     if report.interrupted:
         return 130
+    if _source_unavailable(report, ctx, stats_before):
+        # E01：一个可用数据源都没有 —— 这比"有几个模组没查到"严重得多，
+        # 脚本里必须能靠退出码区分「网络/代理坏了」与「部分未判定」。
+        console.line()
+        for line in t("err.net.offline").splitlines():
+            console.line(line)
+        return EXIT_NO_SOURCE
     return VERDICT_EXIT.get(report.verdict(), 0)
+
+
+def _source_unavailable(report: Report, ctx: AppContext, before: tuple[int, int]) -> bool:
+    """数据源是否整体不可用（E01 -> 退出码 4）。
+
+    判据：**本次检查期间确实发出过请求、但一次都没成功**，且没有任何模组得出结论。
+    只看总量会误判：检查前拉 Mojang 版本清单失败也算"请求过"，但那不代表
+    **模组数据源**不可用（实测过这个误报）。所以只统计检查区间的增量。
+    """
+    data = report.summary
+    if data["total_checked"] == 0 or data["unknown"] != data["total_checked"]:
+        return False
+    requests_made, _cache_hits = ctx.client.stats
+    delta_requests = requests_made - before[0]
+    delta_successes = ctx.client.successes - before[1]
+    return delta_requests > 0 and delta_successes == 0
 
 
 def _save_if_changed(changed: dict[str, bool], entries: list[ModEntry],

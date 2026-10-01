@@ -181,6 +181,8 @@ class HttpClient:
         self._transport = transport or default_transport(cfg)
         self._requests = 0
         self._cache_hits = 0
+        #: 成功取到数据的次数（含缓存命中）—— 判断"数据源是不是整体不可用"
+        self._successes = 0
         self._lock = threading.Lock()
 
     # ---------------------------------------------------------------- 对外
@@ -204,11 +206,18 @@ class HttpClient:
         with self._lock:
             return self._requests, self._cache_hits
 
+    @property
+    def successes(self) -> int:
+        """成功取到数据的次数（含缓存命中）；用于判断数据源是否整体不可用。"""
+        with self._lock:
+            return self._successes
+
     def reset_stats(self) -> None:
         """清零统计（每次检查开始时调用）。"""
         with self._lock:
             self._requests = 0
             self._cache_hits = 0
+            self._successes = 0
 
     # ---------------------------------------------------------------- 内部
     def _ttl(self, ttl: float | None) -> float:
@@ -239,6 +248,7 @@ class HttpClient:
             if cached is not None:
                 with self._lock:
                     self._cache_hits += 1
+                    self._successes += 1
                 return cached
 
         headers = {
@@ -262,6 +272,8 @@ class HttpClient:
             status = response.status
             if 200 <= status < 300:
                 payload = self._parse(response)
+                with self._lock:
+                    self._successes += 1
                 if self._cache is not None and self.use_cache:
                     self._cache.put(key, payload, url=url)
                 return payload
