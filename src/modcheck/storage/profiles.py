@@ -16,11 +16,14 @@ from pathlib import Path
 
 from modcheck.core.matching import normalize
 from modcheck.core.models import MatchStatus, ModEntry, Profile, SourceKind
+# 清单名的合法字符规则只有一份（core/profile_ops.py），这里复用，避免两处走样
+from modcheck.core.profile_ops import INVALID_NAME_CHARS as _CORE_INVALID_NAME_CHARS
+from modcheck.core.profile_ops import validate_profile_name as _core_validate_profile_name
 from modcheck.errors import ConfigError, ProfileError
 from modcheck.i18n import t
 
-#: 清单文件名里不允许出现的字符（Windows 与 Linux 都不安全）
-INVALID_NAME_CHARS = ('\\', '/', ':', '*', '?', '"', '<', '>', '|')
+#: 清单文件名里不允许出现的字符（规则定义在 core/profile_ops.py，这里只做别名导出）
+INVALID_NAME_CHARS = _CORE_INVALID_NAME_CHARS
 
 
 def now_iso() -> str:
@@ -50,14 +53,12 @@ class MergeStats:
 
 
 def validate_profile_name(name: str) -> None:
-    """校验清单名；不合法抛 ConfigError。
+    """校验清单名；不合法抛 ConfigError（规则与 core/profile_ops 共用一份）。
 
     抛出：
         ConfigError: 空名或含非法字符。
     """
-    text = (name or "").strip()
-    if not text or any(ch in text for ch in INVALID_NAME_CHARS):
-        raise ConfigError(t("profile.name_invalid"))
+    _core_validate_profile_name(name)
 
 
 def profile_path(directory: Path, name: str) -> Path:

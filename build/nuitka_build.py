@@ -49,6 +49,15 @@ def build(*, onefile: bool = False, output_dir: Path = Path("dist"),
            "--product-name=modcheck",
            "--file-version=0.1.0",
            "--product-version=0.1.0"]
+    if onefile:
+        # ⚠️ 实测反馈：默认解包目录是 %TEMP%\onefile_<pid>_<time>_<rand>，
+        # 而"从 %TEMP% 解包并执行子进程"正是杀毒软件最常拦截的行为模式 ——
+        # 用户机器上表现为"双击一闪而过、以管理员身份运行却正常"（提权常被放行）。
+        # 改成解包到用户缓存目录 + cached 模式：
+        #   ① 不再是 %TEMP%，绕开最常见的启发式规则；
+        #   ② 第二次启动不用重新解包，启动从约 7 秒降到接近瞬时。
+        cmd.append("--onefile-tempdir-spec={CACHE_DIR}/modcheck/{VERSION}")
+        cmd.append("--onefile-cache-mode=cached")
     for name in EXCLUDES:
         cmd.append("--nofollow-import-to=" + name)
     if not keep_intermediate:
