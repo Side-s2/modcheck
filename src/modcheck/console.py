@@ -142,6 +142,9 @@ class Console:
             self.is_tty = bool(self.stream.isatty())
         except Exception:
             self.is_tty = False
+        if not self.is_tty:
+            # 非 TTY 不做宽度裁剪：重定向到文件时"信息完整"优先于"排版好看"
+            self.width = max(self.width, 200)
 
     def _resolve_color(self, color: str) -> bool:
         if color == "never":

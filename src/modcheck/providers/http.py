@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Final, Mapping
 
@@ -29,6 +30,10 @@ from modcheck.i18n import t
 
 #: 单次 429 最多等多久（防御异常的 X-Ratelimit-Reset）
 MAX_PAUSE_SECONDS: Final[float] = 60.0
+#: acquire() 的最大迭代次数（防御性的硬上限）
+MAX_ACQUIRE_STEPS: Final[int] = 10_000
+#: 连续多少次"时钟没前进"就判定为无法收敛
+MAX_STALLS: Final[int] = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,33 +65,54 @@ class HttpConfig:
 
 
 class RateLimiter:
-    """线程安全的令牌桶；429 时用 pause() 做全局退避。"""
+    """严格滑动窗口限速器：保证**任意 window 秒内放行数 <= limit**。
+
+    为什么不用令牌桶：满桶会让前 limit 个请求瞬间放行（实测 200 模组冷跑冲到
+    399 次/分钟，直接撞官方 300 的上限，进而 429 -> 结论不可复现）。
+    滑动窗口没有"突发额度"，任何 60 秒窗口的峰值都严格受限。
+
+    ⚠️ 收敛性保证：本循环依赖注入的 clock/sleep 会推进时间。
+    如果调用方给了"冻结的时钟 + 空实现的 sleep"，循环就不可能收敛，
+    所以这里加了**无进展检测**：连续多次迭代时间没有前进就抛领域异常，
+    绝不空转（实测过 100% CPU 空转 4.5 分钟，表现为"测试卡死"而不是失败）。
+    """
 
     def __init__(self, per_minute: int, *, clock: Callable[[], float] = time.monotonic,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+                 sleep: Callable[[float], None] = time.sleep,
+                 window: float = 60.0) -> None:
         self.per_minute = max(1, int(per_minute))
-        self._rate = self.per_minute / 60.0
-        self._tokens = float(self.per_minute)
-        self._last = clock()
+        self.window = float(window)
+        self._stamps: deque[float] = deque()
         self._paused_until = 0.0
         self._lock = threading.Lock()
         self._clock = clock
         self._sleep = sleep
 
     def acquire(self) -> None:
-        """取一个令牌；不够就等到够（用注入的 sleep，测试里不会真的等）。"""
-        while True:
+        """取一个名额；窗口满了就等到最早那次请求滑出窗口。"""
+        stalled = 0
+        for _ in range(MAX_ACQUIRE_STEPS):
+            now = self._clock()
             with self._lock:
-                now = self._clock()
+                self._expire(now)
                 if now < self._paused_until:
                     wait = self._paused_until - now
+                elif len(self._stamps) < self.per_minute:
+                    self._stamps.append(now)
+                    return
                 else:
-                    self._refill(now)
-                    if self._tokens >= 1.0:
-                        self._tokens -= 1.0
-                        return
-                    wait = (1.0 - self._tokens) / self._rate
-            self._sleep(max(0.0, min(wait, MAX_PAUSE_SECONDS)))
+                    wait = self.window - (now - self._stamps[0]) + 1e-6
+            self._sleep(max(1e-6, min(wait, MAX_PAUSE_SECONDS)))
+            if self._clock() <= now:
+                # 时钟没前进：什么都不等就重试，必然是死循环
+                stalled += 1
+                if stalled >= MAX_STALLS:
+                    raise ProviderRateLimited(
+                        t("err.rate_limiter.stalled"), status=429, url="",
+                        hint="注入的 clock/sleep 必须能推进时间")
+            else:
+                stalled = 0
+        raise ProviderRateLimited(t("err.rate_limiter.stalled"), status=429, url="")
 
     def pause(self, seconds: float) -> None:
         """全局暂停（被限流时用）。"""
@@ -94,10 +120,10 @@ class RateLimiter:
         with self._lock:
             self._paused_until = max(self._paused_until, self._clock() + seconds)
 
-    def _refill(self, now: float) -> None:
-        elapsed = max(0.0, now - self._last)
-        self._last = now
-        self._tokens = min(float(self.per_minute), self._tokens + elapsed * self._rate)
+    def _expire(self, now: float) -> None:
+        """丢掉已经滑出窗口的时间戳。"""
+        while self._stamps and now - self._stamps[0] >= self.window:
+            self._stamps.popleft()
 
 
 def default_transport(cfg: HttpConfig) -> Transport:

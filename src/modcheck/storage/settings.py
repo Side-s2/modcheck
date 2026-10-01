@@ -82,7 +82,7 @@ def set_setting(settings: Settings, key: str, raw: str) -> Settings:
             raise ConfigError(t("config.bad_value", key=key, value=raw))
         settings.color = text
     elif normalized == "proxy":
-        settings.proxy = text or None
+        settings.proxy = _parse_proxy(text, raw)
     elif normalized == "concurrency":
         settings.concurrency = _as_int(text, key, raw, 1, 8)
     elif normalized == "timeout_seconds":
@@ -96,6 +96,26 @@ def set_setting(settings: Settings, key: str, raw: str) -> Settings:
         settings.providers.setdefault("curseforge", {})
         settings.providers["curseforge"]["api_key"] = text or None
     return settings
+
+
+#: 表示"清除这一项"的输入（大小写不敏感）
+NULL_WORDS: Final[tuple[str, ...]] = ("", "null", "none", "-", "nil")
+
+
+def _parse_proxy(text: str, raw: str) -> str | None:
+    """解析代理设置：null/none/-/空串 = 清除；其余必须是 scheme://host[:port] 形式。
+
+    实测教训（D42）：`config set proxy null` 会把字符串 "null" 写进配置，
+    此后所有网络请求永久失败，而 config show 显示「代理：null」看起来像没设 ——
+    用户几乎不可能自己排查出来。所以既支持"清除"语义，也拒绝非法值（不落盘）。
+    """
+    if text.strip().lower() in NULL_WORDS:
+        return None
+    candidate = text.strip()
+    scheme, sep, rest = candidate.partition("://")
+    if not sep or not scheme.isalnum() or not rest:  # socks5 这类 scheme 含数字
+        raise ConfigError(t("config.bad_proxy", value=raw))
+    return candidate
 
 
 def _as_int(text: str, key: str, raw: str, low: int, high: int) -> int:

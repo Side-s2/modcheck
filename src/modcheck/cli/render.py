@@ -198,7 +198,10 @@ def render_report(report: Report, console: Console, *, quiet: bool = False) -> N
     console.line()
 
     items = list(report.iter_items())
-    widths, show_date = layout_widths(items, console.width)
+    # 重定向/管道时不能因为"终端宽度"丢信息：文件里没有折行问题。
+    # 实测过报告整列丢发布日期 —— "少信息"比排版难看严重得多。
+    layout_terminal = console.width if console.is_tty else max(console.width, 200)
+    widths, show_date = layout_widths(items, layout_terminal)
     for status in GROUP_ORDER:
         group = report.groups.get(status, [])
         if not group:

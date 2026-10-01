@@ -21,8 +21,9 @@ from modcheck.storage.settings import load_settings
 
 #: 并发硬上限（PRD §12：默认 6，上限 8）
 MAX_JOBS = 8
-#: Modrinth 官方 300 req/min，留 20% 余量
-RATE_LIMIT_PER_MIN = 250
+#: Modrinth 官方 300 req/min；留 20% 余量取 240，
+#: 这样"任意 60 秒滑动窗口 <= 240"成立（PM 的 R2-02 验收口径）
+RATE_LIMIT_PER_MIN = 240
 
 
 @dataclass(slots=True)

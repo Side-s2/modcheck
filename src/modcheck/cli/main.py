@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import traceback
 from typing import Final, NoReturn, Sequence
@@ -39,8 +40,10 @@ class ChineseHelpParser(argparse.ArgumentParser):
     """
 
     def error(self, message: str) -> "NoReturn":  # type: ignore[override]
-        self.print_usage(sys.stderr)
-        sys.stderr.write(t("cli.error.usage", detail=message) + "\n")
+        # 不再整块打印 argparse 的英文 usage（11 行、且是英文），
+        # 改成"中文人话 + 一行去哪看用法"（PRD §5.10 的错误文案都不带 usage）。
+        sys.stderr.write(localize_argparse_error(message) + "\n")
+        sys.stderr.write(t("err.usage.hint") + "\n")
         self.exit(EXIT_USAGE)
 
     def format_usage(self) -> str:
@@ -49,6 +52,39 @@ class ChineseHelpParser(argparse.ArgumentParser):
     def format_help(self) -> str:
         # argparse 在 format_help 里直接写死 "usage: " 前缀，只能在这里替换
         return super().format_help().replace("usage:", t("cli.usage_prefix"), 1)
+
+
+#: argparse 的 invalid choice 消息（要换成中文，并保留用户输入的原值）
+_CHOICE_RE: Final[re.Pattern[str]] = re.compile(r"invalid choice: '([^']*)'")
+_UNRECOGNIZED_RE: Final[re.Pattern[str]] = re.compile(r"unrecognized arguments?:\s*(.*)$")
+_REQUIRED_RE: Final[re.Pattern[str]] = re.compile(r"required:\s*(.*)$")
+_EXPECTED_RE: Final[re.Pattern[str]] = re.compile(r"argument ([^:]+): expected one argument")
+
+
+def localize_argparse_error(message: str) -> str:
+    """把 argparse 的英文报错换成中文（保留关键信息）。
+
+    实测（R2-6）：`--loader quilt` 原本吐英文 + 11 行英文 usage，
+    对中文用户等于没有提示。--loader 走专门的文案（PRD E10）。
+    """
+    # 注意：argparse 传进来的 message 本身是英文，**默认路径绝不能直接拼给用户**
+    # （实测泄漏过 "unrecognized arguments: --bogus"）。
+    match = _CHOICE_RE.search(message)
+    if match:
+        value = match.group(1)
+        if "--loader" in message:
+            return t("err.loader.unsupported", value=value)
+        return t("cli.error.choice", value=value)
+    match = _UNRECOGNIZED_RE.search(message)
+    if match:
+        return t("cli.error.unrecognized", value=match.group(1).strip())
+    match = _REQUIRED_RE.search(message)
+    if match:
+        return t("cli.error.required", value=match.group(1).strip())
+    match = _EXPECTED_RE.search(message)
+    if match:
+        return t("cli.error.unrecognized", value=match.group(1).strip()) + t("cli.error.missing_value")
+    return t("cli.error.generic")
 
 
 def _decorate(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -194,6 +230,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     debug = bool(getattr(args, "debug", False))
     try:
         if args.command is None:
+            # 重定向/管道里进菜单只会让人看到一堆提问然后卡住（实测问题 R2-5）。
+            # 非交互就直接说清楚怎么用，退出码按"用法错误"处理。
+            if not sys.stdin.isatty():
+                console.line(t("menu.non_interactive"))
+                console.line(t("err.usage.hint"))
+                return EXIT_USAGE
             apply_menu_defaults(args, parser)
             run_menu = _load_attr("modcheck.cli.menu", "run_menu")
             return int(run_menu(args))  # type: ignore[operator]

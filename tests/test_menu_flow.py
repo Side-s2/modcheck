@@ -100,8 +100,23 @@ def test_menu_check_path_does_not_crash(tmp_path: Path,
                                       sources={"modrinth": "carpet"})])
     inputs = feed(["1", "1", "q", "0"])
     monkeypatch.setattr("builtins.input", lambda prompt="": inputs())
+    # main 现在要求 stdin 是终端才进菜单（非 TTY 会直接给中文提示并退出 3）
+    monkeypatch.setattr("sys.stdin", _FakeTty())
     code = main_module.main(["--config-dir", str(tmp_path), "--no-color"])
     assert code == 0
+
+
+class _FakeTty:
+    """假装是交互式终端（只实现 isatty）。"""
+
+    def isatty(self) -> bool:
+        return True
+
+    def readline(self) -> str:
+        return ""
+
+    def read(self, _size: int = -1) -> str:
+        return ""
 
 
 @pytest.mark.parametrize("choice", ["1", "2", "3", "4", "5"])
