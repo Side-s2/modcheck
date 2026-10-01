@@ -74,7 +74,7 @@ def test_branch_prerelease_only() -> None:
     beta = V("V31b", "31.8.0.49", mc=("26.3",), vtype="beta")
     result = classify(loader=Loader.FABRIC, mc_version="26.3",
                       releases_for_loader=[newest], compat_releases=[], compat_any=[beta])
-    assert result.status is Status.DEGRADED
+    assert result.status is Status.PRERELEASE
     assert result.reason is ReasonCode.PRERELEASE_ONLY
     assert result.latest_any is beta
 
@@ -173,7 +173,7 @@ def test_gt_jei_263_fabric() -> None:
     beta = V("j31b", "31.8.0.49", mc=("26.3",), vtype="beta")
     result = classify(loader=Loader.FABRIC, mc_version="26.3",
                       releases_for_loader=[newest], compat_releases=[], compat_any=[beta])
-    assert (result.status, result.reason) == (Status.DEGRADED, ReasonCode.PRERELEASE_ONLY)
+    assert (result.status, result.reason) == (Status.PRERELEASE, ReasonCode.PRERELEASE_ONLY)
 
 
 # ---------------------------------------------------------------- 防"自行排序"

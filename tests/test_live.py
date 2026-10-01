@@ -89,7 +89,7 @@ def test_live_jei_263_is_prerelease_only(live) -> None:
     """jei @ 26.3/fabric -> 🟡 PRERELEASE_ONLY（§17.3）。"""
     provider, _ = live
     result = _decide(provider, "jei", "26.3")
-    assert result.status is Status.DEGRADED  # type: ignore[attr-defined]
+    assert result.status is Status.PRERELEASE  # type: ignore[attr-defined]
     assert result.reason.value == "PRERELEASE_ONLY"  # type: ignore[attr-defined]
 
 

@@ -30,8 +30,8 @@ def make_report(*items: ReportItem, **kw: object) -> Report:
 
 
 def test_group_order() -> None:
-    """分组顺序：阻塞 -> 需降级 -> 未判定 -> 就绪 -> 已忽略。"""
-    assert GROUP_ORDER == (Status.BLOCKED, Status.DEGRADED, Status.UNKNOWN,
+    """分组顺序：阻塞 -> 仅存测试版 -> 需注意 -> 未判定 -> 就绪 -> 已忽略。"""
+    assert GROUP_ORDER == (Status.BLOCKED, Status.PRERELEASE, Status.DEGRADED, Status.UNKNOWN,
                            Status.READY, Status.IGNORED)
 
 
@@ -48,7 +48,8 @@ def test_summary_identities() -> None:
     data = report.summary
     assert data["total_all"] == 6
     assert data["total_checked"] == 5
-    assert data["ready"] + data["degraded"] + data["blocked"] + data["unknown"] == data["total_checked"]
+    assert (data["ready"] + data["degraded"] + data["prerelease"] + data["blocked"]
+            + data["unknown"] == data["total_checked"])
     assert data["total_checked"] + data["ignored"] == data["total_all"]
     assert report.verify_identities() is True
     assert data["ignored"] == 1

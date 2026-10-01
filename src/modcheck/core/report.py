@@ -1,8 +1,9 @@
 """检查报告数据结构（纯数据 + 结论），供 CLI 与未来 GUI 消费。
 
-分组顺序固定为 🔴 阻塞 -> 🟡 需降级 -> ⚪ 未判定 -> 🟢 就绪 -> ⚫ 已忽略（PRD §6.1）。
+分组顺序固定为 🔴 阻塞 -> 🟠 仅存测试版 -> 🟡 需注意 -> ⚪ 未判定 -> 🟢 就绪 -> ⚫ 已忽略。
+（🟠 排在 🟡 前面：只有测试版可用比"退一个稳定版"风险更高。）
 汇总行同时给出"共多少个"与"本次检查多少个"，并有两条恒等式（主 Agent 裁决）：
-    ① ready + degraded + blocked + unknown == total_checked
+    ① ready + degraded + prerelease + blocked + unknown == total_checked
     ② total_checked + ignored == total_all
 summary 是按分组长度算出来的，所以两条恒等式**构造上必然成立**；
 verify_identities() 供测试与导出前自检使用。
@@ -19,11 +20,15 @@ from modcheck.i18n import t
 
 #: 报告分组顺序（问题优先，就绪最后，已忽略永远最后）
 GROUP_ORDER: tuple[Status, ...] = (
-    Status.BLOCKED, Status.DEGRADED, Status.UNKNOWN, Status.READY, Status.IGNORED)
+    Status.BLOCKED, Status.PRERELEASE, Status.DEGRADED,
+    Status.UNKNOWN, Status.READY, Status.IGNORED)
 
-#: 参与"本次检查"统计的四组（不含已忽略）
+#: 参与"本次检查"统计的五组（不含已忽略）
 CHECKED_STATUSES: tuple[Status, ...] = (
-    Status.BLOCKED, Status.DEGRADED, Status.UNKNOWN, Status.READY)
+    Status.BLOCKED, Status.PRERELEASE, Status.DEGRADED, Status.UNKNOWN, Status.READY)
+
+#: 需要用户留意的两组：🟠 仅存测试版 / 🟡 需注意（严重程度：橙 > 黄）
+ATTENTION_STATUSES: tuple[Status, ...] = (Status.PRERELEASE, Status.DEGRADED)
 
 
 class Verdict(str, Enum):
@@ -124,6 +129,7 @@ class Report:
             "total": total_checked,
             "ready": counted[Status.READY],
             "degraded": counted[Status.DEGRADED],
+            "prerelease": counted[Status.PRERELEASE],
             "blocked": counted[Status.BLOCKED],
             "unknown": counted[Status.UNKNOWN],
             "ignored": ignored,
@@ -132,15 +138,16 @@ class Report:
     def verify_identities(self) -> bool:
         """校验两条汇总恒等式（导出前与测试里自检）。"""
         data = self.summary
-        first = (data["ready"] + data["degraded"] + data["blocked"] + data["unknown"]
-                 == data["total_checked"])
+        first = (data["ready"] + data["degraded"] + data["prerelease"]
+                 + data["blocked"] + data["unknown"] == data["total_checked"])
         second = data["total_checked"] + data["ignored"] == data["total_all"]
         return first and second
 
     @property
     def problem_count(self) -> int:
-        """需要用户处理的问题项数量（阻塞 + 需降级）。"""
-        return len(self.groups.get(Status.BLOCKED, [])) + len(self.groups.get(Status.DEGRADED, []))
+        """需要用户处理的问题项数量（阻塞 + 仅存测试版 + 需注意）。"""
+        return sum(len(self.groups.get(status, []))
+                   for status in (Status.BLOCKED, *ATTENTION_STATUSES))
 
     def verdict(self) -> Verdict:
         """按 PRD §5.4 给出结论类型。"""
@@ -157,7 +164,7 @@ class Report:
             if data["unknown"] == data["total_checked"]:
                 return Verdict.ALL_UNKNOWN
             return Verdict.INCOMPLETE
-        if data["degraded"] > 0:
+        if data["degraded"] > 0 or data["prerelease"] > 0:
             return Verdict.READY_WITH_DEGRADED
         return Verdict.ALL_READY
 
@@ -239,10 +246,9 @@ def rerun_command(report: Report) -> str:
 def needs_action(item: ReportItem) -> bool:
     """该问题项是否**需要用户动手**（裁决 D43）。
 
-    🟡 组里相当一部分其实是"你本地就是当前可用的最新版"，用户什么都不用做；
-    把它们也算进待办，"下一步"就会写出"先拍板 🟡 的 24 个"，制造 24 件待办的错觉。
+    🟠/🟡 组里相当一部分其实是"你本地就是当前可用的最新版"，用户什么都不用做。
     """
-    if item.status is Status.DEGRADED:
+    if item.status in ATTENTION_STATUSES:
         current = item.current_version
         if not current:
             return True                       # 不知道本地版本 -> 需要人工确认
@@ -255,12 +261,16 @@ def needs_action(item: ReportItem) -> bool:
 
 
 def actionable_degraded(report: Report) -> int:
-    """「下一步」里要统计的 🟡 数量：只算真正需要动作的。"""
-    return sum(1 for item in report.groups.get(Status.DEGRADED, []) if needs_action(item))
+    """需要动作的 🟠/🟡 数量：只算真正需要用户动手的。"""
+    return sum(1 for status in ATTENTION_STATUSES
+               for item in report.groups.get(status, []) if needs_action(item))
 
 
 def advice_text(item: ReportItem, report: Report) -> str:
     """详情行「建议」的正文。"""
+    # ⚠️ 🟠 仅存测试版**不进**这个分支：它必须始终给出「这是测试版、先备份」的提醒，
+    # 不能因为"本地装的就是那个测试版"就显示「无需处理」—— 那会让用户以为用它没问题。
+    # 它走下面的 hint_key 分支（advice.prerelease_only）。
     if item.status is Status.DEGRADED:
         if not needs_action(item):
             return t("advice.degraded.no_action")
@@ -317,7 +327,8 @@ def verdict_line(report: Report) -> str:
         return t("verdict.incomplete", mc=mc, unknown=data["unknown"])
     if verdict is Verdict.READY_WITH_DEGRADED:
         return t("verdict.ready_with_degraded", mc=mc, loader=loader,
-                 ready=data["ready"], degraded=data["degraded"])
+                 ready=data["ready"], degraded=data["degraded"],
+                 prerelease=data["prerelease"])
     return t("verdict.all_ready", mc=mc, loader=loader, total=data["total_checked"])
 
 
@@ -325,8 +336,8 @@ def summary_line(report: Report) -> str:
     """汇总行（含"共多少个 / 本次检查多少个"两个数）。"""
     data = report.summary
     return t("report.summary", total_all=data["total_all"], total_checked=data["total_checked"],
-             ready=data["ready"], degraded=data["degraded"], blocked=data["blocked"],
-             unknown=data["unknown"], ignored=data["ignored"])
+             ready=data["ready"], prerelease=data["prerelease"], degraded=data["degraded"],
+             blocked=data["blocked"], unknown=data["unknown"], ignored=data["ignored"])
 
 
 def build_action_hints(report: Report) -> list[str]:

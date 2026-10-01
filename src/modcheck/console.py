@@ -23,16 +23,20 @@ if TYPE_CHECKING:  # 只为类型注解，运行时不引入 core
 # 单宽符号，表格内禁止 emoji（PRD §5.3：各终端 emoji 宽度算法不一致会错位）
 SYMBOL_READY: Final[str] = "✓"
 SYMBOL_DEGRADED: Final[str] = "!"
+SYMBOL_PRERELEASE: Final[str] = "~"
 SYMBOL_BLOCKED: Final[str] = "✗"
 SYMBOL_UNKNOWN: Final[str] = "?"
 SYMBOL_IGNORED: Final[str] = "·"
 
 _COLOR_RESET: Final[str] = "\x1b[0m"
 _COLOR_BY_STATUS: Final[dict[str, str]] = {
-    "ready": "32",
-    "degraded": "33",
-    "blocked": "31",
-    "unknown": "90",
+    "ready": "32",                 # 绿
+    "degraded": "33",              # 黄
+    # 橙。用 256 色的 208：Win10+ 的 conhost 与 Windows Terminal 都支持 VT + 256 色；
+    # 万一终端不支持 256 色，也只是退化成近似色，不会乱码，所以是安全选择。
+    "prerelease": "38;5;208",
+    "blocked": "31",               # 红
+    "unknown": "90",               # 灰
     "ignored": "90",
 }
 

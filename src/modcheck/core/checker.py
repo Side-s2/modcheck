@@ -128,7 +128,7 @@ def classify(*, loader: Loader, mc_version: str,
                        latest_for_loader=latest_loader, latest_compat=latest_compat)
     # ⑤ 正式版都不支持，但放宽通道后支持 -> 只有测试版能用
     if not prerelease and latest_any is not None:
-        return _result(Status.DEGRADED, ReasonCode.PRERELEASE_ONLY,
+        return _result(Status.PRERELEASE, ReasonCode.PRERELEASE_ONLY,
                        latest_for_loader=latest_loader, latest_any=latest_any)
     # ⑥ 该加载器有文件，但都不支持 V
     supported = [gv for version in (releases_for_loader or any_for_loader)

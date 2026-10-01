@@ -95,4 +95,6 @@ def test_empty_profile_prints_one_verdict(tmp_path: Path) -> None:
     out = ctx.console.stream.getvalue()  # type: ignore[attr-defined]
     assert code == 0
     assert out.count("结论：") == 1, out[-600:]
-    assert "扫描你的 mods 文件夹" in out
+    # 空清单：结论本身必须说清楚，且不再有「下一步」段落（用户要求去掉常识性提示）
+    assert "没有任何模组" in out
+    assert "下一步" not in out

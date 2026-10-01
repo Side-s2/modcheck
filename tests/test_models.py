@@ -23,7 +23,8 @@ def test_loader_parse_and_display() -> None:
 
 def test_enum_values_match_brief() -> None:
     """状态与原因码取值必须与基线 §7 表格逐字一致。"""
-    assert [s.value for s in Status] == ["ready", "degraded", "blocked", "unknown", "ignored"]
+    assert [s.value for s in Status] == ["ready", "degraded", "prerelease", "blocked",
+                                          "unknown", "ignored"]
     assert ReasonCode.NO_FILES.value == "NO_FILES"
     assert ReasonCode.MC_VERSION_FUZZY.value == "MC_VERSION_FUZZY"
     assert {m.value for m in MatchStatus} == {"exact", "manual", "unmatched", "ignored", "guess"}

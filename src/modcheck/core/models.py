@@ -53,17 +53,26 @@ _LOADER_DISPLAY: Final[dict[str, str]] = {
 
 
 class Status(str, Enum):
-    """报告分组状态（四态 + 已忽略）。"""
+    """报告分组状态。
+
+    🟡 DEGRADED（需注意）与 🟠 PRERELEASE（仅存测试版）原本合在一个 DEGRADED 里。
+    用户要求拆开，因为两者**严重程度与性质不同**：
+      * 🟡 需注意：最新正式版不支持目标 MC，但有一个**更早的稳定版**可用 ——
+        用户只要别下最新版、去找之前的稳定版即可；
+      * 🟠 仅存测试版：只有**测试版**（alpha/beta/rc）支持目标 MC ——
+        用它在服务器上是有风险的。
+    """
 
     READY = "ready"
     DEGRADED = "degraded"
+    PRERELEASE = "prerelease"
     BLOCKED = "blocked"
     UNKNOWN = "unknown"
     IGNORED = "ignored"
 
     @property
     def display(self) -> str:
-        """状态的中文名（就绪 / 需降级 / 阻塞 / 未判定 / 已忽略）。"""
+        """状态的中文名（就绪 / 需注意 / 仅存测试版 / 阻塞 / 未判定 / 已忽略）。"""
         return t("status." + self.value)
 
 

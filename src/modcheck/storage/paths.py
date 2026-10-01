@@ -4,8 +4,13 @@
     --config-dir > 环境变量 MODCHECK_CONFIG_DIR > 便携目录（exe 同级 config/，可写时）
     > Windows %APPDATA%\\modcheck / Linux ~/.config/modcheck
 
-"便携模式"只在打包后的 exe 场景生效：源码运行时 sys.executable 是 python.exe，
-拿它的同级目录当配置目录是错的。
+"便携模式"在两种场景都生效：
+    * 打包产物：exe 所在目录（Nuitka onefile 下 sys.executable 指向临时目录，所以用 sys.argv[0]）；
+    * 源码 / 启动器（modcheck.cmd、modcheck.sh）：**项目根**（含 src\ 的那一层）。
+
+⚠️ 源码模式以前直接回退到 %APPDATA%（C 盘），用户实测反馈"程序把文件写到 C 盘、
+还因此需要管理员权限"。配置文件跟程序放一起才符合"绿色软件"的预期，所以现在两条路径都便携。
+只有当便携目录**不可写**（例如放在 Program Files）时才回退到用户目录。
 """
 from __future__ import annotations
 
@@ -85,6 +90,22 @@ def ensure_config_dir(path: Path) -> tuple[Path, bool]:
     return fallback, True
 
 
+def _source_root() -> Path | None:
+    """源码/启动器模式下的"程序目录" = 项目根（包含 src\ 的那一层）。
+
+    本文件位于 <root>/src/modcheck/storage/paths.py，所以 parents[3] 就是 <root>。
+    只有当这一层真的叫 src 时才认（否则说明包被装到了 site-packages 之类的地方，
+    那时乱猜目录比回退到用户目录更糟）。
+    """
+    here = Path(__file__).resolve()
+    try:
+        src = here.parents[2]
+        root = here.parents[3]
+    except IndexError:                     # 目录层级比预期浅
+        return None
+    return root if src.name == "src" else None
+
+
 def is_packaged() -> bool:
     """是否运行在打包产物里。
 
@@ -95,7 +116,7 @@ def is_packaged() -> bool:
 
 
 def detect_exe_dir() -> Path | None:
-    """打包运行时返回 exe 所在目录，源码运行时返回 None。
+    """返回"程序所在目录"：打包产物 = exe 目录，源码运行 = 项目根。
 
     ⚠️ 实测（2026-10-01，Nuitka 4.2.2 / Python 3.11.9）：
       * Nuitka standalone：sys.executable 是 <dist>/python.exe（恰好同目录，能用）；
@@ -104,7 +125,7 @@ def detect_exe_dir() -> Path | None:
       * sys.argv[0] 在两种模式下都是真正的 exe 路径，所以**必须优先用它**。
     """
     if not is_packaged():
-        return None
+        return _source_root()
     raw = (sys.argv[0] if sys.argv and sys.argv[0] else "") or sys.executable
     try:
         return Path(raw).resolve().parent

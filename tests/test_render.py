@@ -78,7 +78,7 @@ def test_same_version_shows_no_arrow() -> None:
     ready = item("fa", Status.READY, ReasonCode.OK, current="0.7.0",
                  latest_for_loader=V("0.7.0"))
     assert render_version_cell(ready) == "0.7.0（已是最新）"
-    degraded = item("gca", Status.DEGRADED, ReasonCode.PRERELEASE_ONLY,
+    degraded = item("gca", Status.PRERELEASE, ReasonCode.PRERELEASE_ONLY,
                     current="v2.12.1+build.83", latest_for_loader=V("v2.12.1+build.83"))
     assert render_version_cell(degraded) == "v2.12.1+build.83（已是最新正式版）"
 
@@ -121,7 +121,8 @@ def test_render_report_layout_rules() -> None:
     assert group_rules == rules
     assert "🔴 阻塞（1 个）" in text
     assert "🟢 就绪（1 个）" in text
-    assert "🟡 需降级（" not in text        # 空组不打印（汇总行里的计数不算）
+    assert "🟡 需注意（" not in text        # 空组不打印（汇总行里的计数不算）
+    assert "🟠 仅存测试版（" not in text
     body = [line for line in text.splitlines() if line.startswith("  ✓") or line.startswith("  ✗")]
     assert body, "没有渲染出条目行"
     for line in body:

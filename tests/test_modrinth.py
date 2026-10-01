@@ -245,7 +245,7 @@ def test_jei_263_fabric_prerelease_end_to_end() -> None:
     assert b == []
     result = classify(loader=Loader.FABRIC, mc_version="26.3", releases_for_loader=a,
                       compat_releases=b, compat_any=b2)
-    assert result.status is Status.DEGRADED
+    assert result.status is Status.PRERELEASE
     assert result.reason.value == "PRERELEASE_ONLY"
 
 

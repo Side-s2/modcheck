@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from modcheck.console import (SYMBOL_BLOCKED, SYMBOL_DEGRADED, SYMBOL_IGNORED, SYMBOL_READY,
-                              SYMBOL_UNKNOWN, Console, pad, truncate)
+from modcheck.console import (SYMBOL_BLOCKED, SYMBOL_DEGRADED, SYMBOL_IGNORED, SYMBOL_PRERELEASE,
+                              SYMBOL_READY, SYMBOL_UNKNOWN, Console, pad, truncate)
 from modcheck.core.filename import parse_jar_filename
 from modcheck.core.models import ReasonCode, SourceKind, Status
 from modcheck.core.report import (GROUP_ORDER, Report, ReportItem, advice_text,
@@ -31,6 +31,7 @@ DETAIL_INDENT = " " * 10
 #: 组标题
 GROUP_TITLE_KEYS = {
     Status.BLOCKED: "group.blocked.title",
+    Status.PRERELEASE: "group.prerelease.title",
     Status.DEGRADED: "group.degraded.title",
     Status.UNKNOWN: "group.unknown.title",
     Status.READY: "group.ready.title",
@@ -38,6 +39,7 @@ GROUP_TITLE_KEYS = {
 }
 GROUP_SYMBOLS = {
     Status.BLOCKED: SYMBOL_BLOCKED,
+    Status.PRERELEASE: SYMBOL_PRERELEASE,
     Status.DEGRADED: SYMBOL_DEGRADED,
     Status.UNKNOWN: SYMBOL_UNKNOWN,
     Status.READY: SYMBOL_READY,
@@ -91,7 +93,9 @@ def render_version_cell(item: ReportItem) -> str:
     # 两侧相同时箭头没有信息量（0.7.0 → 0.7.0）；
     # 🟡 组里更别扭：看起来像自相矛盾的降级，其实原因是"只有测试版支持"。
     if item.current_version and item.current_version == latest:
-        if item.status is Status.DEGRADED:
+        # 🟠/🟡 要写"正式版"：version_label 取的一直是**正式版**通道，
+        # 而这个模组在目标 MC 上可能只有测试版可用 —— 点明通道才不会让人误解。
+        if item.status in (Status.DEGRADED, Status.PRERELEASE):
             return t("report.item.same_version_release", version=current)
         return t("report.item.same_version", version=current)
     return current + " → " + latest
@@ -238,8 +242,6 @@ def render_report(report: Report, console: Console, *, quiet: bool = False) -> N
         console.line()
     console.prose(summary_line(report))
     console.line("═" * rule)
-    console.line()
-    render_next_steps(report, console)
 
 
 def _group_title(status: Status, group: Sequence[ReportItem], report: Report) -> str:
@@ -258,7 +260,7 @@ def _render_details(item: ReportItem, report: Report, console: Console) -> None:
         console.line(DETAIL_INDENT + advice_text(item, report))
         return
     console.prose(t("report.item.reason", text=reason_text(item, report)))
-    if item.status is Status.DEGRADED:
+    if item.status in (Status.DEGRADED, Status.PRERELEASE):
         _render_available(item, report, console)
     console.prose(t("report.item.advice", text=advice_text(item, report)))
 
@@ -284,29 +286,6 @@ def render_summary(report: Report, console: Console) -> None:
     console.prose(summary_line(report))
 
 
-def render_next_steps(report: Report, console: Console) -> None:
-    """渲染「下一步」（没有问题项时整段替换）。
-
-    ⚠️ 两个判据都不能用 "total_checked == 0"：
-      * 被 Ctrl+C 中断时 completed=0，若走空清单分支会打印**第二条错误结论**
-        （"清单里没有任何模组"），还会建议用户去重扫 mods 文件夹 ——
-        那可能覆盖用户手工编辑过的清单，是会诱导破坏性操作的错误（实测）。
-      * 真正的"空清单"判据是**清单里一条记录都没有**，即 report.total == 0。
-    另外结论行已经由 verdict_line 打过一次，这里不再重复打（D-22）。
-    """
-    if report.interrupted:
-        return                       # 中断路径只输出中断摘要
-    if report.total == 0:
-        console.line()
-        console.line(t("report.next.title"))
-        console.line(t("report.empty.next1"))
-        console.line(t("report.empty.command", dir="<mods 文件夹>", profile=report.profile_name))
-        console.line(t("report.empty.next2"))
-        return
-    for line in build_action_hints(report):
-        console.prose(line)
-
-
-__all__ = ["render_report", "render_summary", "render_next_steps", "render_version_cell",
+__all__ = ["render_report", "render_summary", "render_version_cell",
            "column_widths", "layout_widths", "ROW_PREFIX_WIDTH", "version_label", "short_date",
            "name_cell", "modid_cell"]

@@ -26,11 +26,19 @@ class Prompter:
         self.out = out
 
     def ask(self, prompt: str) -> str:
-        """问一句并返回原始输入（EOF/Ctrl+C 当作取消）。"""
+        """问一句并返回原始输入（EOF/Ctrl+C 当作取消）。
+
+        用户敲完回车后统一空两行再继续输出 —— 否则后续内容会紧贴着他刚敲的字，
+        信息密集的检查报告尤其难读（用户要求）。
+        """
         try:
-            return self._input(prompt).strip()
+            raw = self._input(prompt)
         except (EOFError, KeyboardInterrupt) as exc:
             raise UserCancelled(t("menu.bye")) from exc
+        if self.out is not None:
+            self.out.line()
+            self.out.line()
+        return raw.strip()
 
     def choose(self, title: str, options: Sequence[Choice], *, allow_back: bool = False,
                default: str | None = None) -> str:
