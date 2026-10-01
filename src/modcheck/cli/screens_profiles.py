@@ -15,6 +15,7 @@ from modcheck.cli.render import assemble_row
 from modcheck.console import display_width
 from modcheck.core.models import ModEntry
 from modcheck.core.profile_ops import (INVALID_NAME_CHARS, PAGE_SIZE, page_of,
+                                       remove_mods, resolve_selector,
                                        validate_profile_name)
 from modcheck.errors import ConfigError, ModcheckError
 from modcheck.i18n import t
@@ -32,6 +33,7 @@ NEW: Final[str] = "new"
 #: 最终顺序与 PRD §13.2 完全一致。
 MANAGE_ITEMS: Final[tuple[tuple[str, str], ...]] = (
     ("1", "manage.one.view"),
+    ("2", "manage.one.remove"),
 )
 
 #: 匹配状态列的文字（PRD §13.2 的「匹配」列）
@@ -254,9 +256,81 @@ def _op_view(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
             console.line(t("menu.invalid_choice"))
 
 
+def candidate_text(entries) -> str:
+    """候选建议文本：地毯（modid=carpet）、钠（modid=sodium）。"""
+    return "、".join(t("manage.candidate.item", name=entry.best_name,
+                       modid=entry.mod_id or entry.key) for entry in entries)
+
+
+def _resolve_targets(profile, selectors: list[str]) -> tuple[list[ModEntry], list[str]]:
+    """把用户输入的一串定位串解析成 (命中条目, 未命中串)。"""
+    targets: list[ModEntry] = []
+    missing: list[str] = []
+    for text in selectors:
+        result = resolve_selector(profile, text)
+        if result.entry is None:
+            missing.append(text)
+            continue
+        if not any(item is result.entry for item in targets):
+            targets.append(result.entry)
+    return targets, missing
+
+
+def _op_remove(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
+    """[2] 删除模组（逐条列出 + 默认 N，PRD §13.2 / R3-A05）。"""
+    console = ctx.console
+    profile = _load_profile(ctx, name)
+    if profile is None:
+        return None
+    if not profile.mods:
+        console.line(t("manage.one.empty"))
+        return None
+    console.line(t("manage.remove.prompt1"))
+    kind, value = read_line(prompter, t("manage.remove.prompt2"))
+    if kind == QUIT:
+        return QUIT
+    if kind == BACK or not value:
+        return None
+    selectors = [part.strip() for part in value.split(",") if part.strip()]
+    targets, missing = _resolve_targets(profile, selectors)
+    for text in missing:
+        result = resolve_selector(profile, text)
+        if result.candidates:
+            console.line(t("manage.remove.not_found_hint", profile=profile.name, name=text,
+                           suggest=candidate_text(result.candidates)))
+        else:
+            console.line(t("manage.remove.not_found", profile=profile.name, name=text))
+    if not targets:
+        return None
+    console.line(t("manage.remove.title", profile=profile.name, count=len(targets)))
+    for entry in targets:
+        console.line(t("manage.remove.item", name=entry.best_name,
+                       modid=entry.mod_id or entry.key))
+    console.line()
+    console.line(t("manage.remove.note"))
+    # 危险操作的默认答案必须是 No（PRD §13.4 第 2 条）
+    if not prompter.confirm(t("manage.remove.confirm"), default=False):
+        console.line(t("manage.remove.cancelled"))
+        return None
+    result = remove_mods(profile, selectors)
+    if not result.changed:
+        console.line(t("manage.remove.none", profile=profile.name))
+        return None
+    path = profile_path(ctx.profiles_dir, name)
+    try:
+        save_profile(result.profile, path)
+    except (ModcheckError, OSError):
+        # 内存与磁盘都不变（新对象直接丢弃）
+        console.line(t("manage.save_failed", path=path))
+        return None
+    console.line(t(result.message_key, **result.message_args))
+    return None
+
+
 #: 按键 -> 处理函数（R3-A04~A09 逐条填进来）；返回 QUIT 表示直接回主菜单
 MANAGE_HANDLERS: dict[str, Callable[[AppContext, Prompter, str], str | None]] = {
     "1": _op_view,
+    "2": _op_remove,
 }
 
 

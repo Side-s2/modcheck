@@ -148,6 +148,111 @@ def many_mods(count: int) -> list[ModEntry]:
             for i in range(count)]
 
 
+# ---------------------------------------------------------------- R3-A05 删除模组
+def names(tmp_path: Path, name: str) -> list[str]:
+    """读回清单里的 modid 列表（验证磁盘真的变了）。"""
+    from modcheck.storage.profiles import load_profile
+
+    return [entry.mod_id or entry.key
+            for entry in load_profile(profile_path(tmp_path / "profiles", name)).mods]
+
+
+def test_remove_mods_with_confirmation(tmp_path: Path) -> None:
+    """删 2 条：逐条列出 + 确认后写盘 + 逐字成功文案。"""
+    write_entries(tmp_path, "服务器A", many_mods(5))
+    ctx = make_ctx(tmp_path, ["1", "2", "1,2", "y", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "即将从清单「服务器A」删除 2 个模组：" in text
+    assert "    Mod0（m0）" in text and "    Mod1（m1）" in text
+    assert "这只会从清单记录里删掉它们：不会删除你 mods 文件夹里的 jar 文件。" in text
+    assert "✓ 已删除 2 个模组，清单「服务器A」现在有 3 个模组。（想让它们回来，可以重新扫描 mods 文件夹）" in text
+    assert names(tmp_path, "服务器A") == ["m2", "m3", "m4"]
+
+
+def test_remove_mods_cancelled_keeps_file(tmp_path: Path) -> None:
+    """答 n：清单一个字节都不变。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(3))
+    before = path.read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "2", "1", "n", "q"])
+    run_profiles_screen(ctx)
+    assert "已取消，清单没有被删除。" in out(ctx)
+    assert path.read_bytes() == before
+
+
+def test_remove_mods_default_is_no(tmp_path: Path) -> None:
+    """直接回车 = 取消（危险操作绝不默认 Yes）。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(3))
+    before = path.read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "2", "1", "", "q"])
+    run_profiles_screen(ctx)
+    assert path.read_bytes() == before
+
+
+def test_remove_mods_unknown_gives_candidates(tmp_path: Path) -> None:
+    """定位不到 -> 候选建议文案（D33），且不写盘。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(3))
+    before = path.read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "2", "Mod0x", "2", "Mod", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "✗ 清单「服务器A」里没有叫「Mod0x」的模组。" in text
+    assert "你要找的是不是：Mod0（modid=m0）、Mod1（modid=m1）、Mod2（modid=m2）？" in text
+    assert path.read_bytes() == before
+    assert "确认删除？" not in text
+
+
+def test_remove_mods_by_identifier_and_mixed(tmp_path: Path) -> None:
+    """编号与标识可以混着用，同一模组只删一次。"""
+    write_entries(tmp_path, "服务器A", many_mods(4))
+    ctx = make_ctx(tmp_path, ["1", "2", "m0, m0, Mod3", "y", "q"])
+    run_profiles_screen(ctx)
+    assert "即将从清单「服务器A」删除 2 个模组：" in out(ctx)
+    assert names(tmp_path, "服务器A") == ["m1", "m2"]
+
+
+def test_remove_mods_empty_profile(tmp_path: Path) -> None:
+    """空清单：专门文案，不进入确认流程。"""
+    write_entries(tmp_path, "空清单", [])
+    ctx = make_ctx(tmp_path, ["1", "2", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "这个清单里还没有模组。回上一层用 [b]，或回主菜单选 [2] 扫描 mods 文件夹。" in text
+    assert "确认删除？" not in text
+
+
+def test_remove_mods_back_returns(tmp_path: Path) -> None:
+    """输入 b 直接回管理屏，不删除。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(2))
+    before = path.read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "2", "b", "b", "q"])
+    run_profiles_screen(ctx)
+    assert path.read_bytes() == before
+
+
+def test_remove_mods_save_failure_keeps_everything(tmp_path: Path,
+                                                   monkeypatch) -> None:
+    """写盘失败：✗ 文案 + 磁盘与内存都不变。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(3))
+    before = path.read_bytes()
+
+    def boom(*_args, **_kwargs):
+        raise OSError("read-only")
+
+    monkeypatch.setattr("modcheck.cli.screens_profiles.save_profile", boom)
+    ctx = make_ctx(tmp_path, ["1", "2", "1", "y", "q"])
+    run_profiles_screen(ctx)
+    assert "✗ 保存失败：" in out(ctx)
+    assert path.read_bytes() == before
+
+
+def test_remove_mods_quit_returns_to_main_menu(tmp_path: Path) -> None:
+    """删除屏里按 q 直接回主菜单。"""
+    write_entries(tmp_path, "服务器A", many_mods(2))
+    ctx = make_ctx(tmp_path, ["1", "2", "q"])
+    assert run_profiles_screen(ctx) == QUIT
+
+
 # ---------------------------------------------------------------- R3-A04 查看模组列表
 def test_view_list_first_page(tmp_path: Path) -> None:
     """第一页 20 条：标题给出 第 1/2 页，表头有「匹配」列，第 21 条不在这一页。"""
