@@ -14,9 +14,10 @@ from dataclasses import dataclass
 from typing import Callable, Protocol, Sequence
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel,
-                             QMainWindow, QProgressBar, QPushButton, QTabBar,
-                             QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout,
+                             QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar,
+                             QPushButton, QTabBar, QTableWidget, QTableWidgetItem,
+                             QVBoxLayout, QWidget)
 
 from modcheck.gui import theme
 
@@ -143,6 +144,11 @@ class MainWindow(QMainWindow):
         self.lb_verdict.setStyleSheet(f"color:{theme.MUTED};")
         vl.addWidget(self.lb_verdict)
         outer.addWidget(verdict_card)
+        if not self._service.profiles():
+            # 空状态要说清"下一步做什么"，而不是留一个空表格让人发呆
+            self.lb_verdict.setText("还没有模组清单。先用命令行建立一份："
+                                    "modcheck scan \"<mods 文件夹>\" --profile 服务器A")
+            self.btn_go.setEnabled(False)
 
         # ---- 分页签 + 表格 ----
         body, bl = self._card()
@@ -179,6 +185,9 @@ class MainWindow(QMainWindow):
         self.btn_json = QPushButton("导出 JSON")
         self.btn_md = QPushButton("导出 Markdown")
         self.btn_copy = QPushButton("复制重跑命令")
+        self.btn_json.clicked.connect(lambda: self._on_export("json"))
+        self.btn_md.clicked.connect(lambda: self._on_export("md"))
+        self.btn_copy.clicked.connect(self._on_copy_command)
         for b in (self.btn_json, self.btn_md, self.btn_copy):
             b.setEnabled(False)
             foot.addWidget(b)
@@ -222,12 +231,39 @@ class MainWindow(QMainWindow):
         return tbl
 
     # ---------------------------------------------------------------- 交互
+    def _on_export(self, fmt: str) -> None:
+        """导出报告 —— 走的是 flows.export，**与 CLI 导出同一份实现**（文件逐字节相同）。"""
+        exporter = getattr(self._service, "export_to", None)
+        if exporter is None:
+            return
+        default = self._service.export_default_name(fmt)      # type: ignore[attr-defined]
+        caption = {"json": "导出 JSON", "md": "导出 Markdown", "csv": "导出 CSV"}.get(fmt, "导出")
+        pattern = {"json": "JSON (*.json)", "md": "Markdown (*.md)", "csv": "CSV (*.csv)"}[fmt]
+        path, _ = QFileDialog.getSaveFileName(self, caption, default, pattern)
+        if not path:
+            return                                    # 用户取消：什么都不做，不报错
+        try:
+            exporter(path, fmt)
+            self.lb_status.setText("已导出：" + path)
+        except Exception as exc:                      # 磁盘满/无权限：要让用户看见
+            QMessageBox.warning(self, "导出失败", f"{type(exc).__name__}: {exc}")
+
+    def _on_copy_command(self) -> None:
+        """把等价的重跑命令复制到剪贴板 —— 让用户能在终端里复现同一次检查。"""
+        cmd = (f"modcheck check --profile {self._profile_name()} "
+               f"--mc {self.cb_mc.currentText()} --loader {self.cb_loader.currentText().lower()}")
+        QApplication.clipboard().setText(cmd)
+        self.lb_status.setText("已复制：" + cmd)
+
+    def _profile_name(self) -> str:
+        return self.cb_profile.currentText().split("（")[0]
+
     def _on_start(self) -> None:
         if self._worker is not None:
             self._worker.cancel()
             self.lb_progress.setText("正在取消……")
             return
-        profile = self.cb_profile.currentText().split("（")[0]
+        profile = self._profile_name()
         self._worker = CheckWorker(self._service, profile, self.cb_mc.currentText(),
                                    self.cb_loader.currentText(), self)
         self._worker.progressed.connect(self._on_progress)

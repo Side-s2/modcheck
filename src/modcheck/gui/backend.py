@@ -13,7 +13,8 @@ from typing import Callable, Sequence
 from modcheck.core.models import Loader
 from modcheck.core.report import advice_text, reason_text, version_cell, verdict_line
 from modcheck.errors import ProviderError
-from modcheck.flows import load_profile_entries, run_check_flow
+from modcheck.flows import (default_filename, export_csv, export_json, export_markdown,
+                            load_profile_entries, run_check_flow)
 from modcheck.flows.runtime import build_runtime
 from modcheck.gui.main_window import Row
 from modcheck.providers.mojang import MojangVersions
@@ -72,6 +73,8 @@ class CliBackend:
     def __init__(self, config_dir: str | Path | None = None) -> None:
         self.runtime = build_runtime(config_dir=config_dir)
         self._versions: list[str] | None = None
+        #: 最近一次检查的报告 —— 导出按钮要用它（与 CLI 导出**同一份实现**）
+        self.last_report = None
 
     # ---------------------------------------------------------------- 清单
     def profiles(self) -> Sequence[tuple[str, int]]:
@@ -116,8 +119,30 @@ class CliBackend:
             jobs=int(settings.concurrency), on_progress=on_progress,
             should_stop=should_stop, stats_source=self.runtime.client,
             profile_name=loaded.name, profile_saved=loaded.saved)
+        self.last_report = outcome.report
         rows = [_to_row(item) for item in outcome.report.iter_items()]
         return verdict_line(outcome.report), rows
+
+    # ---------------------------------------------------------------- 导出
+    def export_default_name(self, fmt: str) -> str:
+        """默认文件名（与 CLI 的命名规则一致）。"""
+        report = self.last_report
+        if report is None:
+            return "report." + fmt
+        return default_filename(report.profile_name, report.mc_version, report.loader, fmt)
+
+    def export_to(self, path: str | Path, fmt: str) -> Path:
+        """导出报告。**复用 flows.export**，所以 GUI 导出的文件与 CLI 导出的逐字节相同。"""
+        if self.last_report is None:
+            raise RuntimeError("还没有可导出的报告")
+        target = Path(path)
+        if fmt == "json":
+            export_json(self.last_report, target)
+        elif fmt == "md":
+            export_markdown(self.last_report, target)
+        else:
+            export_csv(self.last_report, target)
+        return target
 
 
 __all__ = ["CliBackend"]
