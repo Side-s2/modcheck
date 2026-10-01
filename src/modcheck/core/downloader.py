@@ -182,11 +182,11 @@ def plan_for(report: Report, target_dir: Path) -> DownloadPlan:
             continue
         version = pick_version(report_item)
         if version is None:
-            skipped.append((entry, "download.skip.no_version"))
+            skipped.append((entry, SKIP_NO_VERSION))
             continue
         file = pick_file(version)
         if file is None:
-            skipped.append((entry, "download.skip.no_jar"))
+            skipped.append((entry, SKIP_NO_JAR))
             continue
         target = root / safe_filename(file.filename,
                                       fallback=fallback_filename(entry, version))
@@ -214,6 +214,9 @@ MAX_RATE_RETRIES: Final[int] = 5
 BACKOFF_SECONDS: Final[tuple[float, ...]] = (1.0, 2.0)
 #: 用户选择跳过
 SKIP_USER: Final[str] = "download.skip.user"
+#: 计划期就注定下不了的两种条目（PRD §14.5 第 2 / 17 条：要在汇总里写明原因）
+SKIP_NO_JAR: Final[str] = "download.skip.no_jar"
+SKIP_NO_VERSION: Final[str] = "download.skip.no_version"
 
 
 def _error_key(exc: BaseException) -> str:

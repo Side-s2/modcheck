@@ -476,6 +476,10 @@ _MESSAGES: Final[dict[str, str]] = {
     "download.error.write": "写不进去（磁盘满或没有权限）",
     "download.error.net": "下载失败（{detail}）",
     "download.skip.user": "你选择了跳过",
+    # 目标文件夹预检查（PRD §14.5 第 10 / 11 条；"要现在创建吗"那句属于询问层）
+    "download.target.missing": "这个文件夹不存在。",
+    "download.target.is_file": "✗ {path} 是一个文件，不是文件夹。",
+    "download.target.not_writable": "✗ 这个文件夹写不进去（没有权限）。请换一个文件夹。",
     # ---------------------------------------------------------------- 清单管理屏（R3-A03 ~ R3-A10）
     "manage.title": "=== 管理模组清单 ===",
     "manage.config_dir": "配置目录：{path}",
