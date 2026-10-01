@@ -109,6 +109,24 @@ def test_pick_file_prefers_primary_jar() -> None:
     assert pick_file(version_with).filename == "mod-1.0.jar"
 
 
+def test_pick_file_skips_addon_jars(tmp_path: Path) -> None:
+    """裁决：-sources / -javadoc / -dev / -api 结尾的 jar 一律不当主文件。
+
+    只有附加 jar 的版本必须跳过（放进 mods 不会被加载，下给用户比不下更糟）。
+    """
+    only_addons = version("1.0", files=(file_info("mod-1.0-sources.jar", primary=True),
+                                        file_info("mod-1.0-javadoc.jar")))
+    assert pick_file(only_addons) is None
+    report = make_report(report_item(entry("a"), Status.READY, latest=only_addons))
+    plan = plan_for(report, tmp_path)
+    assert plan.items == () and plan.skipped[0][1] == "download.skip.no_jar"
+
+    mixed = version("1.0", files=(file_info("mod-1.0-dev.jar", primary=True),
+                                  file_info("mod-1.0-api.jar"),
+                                  file_info("mod-1.0.jar")))
+    assert pick_file(mixed).filename == "mod-1.0.jar"
+
+
 def test_pick_file_falls_back_to_first_jar() -> None:
     """没有 primary 标记时取第一个 .jar（跳过非 jar 的附件）。"""
     version_with = version("1.0", files=(

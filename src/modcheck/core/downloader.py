@@ -35,6 +35,8 @@ REPLACEMENT: Final[str] = "_"
 MAX_FILENAME: Final[int] = 200
 #: 空名兜底用的后缀
 JAR_SUFFIX: Final[str] = ".jar"
+#: 明显不是模组主文件的附加 jar 后缀（主 Agent 裁决；sources/javadoc 对服主无用）
+ADDON_SUFFIXES: Final[tuple[str, ...]] = ("-sources", "-javadoc", "-dev", "-api")
 #: 临时文件后缀（先写 .part 再原子改名；与 HttpClient.download 必须一致）
 PART_SUFFIX: Final[str] = ".part"
 
@@ -91,15 +93,21 @@ def pick_version(item: ReportItem) -> VersionInfo | None:
 
 
 def is_jar_file(item: FileInfo) -> bool:
-    """是否算「可下载的模组文件」。
+    """是否算「可下载的模组主文件」。
 
-    filename 为空的 primary 也算：PRD §14.5 第 3 条要求这种文件用
-    {slug}-{version_number}.jar 兜底，而不是把它当成"没有 jar"跳过。
+    两条规则（主 Agent 裁决，覆盖 PRD §14.2 与 §14.5 第 2 条的字面冲突）：
+      1. 附加 jar 一律排除：文件名在 .jar 之前以 -sources / -javadoc / -dev / -api 结尾的，
+         是源码包/文档包/开发包，放进 mods 文件夹不会被加载 —— 下给用户比不下更糟；
+      2. filename 为空的 primary 仍然算：§14.5 第 3 条要求用
+         {slug}-{version_number}.jar 兜底，而不是把它当成"没有 jar"跳过。
     """
     name = (item.filename or "").strip().lower()
-    if name.endswith(JAR_SUFFIX):
-        return True
-    return not name and bool(item.primary)
+    if not name:
+        return bool(item.primary)
+    if not name.endswith(JAR_SUFFIX):
+        return False
+    stem = name[: -len(JAR_SUFFIX)]
+    return not stem.endswith(ADDON_SUFFIXES)
 
 
 def pick_file(version: VersionInfo) -> FileInfo | None:
