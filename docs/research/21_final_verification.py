@@ -277,6 +277,38 @@ def check_x4_reproducible() -> None:
     import shutil; shutil.rmtree(work, ignore_errors=True)
 
 
+def check_d40_same_version_not_yellow() -> None:
+    """D40 不变量：🟡 组里不得出现 latest_compat.version_number == latest_for_loader.version_number 的条目。
+
+    这是数据无关的检查 —— 不依赖具体某个模组，只断言"判定规则被正确执行"。
+    """
+    section("10b. D40 同版本号不同 MC 构建不得判 🟡")
+    work = Path(tempfile.mkdtemp(prefix="fin-d40-"))
+    _scan(work, str(SAMPLE), "--profile", "s", "--yes")
+    bad: list[str] = []
+    checked = 0
+    for mc in ("26.3", "26.1"):
+        out = work / f"d40-{mc}.json"
+        run([str(PY), "-m", "modcheck", "--config-dir", str(work), "check", "--profile", "s",
+             "--mc", mc, "--loader", "fabric", "--no-color", "--json", str(out)], timeout=900)
+        if not out.exists():
+            continue
+        data = json.loads(out.read_text(encoding="utf-8"))
+        for it in ((data.get("groups") or {}).get("degraded") or []):
+            mod = it.get("mod") or {}
+            lc = (it.get("latest_compat") or {}).get("version_number")
+            lf = (it.get("latest_for_loader") or {}).get("version_number")
+            if lc and lf:
+                checked += 1
+                if lc == lf:
+                    bad.append(f"{mc}:{mod.get('file_name') or mod.get('key')} ({lc})")
+    if bad:
+        record("FAIL", "D40 仍有同版本号被判 🟡", f"{bad[:3]}（共 {len(bad)} 条）")
+    else:
+        record("PASS", f"D40 🟡 组内无同版本号条目（检查了 {checked} 条）")
+    import shutil; shutil.rmtree(work, ignore_errors=True)
+
+
 def check_d43_yellow_split() -> None:
     """D43：🟡 必须区分『无需处理』与『需要动作』，且下一步计数只含后者。"""
     section("10. D43 🟡 组区分无需处理 / 需要动作")
@@ -336,6 +368,7 @@ def main() -> int:
     check_d38_identifier_consistency()
     check_menu_path()
     check_x2_output_hygiene()
+    check_d40_same_version_not_yellow()
     check_d43_yellow_split()
     check_x4_reproducible()
     check_scripts()
