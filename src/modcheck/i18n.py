@@ -149,7 +149,7 @@ _MESSAGES: Final[dict[str, str]] = {
     "scan.identify.search": "  ✓ 用名称搜索匹配：{count} 个",
     "scan.identify.search_pending": "  ⚠ 未能识别、将用名称搜索匹配：{count} 个",
     "scan.identify.search_pending_item": "      {name}  （jar 内没有模组元数据，文件指纹在 Modrinth 上也没有记录）",
-    "scan.identify.unidentified": "  ⚠ {count} 个模组没有可读的元数据（**已列入清单**，检查时会显示为 ⚪ 未判定，请人工确认）：",
+    "scan.identify.unidentified": "  ⚠ {count} 个模组没有可读的元数据（已列入清单，检查时会显示为 ⚪ 未判定，请人工确认）：",
     "scan.unidentified.item": "      {name}",
     "report.next.scan_hint": "       若这些模组有本地 jar，可以先重新识别一遍：modcheck scan \"<mods 文件夹>\" --profile {profile}",
     "scan.dupe.header": "⚠️  有 {count} 个模组存在多个 jar 文件（同一 modid），这可能导致服务器启动失败：",
