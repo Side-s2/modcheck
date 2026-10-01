@@ -92,3 +92,52 @@
 - `tests/fixtures/*.json` 是按基线 §17 的实测结论**手工构造**的（TASKS §4.3 明确要求，
   避免把 6.8 MB 的真实响应粘进仓库）。
 - `tests/make_fixtures.py` 现场生成 jar（含损坏 jar、禁用文件、无元数据 zip），**不提交任何二进制**。
+
+---
+
+## 7. 第 3 轮（R3-A：菜单 [3]/[4] 交互式管理 + M1 三个 core 新模块）
+
+### 7.1 分层与文件
+
+| 文件 | 职责 | 证据 |
+|---|---|---|
+| `core/profile_ops.py`（新） | 清单的纯函数操作：D33 全标识定位（key→modid→slug→display_name→cn_name→file/aliases，另支持 1 起算编号）、remove/set_source/set_ignored/add/rename/page_of、URL→slug 解析 | 63 条单测；无 print/input/写盘/第三方 import |
+| `core/settings_ops.py`（新） | 设置项 setter（每个都返回**新** Settings，dict 字段深拷贝）+ 校验；代理解析 D42 只有这一份实现，`storage/settings.py` 复用 | 62 条单测 |
+| `core/downloader.py`（新） | 下载计划（只取 🟢/🟡、只取 primary 主文件的 .jar）＋ `download_all`（jobs=3、每文件重试 2 次退避 1s/2s、429 不计入重试、取消清 .part、单文件失败隔离） | 33 条单测（全程假 fetcher，不联网） |
+| `cli/screens_profiles.py`（新） | 菜单 [3]：列表屏 + 管理屏 + 6 个操作 + 新建空清单 | 屏幕级测试（注入 input_fn） |
+| `cli/screens_settings.py`（新） | 菜单 [4]：7 个子项 + 重置（[1] 复用 `_screen_version`，加了 `allow_clear`） | 屏幕级测试 |
+
+「操作函数返回新对象」这条是**写盘失败语义**的基础：调用方只在 `save_*` 成功后才采用新对象，
+所以"内存与磁盘都不变"是构造上成立的，不需要回滚代码。
+
+### 7.2 本轮落地的裁决与规格解释
+
+| # | 冲突 | 处理 |
+|---|---|---|
+| 1 | PRD §14.5#2（只有 sources.jar 要跳过）vs §14.2（无 primary 取第一个 .jar） | 主 Agent 裁决：先过滤 `-sources/-javadoc/-dev/-api` 结尾的 jar；过滤后为空则跳过该模组。`is_jar_file()` 实现，含单测 |
+| 2 | §14.5#3（filename 为空的兜底）与"没有 .jar 就跳过" | filename 为空的 **primary** 仍算可下载，用 `{slug}-{version_number}.jar` 兜底 |
+| 3 | R3-A13「内存回滚」vs PRD §13.3「这次的修改只在本次运行有效」 | 设置**保留内存新值**（PRD 文案为准）；清单类操作丢弃新对象 |
+| 4 | R3 §0.2「Windows 才需要替换非法字符」vs PRD §14.5#4 | 无条件替换 `\/:*?"<>|` 与控制字符（产物会被拷到 Windows，Linux 下只是更安全） |
+| 5 | PRD §13.4 第 1 条「输入屏 b 与 q 都提示在行尾」vs §13.2 的逐字提示文本 | **逐字文本优先**（Y3 要求 golden 一致）：提示里只写 `[b]`，但 `q` 在每个输入点都有效（有参数化测试证明） |
+
+### 7.3 实现细节与教训
+
+1. **非 TTY 绝不提问**：守卫放在 `Prompter.ask` —— 只有"没注入 input_fn 且 stdin 不是 TTY"时才抛
+   `UserCancelled`。注入了假输入（测试范式）就不受影响；管道/重定向下不会挂死。
+2. **Windows 只读文件的语义**：`os.replace` **能**替换只读文件，`unlink` **不能**。
+   所以"重命名一个只读清单"会得到"新文件写好了、旧文件删不掉"的半成品状态 ——
+   这时必须明确告警（`manage.rename.partial`），否则用户会看到两个清单。
+3. **改名后管理屏要跟着换名字**：否则下一轮读屏会报"清单文件读不了"。操作函数返回新名字，
+   管理屏据此继续（`_manage_screen` 的返回值约定：QUIT=回主菜单 / BACK=回上一层 / 其它=新的清单名）。
+4. **删除清单后回列表屏**（清单已经不在了，留在管理屏只会报错）。
+5. **模组名统一成「[中文名] 英文名」**（`core.profile_ops.display_name_of`）：PRD §13.2 的删除确认屏
+   写的是「[锂] Lithium（lithium）」，用 `best_name` 只会显示「锂」。
+6. **提交粒度**：A03 与 A10 合并成一个提交（列表屏的逐字文案里就有 `[n] 新建空清单`，
+   拆开会出现"提示了一个还不存在的选项"的中间态）；管理屏的 6 个操作按 A04~A09 逐条长出来。
+
+### 7.4 本轮**没有**做的（按主 Agent 划定范围）
+
+- B 组：`HttpClient.download`（R3-B01，网络流式 + .part + sha1 + 共用限速器）与下载编排 B04~B12；
+- 横切 C01/C02/C03（纯控制台可用性实测、分层静态检查测试、README 增补）。
+  ⚠️ 我人工核对过 C02 的三条（三个新 core 模块无 print/input/sys.exit、无 `open(`、无第三方 import），
+  但没有把它固化成自动化测试 —— B 组那轮补上更合适。
