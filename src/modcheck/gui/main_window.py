@@ -94,12 +94,19 @@ class MainWindow(QMainWindow):
         """菜单栏：清单管理、设置、帮助。二期把前两项接上。"""
         bar = self.menuBar()
         manage = bar.addMenu("清单(&P)")
+        manage.addAction("扫描 mods 文件夹…", self._open_scan)
         manage.addAction("管理模组清单…", self._open_profiles)
         manage.addAction("刷新清单列表", self._reload_profiles)
         settings = bar.addMenu("设置(&S)")
         settings.addAction("打开设置…", self._open_settings)
         help_menu = bar.addMenu("帮助(&H)")
         help_menu.addAction("关于", self._show_about)
+
+    def _open_scan(self) -> None:
+        from modcheck.gui.scan_dialog import ScanDialog
+
+        ScanDialog(self._service, self).exec()
+        self._reload_profiles()
 
     def _open_profiles(self) -> None:
         from modcheck.gui.profiles_dialog import ProfilesDialog

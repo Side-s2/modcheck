@@ -14,7 +14,10 @@ from modcheck.core.models import Loader
 from modcheck.core.report import advice_text, reason_text, version_cell, verdict_line
 from modcheck.errors import ProviderError
 from modcheck.flows import (default_filename, export_csv, export_json, export_markdown,
-                            load_profile_entries, run_check_flow)
+                            load_profile_entries, looks_like_mods_dir, prepare_download,
+                            run_check_flow, run_download_flow, scan_dirs)
+# 直接从子模块导入：flows/__init__ 的导出清单仍在变动，走包级导入容易被子代理的在途改动卡住
+from modcheck.flows.scan_flow import save_scan_result
 from modcheck.flows.runtime import build_runtime
 from modcheck.gui.main_window import Row
 from modcheck.providers.mojang import MojangVersions
@@ -209,6 +212,34 @@ class CliBackend:
         from modcheck.core import settings_ops
 
         return settings_ops
+
+
+    # ---------------------------------------------------------------- 扫描（三期）
+    def scan(self, folders, on_progress=None, should_stop=None):
+        """扫描若干文件夹并返回 ScanReport（识别规则全在 flows/core 里）。"""
+        return scan_dirs([Path(f) for f in folders],
+                         provider=self.runtime.registry.primary(),
+                         on_progress=on_progress, should_stop=should_stop)
+
+    def save_scan(self, scan_report, profile_name: str, *, new: bool = False):
+        """把扫描结果合并进清单并原子写盘。"""
+        return save_scan_result(scan_report, profiles_dir=self.runtime.profiles_dir,
+                                profile_name=profile_name, new=new)
+
+    # ---------------------------------------------------------------- 下载（三期）
+    def prepare_download(self, report, target_dir):
+        """只做选品与同名冲突检测，**不写盘、不建目录** —— 先让用户看清楚要下什么。"""
+        return prepare_download(report, Path(target_dir))
+
+    def looks_like_mods_dir(self, target_dir) -> bool:
+        """目标目录看起来是"正在用的 mods 文件夹"吗（要额外提醒一次）。"""
+        return looks_like_mods_dir(Path(target_dir))
+
+    def run_download(self, prep, *, overwrite=None, on_progress=None,
+                     should_stop=None):
+        """真正下载。复用同一个 HttpClient（下载与 API 共用限速器，裁决 D45）。"""
+        return run_download_flow(prep, self.runtime.client, overwrite=overwrite or {},
+                                 on_progress=on_progress, should_stop=should_stop)
 
 
 __all__ = ["CliBackend"]
