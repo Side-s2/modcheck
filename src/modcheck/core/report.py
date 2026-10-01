@@ -305,6 +305,60 @@ def origin_line(report: Report) -> str:
              guess=stats.get(SourceKind.FILENAME, 0))
 
 
+#: 版本列宽度上限（附带模组版本时超过它就不附，避免撑破列）
+VERSION_WIDTH = 34
+
+
+def version_label(item: ReportItem) -> str:
+    """版本列里的"最新版"文字：version_number（必要时附主文件名里的模组版本）。
+
+    放在 core 而不是 cli：CLI 与 GUI 都要显示同一串文字，
+    两边各写一份迟早会不一致（同一个模组在两个界面里显示不同版本号是最难查的那类 bug）。
+    """
+    from modcheck.core.filename import parse_jar_filename
+
+    version = item.latest_for_loader
+    if version is None:
+        return t("report.item.empty_cell")
+    label = version.version_number or version.name or t("report.item.empty_cell")
+    file_info = version.primary_file
+    if file_info is not None:
+        parsed = parse_jar_filename(file_info.filename)
+        mod_version = parsed.mod_version
+        # 文件名里 + 与 - 常被作者当同一种分隔符用（实测 sodium 就是），
+        # 判断"是否已包含"前先归一化，避免显示成 0.9.3-alpha.1 (0.9.3+alpha.1)
+        contained = bool(mod_version) and (mod_version in label
+                                           or mod_version.replace("+", "-") in label
+                                           or mod_version.replace("-", "+") in label)
+        if mod_version and not contained:
+            candidate = label + " (" + mod_version + ")"
+            if len(candidate) <= VERSION_WIDTH:
+                return candidate
+    return label
+
+
+def version_cell(item: ReportItem) -> str:
+    """版本列：{你当前} → {加载器最新}（PRD §5.3.1）。
+
+    特殊情况（裁决）：🟠/🟡 且"你当前"恰好就是最新兼容版时，
+    **不显示那个看起来像降级的箭头**，只显示当前版本。
+    """
+    current = item.current_version or t("report.item.empty_cell")
+    if item.reason is ReasonCode.OLD_VERSION_ONLY and item.latest_compat is not None \
+            and item.current_version and item.current_version == item.latest_compat.version_number:
+        return current
+    latest = version_label(item)
+    if item.reason is ReasonCode.IGNORED:
+        return current
+    if item.current_version and item.current_version == latest:
+        # 🟠/🟡 要写"正式版"：version_label 取的一直是**正式版**通道，
+        # 而这个模组在目标 MC 上可能只有测试版可用 —— 点明通道才不会让人误解。
+        if item.status in (Status.DEGRADED, Status.PRERELEASE):
+            return t("report.item.same_version_release", version=current)
+        return t("report.item.same_version", version=current)
+    return current + " → " + latest
+
+
 def verdict_line(report: Report) -> str:
     """结论行（逐字，PRD §5.4）。"""
     data = report.summary
