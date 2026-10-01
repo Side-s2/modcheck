@@ -15,6 +15,10 @@ htmlcov/
 .tox/
 
 # ---- Nuitka / 构建产物 ----
+nuitka-crash-report.xml
+*.build/
+*.dist/
+*.onefile-build/
 dist/
 build/out/
 *.build/
