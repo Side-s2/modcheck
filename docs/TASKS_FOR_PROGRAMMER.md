@@ -559,7 +559,7 @@ set "PYTHONPATH=%ROOT%src"
       backoff: tuple[float, ...] = (0.5, 1.0, 2.0)
       proxy: str | None = None
       user_agent: str = f"modcheck/{__version__} (+https://github.com/)"
-      rate_limit_per_min: int = 250          # 官方 300，留 20% 余量
+      rate_limit_per_min: int = 250          # 官方 300，留 20% 余量。**这是 S1（200 模组首次 ≤150 秒）的推导依据，不得为提高速度擅自调高**
       window: int = 25
 
   class RateLimiter:
@@ -638,7 +638,15 @@ set "PYTHONPATH=%ROOT%src"
   def any_for_loader(project_id, loader, *, window=25) -> list[VersionInfo]
       # 只加 loaders=["L"]
   ```
-- **绝对禁止（写进代码注释）**：
+- **请求预算（PRD §4.3 / S13 / Z10，必须按此顺序，否则会多花请求）**：
+
+1. 先调 **A**（`releases_for_loader`）。
+2. A 非空 → 调 **B**（`compat_releases`）；B 为空 → 再调 **B2**（`prerelease=True`）。最多 3 次。
+3. A 为空 → **禁止再调 B**（B ⊆ A，必然为空），直接调 **A2**（`any_for_loader`）；A2 为空 → 再调 1 次 `get_project` 以区分 `NO_FILES` 与 `NO_LOADER`。同样最多 3 次。
+
+**禁止**：为了压低单模组下载体积而降低默认 `window`（默认恒为 25）。`window` 太小会让分支⑥ 的 `max_supported_mc` 不可靠，并使基线 §17.3 的 5 条断言失去依据——预算不够就改预算（PRD §1.3 的方法论条款），不许砍窗口。
+
+**绝对禁止（写进代码注释）**：
   ❌ 使用 `GET /project/{id}` 返回的 `versions[]` 判断"最新版"——基线 §17.8 实测它不是倒序（carpet 前 6 条是 2022 年的）。
   ❌ 对 `/project/{id}/version` 的返回自行排序或取 `max(date_published)`——基线 §7 要求直接信任返回顺序。
   ❌ 全量拉取 `/project/{id}/version`（单模组可达 3736 条 / 6.8 MB）。

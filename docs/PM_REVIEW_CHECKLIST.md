@@ -172,7 +172,7 @@ rm -rf $MODCHECK_CONFIG_DIR
 - [ ] **F17** 让 Modrinth 返回非 JSON（无法构造时改为核对单元测试 `tests/test_http.py` 的 parse-error 用例）→ 该模组 ⚪，文案含「返回的数据看不懂」；**不崩**
 - [ ] **F18** 证书错误（无法构造时核对单元测试 cert-error 用例）→ 该模组 ⚪；文案含「证书验证失败」；**不崩**
 - [ ] **F19** 让 Mojang 不可达（把 `piston-meta.mojang.com` 指向 127.0.0.1 或断网后只恢复 Modrinth）→ `versions` 提示「没取到官方版本列表」；`check --mc 26.3 --profile demo` **仍能跑完**，不因 Mojang 失败而退出
-- [ ] **F20** `--window 1` → 正常完成；`--debug` 下能看到「窗口过小可能误判」的提示
+- [ ] **F20** `--window 1` → 正常完成；`--debug` 下能看到「窗口过小可能误判」的提示；同时确认**默认 window 仍是 25**（不得为了让体积好看而调低默认值）
 - [ ] **F21** `modcheck.cmd scan --from-list tests\_fixtures\nope.txt --profile demo --yes` → 「读不到文件名清单」文案；退出码 3
 - [ ] **F22** 造两条 `mod_id` 相同但中文名不同的记录后 `scan` → 合并为一条；两个文件名与两个中文名都保留在 `aliases` 里（`profile show` 可见）
 - [ ] **F23** 造一个文件名写 `sodium-fabric-x.jar`、内部 `fabric.mod.json` 的 `id` 却是 `carpet` 的 jar 后 `scan` → 输出「以 jar 内信息为准」；清单里记的是 `carpet`
@@ -217,7 +217,7 @@ rm -rf $MODCHECK_CONFIG_DIR
 - [ ] **I2** 同一条清单紧接着再跑一次（热缓存）→ **≤ 5 秒**；报告头显示缓存命中数
 - [ ] **I3** 检查过程中观察进度行 → 至少每秒刷新一次；含「当前：<模组名>」；结束后该行**不残留**在报告上方
 - [ ] **I4** 当检查到若干个阻塞项后 → 进度行出现并累加 `已发现 N 个阻塞`
-- [ ] **I5** 用 `--debug` 观察某个模组的请求数 → **≤ 3 次**（A / B / B2，A2 仅在 A 为空时）
+- [ ] **I5** 用 `--debug` 观察模组的请求数 → **≤ 3 次/模组**（两条互斥路径：A→B→B2 或 A→A2→`get_project`；**A 为空时不得再调 B**）。**注意：单模组下载体积不设验收判据**（150 KB 是设计预算，JourneyMap 冷缓存实测就有 85.8 KB，不要拿体积判定失败）
 - [ ] **I6** 检查前后对比缓存目录体积 → 增幅不超过原始响应体积的 15%
 - [ ] **I7** 检查进行中按 Ctrl+C → **≤ 1 秒**开始输出中断摘要
 
