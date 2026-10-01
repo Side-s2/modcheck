@@ -22,11 +22,16 @@ def feed(values: list[str]):
     return _input
 
 
-def make_ctx(tmp_path: Path, values: list[str] | None = None) -> AppContext:
-    """最小上下文：只需要 console / config_dir / prompter。"""
+def make_ctx(tmp_path: Path, values: list[str] | None = None, provider=None) -> AppContext:
+    """最小上下文：console / config_dir / prompter（需要数据源的用例再传 provider）。"""
     console = Console(stream=io.StringIO(), color="never", width=100)
+    registry = None
+    if provider is not None:
+        from modcheck.providers.registry import ProviderRegistry
+
+        registry = ProviderRegistry(providers=[provider])
     return AppContext(settings=Settings(), config_dir=tmp_path, console=console,
-                      registry=None, cache=None, client=None, interactive=True,
+                      registry=registry, cache=None, client=None, interactive=True,
                       prompter=Prompter(input_fn=feed(list(values or ["q"])), out=console))
 
 
@@ -146,6 +151,103 @@ def many_mods(count: int) -> list[ModEntry]:
     return [ModEntry(key="m" + str(i), display_name="Mod" + str(i), mod_id="m" + str(i),
                      sources={"modrinth": "slug" + str(i)}, current_version="1.0")
             for i in range(count)]
+
+
+# ---------------------------------------------------------------- R3-A06 指定平台项目
+def carpet_provider(**kw):
+    """带 carpet 项目的假数据源。"""
+    from fakes import FakeProvider
+    from modcheck.core.models import ProjectInfo
+
+    project = ProjectInfo(project_id="P1", slug="carpet", title="Carpet",
+                          description="", project_type="mod", loaders=("fabric",),
+                          game_versions=("26.3",), downloads=1, version_count=10)
+    kw.setdefault("projects", {"carpet": project})
+    provider = FakeProvider(**kw)
+    # 指定平台项目只认 modrinth 数据源，所以假数据源要以 modrinth 的身份注册
+    provider.name = "modrinth"
+    provider.display_name = "Modrinth"
+    return provider
+
+
+def sources_of(tmp_path: Path, name: str) -> dict:
+    """读回清单里第一条的 sources / match_status。"""
+    from modcheck.storage.profiles import load_profile
+
+    entry = load_profile(profile_path(tmp_path / "profiles", name)).mods[0]
+    return {"sources": dict(entry.sources), "status": entry.match_status.value, "key": entry.key}
+
+
+def test_set_source_by_slug(tmp_path: Path) -> None:
+    """输入 slug -> 校验存在 -> 写回 sources + manual + 逐字成功文案。"""
+    write_entries(tmp_path, "服务器A", many_mods(1))
+    ctx = make_ctx(tmp_path, ["1", "3", "1", "carpet", "q"], provider=carpet_provider())
+    run_profiles_screen(ctx)
+    assert "✓ 已把「Mod0」指定为 Modrinth 项目「Carpet」（carpet）。下次检查直接用这个项目，不再询问。" in out(ctx)
+    saved = sources_of(tmp_path, "服务器A")
+    assert saved["sources"]["modrinth"] == "carpet"
+    assert saved["status"] == "manual"
+    assert saved["key"] == "slug:modrinth:carpet"
+
+
+def test_set_source_by_url(tmp_path: Path) -> None:
+    """粘贴 Modrinth 链接同样能解析出 slug（R3-A06 验收）。"""
+    write_entries(tmp_path, "服务器A", many_mods(1))
+    ctx = make_ctx(tmp_path, ["1", "3", "Mod0", "https://modrinth.com/mod/carpet", "q"],
+                   provider=carpet_provider())
+    run_profiles_screen(ctx)
+    assert sources_of(tmp_path, "服务器A")["sources"]["modrinth"] == "carpet"
+
+
+def test_set_source_not_found(tmp_path: Path) -> None:
+    """项目不存在 -> 中文"找不到"文案，清单不变。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+    before = path.read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "3", "1", "carpet-xyz", "q"], provider=carpet_provider())
+    run_profiles_screen(ctx)
+    assert "✗ 在 Modrinth 上找不到「carpet-xyz」。请检查拼写，或直接粘贴项目链接。" in out(ctx)
+    assert path.read_bytes() == before
+
+
+def test_set_source_network_failure(tmp_path: Path) -> None:
+    """断网 -> "连不上 Modrinth" 文案，清单不变，退出码不受影响。"""
+    from modcheck.errors import ProviderNetworkError
+
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+    before = path.read_bytes()
+    provider = carpet_provider(raise_on={"get_project": ProviderNetworkError("offline")})
+    ctx = make_ctx(tmp_path, ["1", "3", "1", "carpet", "q"], provider=provider)
+    assert run_profiles_screen(ctx) == QUIT
+    assert "✗ 现在连不上 Modrinth，没法校验这个项目。请稍后再试。（清单没有改动）" in out(ctx)
+    assert path.read_bytes() == before
+
+
+def test_set_source_bad_input(tmp_path: Path) -> None:
+    """非法输入（不是 slug 也不是链接）-> 就地提示，清单不变。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+    before = path.read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "3", "1", "not a slug!", "q"], provider=carpet_provider())
+    run_profiles_screen(ctx)
+    assert "✗ 「not a slug!」不像 Modrinth 项目名或链接。" in out(ctx)
+    assert path.read_bytes() == before
+
+
+def test_set_source_unknown_mod(tmp_path: Path) -> None:
+    """模组定位不到 -> 候选文案，且不问 slug。"""
+    write_entries(tmp_path, "服务器A", many_mods(3))
+    ctx = make_ctx(tmp_path, ["1", "3", "zzz", "q"], provider=carpet_provider())
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "✗ 清单「服务器A」里没有叫「zzz」的模组。" in text
+    assert "请输入 Modrinth 项目 slug 或链接" not in text
+
+
+def test_set_source_empty_profile(tmp_path: Path) -> None:
+    """空清单：专门文案。"""
+    write_entries(tmp_path, "空清单", [])
+    ctx = make_ctx(tmp_path, ["1", "3", "q"], provider=carpet_provider())
+    run_profiles_screen(ctx)
+    assert "这个清单里还没有模组。回上一层用 [b]，或回主菜单选 [2] 扫描 mods 文件夹。" in out(ctx)
 
 
 # ---------------------------------------------------------------- R3-A05 删除模组

@@ -15,9 +15,9 @@ from modcheck.cli.render import assemble_row
 from modcheck.console import display_width
 from modcheck.core.models import ModEntry
 from modcheck.core.profile_ops import (INVALID_NAME_CHARS, PAGE_SIZE, page_of,
-                                       remove_mods, resolve_selector,
-                                       validate_profile_name)
-from modcheck.errors import ConfigError, ModcheckError
+                                       parse_project_selector, remove_mods, resolve_selector,
+                                       set_source, validate_profile_name)
+from modcheck.errors import ConfigError, ModcheckError, ProviderError
 from modcheck.i18n import t
 from modcheck.storage.profiles import (ProfileSummary, list_profiles, load_profile,
                                        new_profile, profile_path, save_profile)
@@ -34,6 +34,7 @@ NEW: Final[str] = "new"
 MANAGE_ITEMS: Final[tuple[tuple[str, str], ...]] = (
     ("1", "manage.one.view"),
     ("2", "manage.one.remove"),
+    ("3", "manage.one.set_source"),
 )
 
 #: 匹配状态列的文字（PRD §13.2 的「匹配」列）
@@ -327,10 +328,91 @@ def _op_remove(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
     return None
 
 
+def modrinth_provider(ctx: AppContext):
+    """当前会话的 Modrinth 数据源；拿不到（未启用）返回 None。"""
+    registry = ctx.registry
+    if registry is None:
+        return None
+    provider = registry.by_name("modrinth")
+    if provider is None or not provider.available:
+        return None
+    return provider
+
+
+def _save_or_report(ctx: AppContext, path, profile) -> bool:
+    """写盘；失败时打印统一 ✗ 文案并返回 False（内存与磁盘都不变）。"""
+    try:
+        save_profile(profile, path)
+    except (ModcheckError, OSError):
+        ctx.console.line(t("manage.save_failed", path=path))
+        return False
+    return True
+
+
+def _op_set_source(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
+    """[3] 指定平台项目（用 provider 校验存在后再写回，PRD §13.2 / R3-A06）。"""
+    console = ctx.console
+    profile = _load_profile(ctx, name)
+    if profile is None:
+        return None
+    if not profile.mods:
+        console.line(t("manage.one.empty"))
+        return None
+    kind, selector = read_line(prompter, t("manage.source.pick"))
+    if kind == QUIT:
+        return QUIT
+    if kind == BACK or not selector:
+        return None
+    found = resolve_selector(profile, selector)
+    if found.entry is None:
+        _report_missing(console, profile.name, selector, found.candidates)
+        return None
+    kind, raw = read_line(prompter, t("manage.source.prompt"))
+    if kind == QUIT:
+        return QUIT
+    if kind == BACK or not raw:
+        return None
+    slug = parse_project_selector(raw)
+    if slug is None:
+        console.line(t("manage.source.bad_input", value=raw))
+        return None
+    provider = modrinth_provider(ctx)
+    if provider is None:
+        console.line(t("manage.source.network"))
+        return None
+    try:
+        info = provider.get_project(slug)
+    except ProviderError:
+        # 断网/超时/5xx 一律当作"暂时校验不了"，清单绝不能被改
+        console.line(t("manage.source.network"))
+        return None
+    if info is None:
+        console.line(t("manage.source.not_found", slug=slug))
+        return None
+    result = set_source(profile, selector, provider="modrinth", slug=slug, title=info.title)
+    if not result.changed:
+        console.line(t("screen.not_found_entry", selector=selector))
+        return None
+    if not _save_or_report(ctx, profile_path(ctx.profiles_dir, name), result.profile):
+        return None
+    console.line(t(result.message_key, **result.message_args))
+    return None
+
+
+def _report_missing(console, profile_name: str, selector: str, candidates) -> None:
+    """定位不到的两种文案（有候选 / 没候选）。"""
+    if candidates:
+        console.line(t("manage.remove.not_found_hint", profile=profile_name, name=selector,
+                       suggest=candidate_text(candidates)))
+        return
+    console.line(t("manage.remove.not_found", profile=profile_name, name=selector))
+
+
 #: 按键 -> 处理函数（R3-A04~A09 逐条填进来）；返回 QUIT 表示直接回主菜单
 MANAGE_HANDLERS: dict[str, Callable[[AppContext, Prompter, str], str | None]] = {
     "1": _op_view,
     "2": _op_remove,
+    "3": _op_set_source,
 }
 
 
