@@ -219,7 +219,11 @@ class DownloadDialog(QDialog):
 
     def _on_done(self, outcome) -> None:
         s = outcome.summary
-        parts = [f"成功 {s.ok} 个", f"跳过 {s.skipped} 个"]
+        # ⚠️ 用 skipped_total 而不是 skipped：准备屏明确列了「N 个模组没有可下载的 jar /
+        # 没有可用版本」，汇总若用另一个数就会对不上（子代理 review 时抓到的）。
+        # 界面上两个数对不上，用户不会认为是我们口径不同，只会认为程序算错了。
+        skip_total = s.skipped_total          # 计算属性：含计划期跳过，与准备屏的数字对得上
+        parts = [f"成功 {s.ok} 个", f"跳过 {skip_total} 个"]
         if s.failed:
             parts.append(f"**失败 {s.failed} 个**")
         if s.cancelled:
@@ -228,10 +232,10 @@ class DownloadDialog(QDialog):
             "下载完成：" + "，".join(parts)
             + f"　共 {_size_mb(s.bytes_total)}　用时 {s.elapsed:.0f} 秒"
             + f"　目录：{s.target_dir}")
-        if s.failed_items:
-            names = "、".join(
-                (getattr(i.entry, "display_name", "") or i.entry.file_name or i.entry.key)
-                for i in s.failed_items[:8])
+        # 只列**真正的下载失败**（failure_rows 是 3 元组，行数与 failed 相等）——
+        # 用 failed_items 会把计划期跳过的条目也算进来，数字就对不上了
+        if s.failure_rows:
+            names = "、".join(str(row[1]) for row in s.failure_rows[:8])
             QMessageBox.warning(self, "有文件没下成功",
                                 f"以下 {s.failed} 个文件下载失败：\n{names}\n\n"
                                 "可以稍后重试（已成功的不会重复下载）。")
