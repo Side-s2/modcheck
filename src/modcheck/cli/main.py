@@ -8,12 +8,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import traceback
-from typing import Final, Sequence
+from typing import Final, NoReturn, Sequence
 
 from modcheck import APP_NAME, __version__
 from modcheck.console import Console, init_terminal_encoding
-from modcheck.errors import EXIT_INTERNAL, EXIT_INTERRUPTED, ModcheckError
+from modcheck.errors import (EXIT_INTERNAL, EXIT_INTERRUPTED, EXIT_USAGE, ModcheckError)
 from modcheck.i18n import t
 
 #: 子命令 -> (模块名, 函数名)。延迟 import，保证 --help / --version 极快且无副作用。
@@ -30,7 +31,17 @@ LOADER_CHOICES: Final[tuple[str, ...]] = ("fabric", "neoforge", "forge")
 
 
 class ChineseHelpParser(argparse.ArgumentParser):
-    """把 argparse 自带的英文框架文案换成中文（-h 必须全中文）。"""
+    """中文帮助 + 用法错误一律退出 3。
+
+    argparse 默认用法错误返回 2，但本项目的 2 是"有未判定项、无阻塞项"
+    （PRD §10.4），撞码会让脚本无法区分"参数写错"和"有几个模组没查到"，
+    所以这里覆写 error() 强制走 EXIT_USAGE。
+    """
+
+    def error(self, message: str) -> "NoReturn":  # type: ignore[override]
+        self.print_usage(sys.stderr)
+        sys.stderr.write(t("cli.error.usage", detail=message) + "\n")
+        self.exit(EXIT_USAGE)
 
     def format_usage(self) -> str:
         return super().format_usage().replace("usage:", t("cli.usage_prefix"), 1)
@@ -142,7 +153,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     """程序入口；返回进程退出码（PRD §10.4）。"""
     init_terminal_encoding()
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:  # --help / --version / 用法错误：转成返回码，不抛
+        return int(exc.code or 0)
     console = Console(color="never" if getattr(args, "no_color", False) else "auto",
                       quiet=bool(getattr(args, "quiet", False)))
     debug = bool(getattr(args, "debug", False))
