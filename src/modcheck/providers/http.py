@@ -97,11 +97,17 @@ class RateLimiter:
                 self._expire(now)
                 if now < self._paused_until:
                     wait = self._paused_until - now
-                elif len(self._stamps) < self.per_minute:
-                    self._stamps.append(now)
-                    return
                 else:
-                    wait = self.window - (now - self._stamps[0]) + 1e-6
+                    # 匀速间隔：把窗口均分，避免"首个 60 秒窗口一次性放行 limit 个"
+                    # 造成的瞬时突发（实测 200 个不同项目冷跑正是它把 429 打出来的）。
+                    spacing = self.window / self.per_minute
+                    spacing_ok = not self._stamps or now >= self._stamps[-1] + spacing
+                    if len(self._stamps) < self.per_minute and spacing_ok:
+                        self._stamps.append(now)
+                        return
+                    wait = (self._stamps[-1] + spacing - now) if self._stamps else 1e-6
+                    if len(self._stamps) >= self.per_minute:
+                        wait = max(wait, self.window - (now - self._stamps[0]) + 1e-6)
             self._sleep(max(1e-6, min(wait, MAX_PAUSE_SECONDS)))
             if self._clock() <= now:
                 # 时钟没前进：什么都不等就重试，必然是死循环
@@ -183,6 +189,8 @@ class HttpClient:
         self._cache_hits = 0
         #: 成功取到数据的次数（含缓存命中）—— 判断"数据源是不是整体不可用"
         self._successes = 0
+        #: 收到过多少次 429（用于在报告里提示"结果可能不完整"）
+        self._rate_limited = 0
         self._lock = threading.Lock()
 
     # ---------------------------------------------------------------- 对外
@@ -207,6 +215,12 @@ class HttpClient:
             return self._requests, self._cache_hits
 
     @property
+    def rate_limited(self) -> int:
+        """收到过的 429 次数。"""
+        with self._lock:
+            return self._rate_limited
+
+    @property
     def successes(self) -> int:
         """成功取到数据的次数（含缓存命中）；用于判断数据源是否整体不可用。"""
         with self._lock:
@@ -218,6 +232,7 @@ class HttpClient:
             self._requests = 0
             self._cache_hits = 0
             self._successes = 0
+            self._rate_limited = 0
 
     # ---------------------------------------------------------------- 内部
     def _ttl(self, ttl: float | None) -> float:
@@ -281,6 +296,8 @@ class HttpClient:
                 # 实测：Modrinth 的 404 响应体是空的，绝不能直接 json.loads
                 raise ProviderNotFound(t("err.http.404"), code="404")
             if status == 429:
+                with self._lock:
+                    self._rate_limited += 1
                 self._limiter.pause(self._pause_seconds(response))
                 if attempt < self.cfg.retries:
                     attempt += 1

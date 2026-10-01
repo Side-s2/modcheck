@@ -212,6 +212,7 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
 
     # 只为"数据源是否整体不可用"统计检查区间的请求增量（不含之前的 Mojang 探测）
     stats_before = (ctx.client.stats[0], ctx.client.successes)
+    rate_limited_before = ctx.client.rate_limited
     # 交互模式才允许弹窗（PRD §5.7）；非交互模式绝不问、也绝不猜
     changed: dict[str, bool] = {"flag": False}
     matcher = None
@@ -246,6 +247,11 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
         report.add(item)
     report.completed = len(items)
     report.elapsed = time.monotonic() - start
+    # 被限流导致的未判定必须显式告诉用户：否则他会把这 18 条 ⚪ 当成"这些模组查不到"，
+    # 而不会想到"再跑一次就有了"（实测 200 个不同项目冷跑出现过 18 条）。
+    if ctx.client.rate_limited > rate_limited_before and report.summary["unknown"] > 0:
+        report.warnings.append(t("warn.rate_limited_summary",
+                                 count=report.summary["unknown"]))
     report.requests_made, report.cache_hits = ctx.client.stats
     for item in items:
         kind = item.mod.source_kind

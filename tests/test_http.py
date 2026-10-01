@@ -218,14 +218,15 @@ def test_refresh_style_bypass_counts_only_requests(tmp_path: Path) -> None:
 
 
 def test_rate_limiter_sliding_window() -> None:
-    """滑动窗口：窗口内放行满 2 个之后，第 3 次要等到最早那次滑出 60 秒窗口。"""
+    """匀速滑动窗口：首个立即放行，其后按 window/limit 间隔，窗口满后等滑动。"""
     clock = FakeClock()
     limiter = RateLimiter(2, clock=clock.clock, sleep=clock.sleep)
     limiter.acquire()
+    assert clock.sleeps == []          # 第 1 个立即放行（初始只放 1 个，不突发）
     limiter.acquire()
-    assert clock.sleeps == []
+    assert clock.sleeps == [30.0]      # 60/2 的匀速间隔
     limiter.acquire()
-    assert clock.sleeps == [60.0]   # 窗口长度，而不是令牌桶的 30 秒补充间隔
+    assert sum(clock.sleeps) == 60.0   # 第 3 个要等最早那次滑出窗口
 
 
 def test_rate_limiter_pause() -> None:

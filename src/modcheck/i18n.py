@@ -67,6 +67,8 @@ _MESSAGES: Final[dict[str, str]] = {
     "verdict.all_blocked": "结论：❌ 现在还不能升级到 Minecraft {mc} —— {total} 个模组全部不支持",
     "verdict.all_blocked.hint": "提示：新版本刚发布时模组作者通常需要 1~3 周跟进，可以先用 modcheck versions 看看有没有更新的正式版。",
     "verdict.empty": "结论：⚠️ 这次没有检查任何模组 —— 清单「{name}」里没有任何模组。",
+    "warn.rate_limited_summary": "⚠️ 本次有 {count} 个模组因被 Modrinth 限流而未能判定；结果可能不完整，建议稍后重跑一次（缓存命中后通常会很快）。",
+    "verdict.incomplete_note": "⚠️ 注意：本次结果不完整（{count} 个模组因限流未判定），请勿据此下最终结论。",
     "verdict.interrupted": "结论：⏹ 检查被中断，结果不完整（已完成 {done}/{total}）。下面只列已查出的问题项。",
     # ---------------------------------------------------------------- 分组标题
     "group.blocked.title": "🔴 阻塞（{count} 个）  这些模组在 MC {mc} + {loader} 下没有任何可用版本，必须先处理",

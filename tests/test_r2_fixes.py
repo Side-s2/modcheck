@@ -39,15 +39,20 @@ def test_sliding_window_never_exceeds_limit() -> None:
 
 
 def test_no_burst_at_start() -> None:
-    """启动不能有突发：第 limit+1 个请求必须等到窗口滑动。"""
+    """启动不能有突发：limit 个请求要铺满整个窗口，而不是瞬间放行。
+
+    PM 实测：正是"首个 60 秒窗口一次性放行 limit 个"把 429 打出来的
+    （200 个不同项目冷跑出现 18 条限流未判定）。
+    """
     limit = 60
     clock = FakeClock()
     limiter = RateLimiter(limit, clock=clock.clock, sleep=clock.sleep)
-    for _ in range(limit):
-        limiter.acquire()
-    assert clock.now == 0.0
     limiter.acquire()
-    assert clock.now > 0.0
+    assert clock.now == 0.0            # 第 1 个立即放行
+    for _ in range(limit - 1):
+        limiter.acquire()
+    assert clock.now > 0.0             # 其余按 1 秒间隔铺开，不是瞬时
+    assert abs(clock.now - (limit - 1)) < 0.5
 
 
 # ---------------------------------------------------------------- R2-03 代理

@@ -210,6 +210,11 @@ def render_report(report: Report, console: Console, *, quiet: bool = False) -> N
     console.prose(verdict_line(report))
     if report.verdict().value == "all_blocked":
         console.prose(t("verdict.all_blocked.hint"))
+    # 限流等警告必须出现在结论文本旁边 —— 用户要能一眼判断"这份结论可不可信"
+    for warning in report.warnings:
+        console.prose(warning)
+    if report.warnings and report.summary["unknown"] > 0:
+        console.prose(t("verdict.incomplete_note", count=report.summary["unknown"]))
     console.line()
 
     for status in GROUP_ORDER:
