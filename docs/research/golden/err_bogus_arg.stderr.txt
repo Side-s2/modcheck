@@ -1,0 +1,2 @@
+✗ 不认识的参数：--bogus
+（运行 modcheck --help 查看完整用法）

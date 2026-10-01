@@ -1,0 +1,110 @@
+{
+  "version": {
+    "args": [
+      "--version"
+    ],
+    "exit": 0,
+    "stdout_lines": 1
+  },
+  "help": {
+    "args": [
+      "--help"
+    ],
+    "exit": 0,
+    "stdout_lines": 20
+  },
+  "profile_list": {
+    "args": [
+      "profile",
+      "list"
+    ],
+    "exit": 0,
+    "stdout_lines": 5
+  },
+  "profile_show": {
+    "args": [
+      "profile",
+      "show",
+      "demo"
+    ],
+    "exit": 0,
+    "stdout_lines": 8
+  },
+  "config_show": {
+    "args": [
+      "config",
+      "show"
+    ],
+    "exit": 0,
+    "stdout_lines": 12
+  },
+  "cache_info": {
+    "args": [
+      "cache",
+      "info"
+    ],
+    "exit": 0,
+    "stdout_lines": 3
+  },
+  "versions_help": {
+    "args": [
+      "versions",
+      "--help"
+    ],
+    "exit": 0,
+    "stdout_lines": 8
+  },
+  "err_bogus_arg": {
+    "args": [
+      "--bogus"
+    ],
+    "exit": 3,
+    "stdout_lines": 0
+  },
+  "err_unknown_cmd": {
+    "args": [
+      "frobnicate"
+    ],
+    "exit": 3,
+    "stdout_lines": 0
+  },
+  "err_bad_loader": {
+    "args": [
+      "check",
+      "--profile",
+      "demo",
+      "--mc",
+      "26.3",
+      "--loader",
+      "quilt"
+    ],
+    "exit": 3,
+    "stdout_lines": 0
+  },
+  "err_no_profile": {
+    "args": [
+      "check",
+      "--profile",
+      "nope",
+      "--mc",
+      "26.3",
+      "--loader",
+      "fabric"
+    ],
+    "exit": 3,
+    "stdout_lines": 1
+  },
+  "err_missing_value": {
+    "args": [
+      "check",
+      "--mc"
+    ],
+    "exit": 3,
+    "stdout_lines": 0
+  },
+  "menu_non_tty": {
+    "args": [],
+    "exit": 3,
+    "stdout_lines": 2
+  }
+}

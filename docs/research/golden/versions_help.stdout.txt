@@ -1,0 +1,8 @@
+用法： modcheck versions [-h] [--limit <值>] [--json]
+
+查看官方正式版列表
+
+选项:
+  -h, --help   显示本帮助并退出
+  --limit <值>  显示多少个正式版（默认 10）
+  --json       以 JSON 输出

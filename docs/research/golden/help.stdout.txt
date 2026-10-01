@@ -1,0 +1,20 @@
+用法： modcheck [-h] [--version] [--config-dir <值>] [--debug] [--no-color]
+                <命令> ...
+
+Minecraft 模组版本兼容性检查工具（升级游戏版本前，先查清模组支不支持）
+
+位置参数:
+  <命令>
+    check           检查模组兼容性
+    scan            扫描 mods 文件夹建立/合并模组清单
+    profile         管理模组清单（查看/新增/删除/修改/重命名）
+    versions        查看官方正式版列表
+    config          读写设置
+    cache           查看与清理缓存
+
+选项:
+  -h, --help        显示本帮助并退出
+  --version         打印版本号并退出
+  --config-dir <值>  指定配置目录（默认自动探测）
+  --debug           打印调试信息（含详细堆栈）
+  --no-color        不使用彩色输出（管道/重定向时自动关闭）

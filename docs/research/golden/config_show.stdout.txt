@@ -1,0 +1,12 @@
+配置文件：C:\Users\Side_\AppData\Local\Temp\dsh-uwJpC7\golden-09jhbymd\settings.json
+
+  默认游戏版本：未设置
+  默认加载器  ：fabric
+  颜色        ：auto
+  代理        ：未设置
+  并发数      ：6（上限 8，Modrinth 限速 300 次/分钟）
+  超时        ：20 秒（重试 3 次）
+  缓存有效期  ：官方版本清单 24 小时 ｜ Modrinth 6 小时
+  数据源      ：Modrinth 已启用  ｜  CurseForge 未启用（缺少 API Key）
+
+修改设置：modcheck config set <键> <值>

@@ -1,0 +1,2 @@
+✗ 参数值不合法：「frobnicate」。（运行 modcheck --help 查看可选值）
+（运行 modcheck --help 查看完整用法）

@@ -1,0 +1,8 @@
+清单：demo（2 个模组）
+创建于   ｜  更新于 
+
+    #  名称          modid          来源    识别方式  当前版本
+    1  Carpet        carpet         carpet  —         —       
+    2  UnknownThing  unknown-thing  —       —         —       
+
+（完整内容用 modcheck profile show demo --json 输出）

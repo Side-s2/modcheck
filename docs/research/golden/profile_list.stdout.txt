@@ -1,0 +1,5 @@
+共有 1 个模组清单（配置目录：C:\Users\Side_\AppData\Local\Temp\dsh-uwJpC7\golden-09jhbymd\profiles）：
+
+  [1] demo  2 个模组   更新于 
+
+用 modcheck profile show <名称> 查看内容。
