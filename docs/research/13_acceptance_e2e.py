@@ -189,38 +189,61 @@ def _status_of(item: dict) -> str | None:
 
 
 def _slug_of(item: dict) -> str | None:
-    for k in ("slug", "project", "project_slug", "key", "mod_id", "modid"):
+    # 顶层直接给 slug 的情况
+    for k in ("slug", "project", "project_slug"):
         v = item.get(k)
         if isinstance(v, str) and v:
             return v
-    src = item.get("sources")
-    if isinstance(src, dict) and src.get("modrinth"):
-        return src["modrinth"]
+    # 实际结构：item["mod"] 是 ModEntry，slug 在 mod.sources.modrinth
+    for holder in (item.get("mod"), item):
+        if not isinstance(holder, dict):
+            continue
+        src = holder.get("sources")
+        if isinstance(src, dict) and src.get("modrinth"):
+            return str(src["modrinth"])
+        for k in ("mod_id", "modid", "key"):
+            v = holder.get(k)
+            if isinstance(v, str) and v:
+                return v
     return None
 
 
+def _file_of(item: dict) -> str | None:
+    mod = item.get("mod")
+    if isinstance(mod, dict):
+        for k in ("file_name", "key", "mod_id"):
+            v = mod.get(k)
+            if isinstance(v, str) and v:
+                return v
+    return _slug_of(item)
+
+
 def _compare_items(items, oracle_case):
-    by_slug = {}
+    """oracle_case 以【文件名】为键（见 11_oracle_mods_sample.py），因此按文件名连接。"""
+    by_file: dict[str, dict] = {}
     for it in items:
-        s = _slug_of(it)
-        if s:
-            by_slug[s.lower()] = it
-    if not by_slug:
-        check(WARN, "JSON 明细里找不到 slug 字段", "跳过逐条比对")
+        for cand in (_file_of(it), _slug_of(it)):
+            if cand:
+                by_file.setdefault(cand.lower(), it)
+    if not by_file:
+        check(WARN, "JSON 明细里找不到可用连接键（file_name/slug）", "跳过逐条比对")
         return
     wrong = missing = 0
-    for slug, exp in oracle_case.items():
-        got = by_slug.get(slug.lower())
+    for name, exp in oracle_case.items():
+        got = by_file.get(name.lower()) or by_file.get(str(exp.get("slug", "")).lower())
         if got is None:
-            missing += 1; continue
+            missing += 1
+            if missing <= 3:
+                check(WARN, f"未在 JSON 明细里找到 {name}", "可能被忽略或未匹配")
+            continue
         st = _status_of(got)
         if st != exp["status"]:
             wrong += 1
-            check(FAIL, f"{slug} 状态不符", f"程序 {st} / 基准 {exp['status']}")
+            check(FAIL, f"{name} 状态不符", f"程序 {st} / 基准 {exp['status']}")
     if missing:
-        check(WARN, f"{missing} 个模组未出现在 JSON 明细里", "可能被忽略或未匹配")
+        check(WARN, f"{missing}/{len(oracle_case)} 个模组未出现在 JSON 明细里", "")
     if wrong == 0 and missing == 0:
-        check(PASS, f"逐条比对：{len(oracle_case)} 个模组的 slug 与状态全部与独立基准一致")
+        check(PASS, f"逐条比对：{len(oracle_case)} 个模组的文件名与状态全部与独立基准一致")
 
 
 if __name__ == "__main__":
