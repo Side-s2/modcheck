@@ -451,6 +451,11 @@ _MESSAGES: Final[dict[str, str]] = {
     "settings.cf.done": "✓ CurseForge API Key 已保存（回显只显示后 4 位：{mask}）。",
     "settings.cf.cleared": "✓ CurseForge API Key 已清除。",
     "settings.save_failed": "✗ 设置没能保存到 {path}（磁盘满或没有权限）。这次的修改只在本次运行有效。",
+    "settings.reset.warn1": "⚠ 即将把设置恢复成出厂状态：",
+    "settings.reset.warn2": "   默认游戏版本、默认加载器、代理、颜色、并发数、缓存有效期、CurseForge API Key 都会回到初始值。",
+    "settings.reset.warn3": "   （模组清单和下载缓存不会被删除。）",
+    "settings.reset.ask": "确认重置？(y/N) > ",
+    "settings.reset.done": "✓ 设置已重置为默认值。",
     "menu.version.clear": "  [c] 清除（不设默认）",
     # ---------------------------------------------------------------- 下载计划（R3-B02）
     "download.skip.no_version": "没有可用于目标版本的版本（🟡 的「可用」版本缺失）",

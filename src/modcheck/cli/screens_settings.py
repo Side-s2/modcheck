@@ -13,9 +13,9 @@ from modcheck.cli.prompts import (KIND_BACK, KIND_OK, KIND_QUIT, MAX_INVALID_TRI
                                   read_line)
 from modcheck.core.models import Loader, Settings
 from modcheck.core.settings_ops import (COLORS, JOBS_HIGH, JOBS_LOW, TTL_HIGH, TTL_KEYS,
-                                        TTL_LOW, mask_secret, set_cache_ttl, set_color,
-                                        set_concurrency, set_curseforge_key, set_default_loader,
-                                        set_default_mc, set_proxy)
+                                        TTL_LOW, mask_secret, reset_settings, set_cache_ttl,
+                                        set_color, set_concurrency, set_curseforge_key,
+                                        set_default_loader, set_default_mc, set_proxy)
 from modcheck.errors import ConfigError, ModcheckError
 from modcheck.i18n import t
 from modcheck.storage.settings import save_settings
@@ -334,6 +334,20 @@ def _commit(ctx: AppContext, settings: Settings, message_key: str, **args: objec
     return None
 
 
+def _reset(ctx: AppContext, prompter: Prompter) -> str | None:
+    """[8] 重置为默认设置（二次确认，默认 N；PRD §13.3 / R3-A12）。"""
+    console = ctx.console
+    console.line(t("settings.reset.warn1"))
+    console.line(t("settings.reset.warn2"))
+    console.line(t("settings.reset.warn3"))
+    console.line()
+    # 危险操作：默认必须是 No（PRD §13.4 第 2 条）
+    if not prompter.confirm(t("settings.reset.ask"), default=False):
+        return None
+    apply_settings(ctx, reset_settings(), "settings.reset.done")
+    return None
+
+
 #: 按键 -> 处理函数（R3-A11 的 7 个子项 + R3-A12 的重置）
 SETTINGS_HANDLERS: dict[str, Callable[[AppContext, Prompter], "str | None"]] = {
     "1": _set_mc,
@@ -343,6 +357,7 @@ SETTINGS_HANDLERS: dict[str, Callable[[AppContext, Prompter], "str | None"]] = {
     "5": _set_jobs,
     "6": _set_cache,
     "7": _set_curseforge,
+    "8": _reset,
 }
 
 

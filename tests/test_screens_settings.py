@@ -218,6 +218,61 @@ def test_save_failure_keeps_memory_value(tmp_path: Path, monkeypatch) -> None:
     assert not ctx.settings_path.exists()
 
 
+# ---------------------------------------------------------------- R3-A12 重置设置
+def test_reset_confirm_screen_verbatim(tmp_path: Path) -> None:
+    """确认屏逐字列出 7 项影响面 + 明确清单与缓存不受影响。"""
+    ctx = make_ctx(tmp_path, ["8", "n", "q"])
+    run_settings_screen(ctx)
+    text = out(ctx)
+    assert "⚠ 即将把设置恢复成出厂状态：" in text
+    assert "   默认游戏版本、默认加载器、代理、颜色、并发数、缓存有效期、CurseForge API Key 都会回到初始值。" in text
+    assert "   （模组清单和下载缓存不会被删除。）" in text
+    assert "确认重置？(y/N) > " not in text      # 注入 input_fn 时提示不进 console 流
+    assert "✓ 设置已重置为默认值。" not in text
+
+
+def test_reset_no_keeps_file_bytes(tmp_path: Path) -> None:
+    """答 n（或直接回车）：settings.json 一个字节都不变。"""
+    ctx = make_ctx(tmp_path, ["5", "2", "q"])
+    run_settings_screen(ctx)
+    path = ctx.settings_path
+    before = path.read_bytes()
+    ctx2 = make_ctx(tmp_path, ["8", "n", "q"])
+    ctx2.settings = ctx.settings
+    run_settings_screen(ctx2)
+    assert path.read_bytes() == before
+
+    ctx3 = make_ctx(tmp_path, ["8", "", "q"])
+    ctx3.settings = ctx.settings
+    run_settings_screen(ctx3)
+    assert path.read_bytes() == before
+
+
+def test_reset_yes_restores_defaults(tmp_path: Path) -> None:
+    """答 y：所有值回默认，settings.json 与 config show 一致。"""
+    from fakes import FakeProvider
+    from modcheck.cli.commands.misc import run_config
+    from modcheck.providers.registry import ProviderRegistry
+
+    ctx = make_ctx(tmp_path, ["5", "2", "4", "never", "3", "http://127.0.0.1:7890",
+                              "7", "abcd1234", "q"])
+    run_settings_screen(ctx)
+    assert ctx.settings.concurrency == 2 and ctx.settings.color == "never"
+    ctx2 = make_ctx(tmp_path, ["8", "y", "q"])
+    ctx2.settings = ctx.settings
+    run_settings_screen(ctx2)
+    assert "✓ 设置已重置为默认值。" in out(ctx2)
+    assert ctx2.settings.to_dict() == Settings().to_dict()
+    assert saved(ctx2) == Settings().to_dict()
+
+    ctx2.registry = ProviderRegistry(providers=[FakeProvider()])
+    ctx2.console.stream.truncate(0)            # type: ignore[attr-defined]
+    ctx2.console.stream.seek(0)                # type: ignore[attr-defined]
+    run_config(Namespace(action="show", key=None, value=None), ctx2)
+    text = out(ctx2)
+    assert "未设置" in text and "6（上限 8" in text and "auto" in text
+
+
 def test_every_item_has_back_path(tmp_path: Path) -> None:
     """7 个子项都要能用 b 返回（R3-A11 验收：每项都有 [b]）。"""
     for key in ("1", "2", "3", "4", "5", "6", "7"):
