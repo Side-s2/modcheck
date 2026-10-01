@@ -23,9 +23,21 @@ def flow_modules() -> list[Path]:
     return sorted(FLOWS.rglob("*.py"))
 
 
+#: 这几个模块必须存在 —— 少一个就说明流程层被搬走或改名了
+REQUIRED_MODULES = ("__init__.py", "check_flow.py", "scan_flow.py")
+
+
 def test_flows_package_exists() -> None:
-    """flows 包必须真的在（否则下面的检查会变成空转）。"""
-    assert [p.name for p in flow_modules()] == ["__init__.py", "check_flow.py", "scan_flow.py"]
+    """flows 包必须真的在，且必需的模块一个都不能少。
+
+    ⚠️ 这里**不再断言"目录内容恰好等于某个清单"**：
+    主 Agent 后来加了 runtime.py（CLI 与 GUI 共用的依赖装配），
+    精确匹配的写法立刻误报 —— 那种断言把"合理新增"和"模块丢失"混为一谈了。
+    现在只保证"必需的都在"，新增模块由下面的逐模块 AST 检查兜底。
+    """
+    names = {p.name for p in flow_modules()}
+    missing = [name for name in REQUIRED_MODULES if name not in names]
+    assert not missing, f"flows/ 缺少必需模块：{missing}"
 
 
 @pytest.mark.parametrize("path", flow_modules(), ids=lambda p: p.name)

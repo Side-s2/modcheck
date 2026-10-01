@@ -14,17 +14,11 @@ from modcheck.cache import HttpCache
 from modcheck.console import Console
 from modcheck.core.models import Loader, Settings
 from modcheck.errors import ProviderError
+from modcheck.flows.runtime import MAX_JOBS, RATE_LIMIT_PER_MIN, build_runtime
 from modcheck.i18n import t
-from modcheck.providers.http import HttpConfig, HttpClient, RateLimiter
+from modcheck.providers.http import HttpClient
 from modcheck.providers.registry import ProviderRegistry
 from modcheck.storage import paths as path_helpers
-from modcheck.storage.settings import load_settings
-
-#: 并发硬上限（PRD §12：默认 6，上限 8）
-MAX_JOBS = 8
-#: Modrinth 官方 300 req/min；留 20% 余量取 240，
-#: 这样"任意 60 秒滑动窗口 <= 240"成立（PM 的 R2-02 验收口径）
-RATE_LIMIT_PER_MIN = 240
 
 
 @dataclass(slots=True)
@@ -54,44 +48,24 @@ class AppContext:
 
 
 def build_context(args: Any, console: Console) -> AppContext:
-    """按命令行参数与设置装配上下文。"""
-    warnings: list[str] = []
-    debug = bool(getattr(args, "debug", False))
-    requested = path_helpers.resolve_config_dir(getattr(args, "config_dir", None),
-                                                exe_dir=path_helpers.detect_exe_dir())
-    config_dir, fell_back = path_helpers.ensure_config_dir(requested)
-    if fell_back:
-        warnings.append(t("err.config_dir.not_writable", old=requested, new=config_dir))
+    """按命令行参数与设置装配上下文。
 
-    settings = load_settings(path_helpers.settings_path(config_dir))
+    ⚠️ 真正的装配**已经下沉到 flows/runtime.py**，与 GUI 共用同一份实现 ——
+    之前这段逻辑住在这里，GUI 因为拿不到 argparse/Console 而无法复用，
+    两边各写一份迟早会漂移（代理/超时/限速/缓存都是全局行为，差一点就会"只在一边复现"）。
+    这里只保留 CLI 特有的部分：Console 的颜色开关、交互判定与 Prompter。
+    """
+    debug = bool(getattr(args, "debug", False))
+    runtime = build_runtime(config_dir=getattr(args, "config_dir", None),
+                            jobs=getattr(args, "jobs", None),
+                            refresh=bool(getattr(args, "refresh", False)),
+                            debug=debug)
+    warnings: list[str] = list(runtime.warnings)
+    config_dir, settings = runtime.config_dir, runtime.settings
     if settings.color == "never":
         console.color_enabled = False
 
-    jobs = getattr(args, "jobs", None)
-    if jobs is not None:
-        if jobs > MAX_JOBS:
-            if debug:
-                warnings.append(t("err.debug.jobs_clamped", high=MAX_JOBS))
-            jobs = MAX_JOBS
-        settings.concurrency = max(1, min(int(jobs), MAX_JOBS))
-
-    cache: HttpCache | None = HttpCache(path_helpers.http_cache_dir(config_dir))
-    if not path_helpers.is_writable(path_helpers.http_cache_dir(config_dir)):
-        cache = None
-        warnings.append(t("warn.cache.not_writable"))
-
-    cfg = HttpConfig(
-        timeout=float(settings.timeout_seconds),
-        retries=int(settings.retries),
-        proxy=settings.proxy,
-        rate_limit_per_min=RATE_LIMIT_PER_MIN,
-        cache_ttl=float(settings.cache_ttl_hours.get("api", 6.0)) * 3600.0,
-    )
-    client = HttpClient(cfg, cache=cache, limiter=RateLimiter(cfg.rate_limit_per_min))
-    if getattr(args, "refresh", False):
-        client.use_cache = False
-
-    registry = ProviderRegistry.from_settings(settings, client)
+    cache, client, registry = runtime.cache, runtime.client, runtime.registry
     interactive = sys.stdin.isatty() and not bool(getattr(args, "yes", False))
 
     prompter = None
