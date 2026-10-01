@@ -217,15 +217,15 @@ def test_refresh_style_bypass_counts_only_requests(tmp_path: Path) -> None:
     assert client.stats == (2, 0)
 
 
-def test_rate_limiter_token_bucket() -> None:
-    """令牌桶：每分钟 2 个令牌时，第 3 次调用必须等到下一分钟。"""
+def test_rate_limiter_sliding_window() -> None:
+    """滑动窗口：窗口内放行满 2 个之后，第 3 次要等到最早那次滑出 60 秒窗口。"""
     clock = FakeClock()
     limiter = RateLimiter(2, clock=clock.clock, sleep=clock.sleep)
     limiter.acquire()
     limiter.acquire()
     assert clock.sleeps == []
     limiter.acquire()
-    assert clock.sleeps == [30.0]
+    assert clock.sleeps == [60.0]   # 窗口长度，而不是令牌桶的 30 秒补充间隔
 
 
 def test_rate_limiter_pause() -> None:
