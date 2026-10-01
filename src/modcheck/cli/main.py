@@ -14,7 +14,9 @@ import traceback
 from typing import Final, NoReturn, Sequence
 
 from modcheck import APP_NAME, __version__
-from modcheck.console import Console, init_terminal_encoding
+from modcheck.console import (Console, console_attached, ensure_console_streams,
+                              init_terminal_encoding, pause_before_exit)
+from modcheck.storage.paths import is_packaged
 from modcheck.errors import (EXIT_INTERNAL, EXIT_INTERRUPTED, EXIT_USAGE, ModcheckError)
 from modcheck.i18n import t
 
@@ -219,6 +221,10 @@ def _dispatch(command: str, args: argparse.Namespace, console: Console) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """程序入口；返回进程退出码（PRD §10.4）。"""
+    # ⚠️ 必须最早做：双击单文件 exe 时子进程可能拿不到标准流，
+    # 不救回来的话 sys.stdin.isatty() 为假 -> 菜单判定"非交互"直接退出 ->
+    # 用户看到的就是"窗口一闪而过"（实测反馈）。
+    ensure_console_streams()
     init_terminal_encoding()
     parser = build_parser()
     try:
@@ -235,6 +241,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not sys.stdin.isatty():
                 console.line(t("menu.non_interactive"))
                 console.line(t("err.usage.hint"))
+                # 挂着控制台却进不了菜单时停住，别让窗口无声消失。
+                # ⚠️ 只在**打包产物**上停：源码/启动器运行一定是人在终端或脚本里，
+                # 无条件停会把自动化调用挂死（实测踩过，比原问题更糟）。
+                if is_packaged() and console_attached():
+                    pause_before_exit(t("menu.press_enter"))
                 return EXIT_USAGE
             apply_menu_defaults(args, parser)
             run_menu = _load_attr("modcheck.cli.menu", "run_menu")

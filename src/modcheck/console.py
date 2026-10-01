@@ -81,6 +81,86 @@ def enable_windows_vt() -> bool:
         return False
 
 
+def console_attached() -> bool:
+    """进程是否挂着一个真实的控制台窗口。
+
+    Windows 上用 GetConsoleWindow()；其它平台退化为"stdin/stdout 至少一个是 tty"。
+    """
+    if sys.platform == "win32":
+        try:
+            return bool(ctypes.windll.kernel32.GetConsoleWindow())  # type: ignore[attr-defined]
+        except Exception:
+            return False
+    try:
+        return bool(sys.stdin is not None and sys.stdin.isatty())
+    except Exception:
+        return False
+
+
+def ensure_console_streams() -> bool:
+    """Windows：把**丢失的**标准流重新接回控制台（双击启动时的自救）。
+
+    实测背景：用户双击单文件 exe 时「窗口一闪而过」。根因是 Nuitka onefile 的子进程
+    没有可用的 stdin —— sys.stdin.isatty() 为假，菜单判定「非交互」直接退出 3，
+    控制台窗口随之关闭，用户什么都看不到。而进程**其实还挂着控制台**
+    （GetConsoleWindow() != 0），所以可以直接打开 CONIN$ / CONOUT$ 顶上。
+
+    ⚠️ 只接管**已经失效**的句柄（GetFileType == FILE_TYPE_UNKNOWN）：
+      * 用户重定向到文件 -> FILE_TYPE_DISK，绝不能抢；
+      * 管道（echo 0 | modcheck）-> FILE_TYPE_PIPE，也绝不能抢。
+    返回：是否做了替换。
+    """
+    # ⚠️ 只在**打包产物**上自救。源码/启动器（modcheck.cmd）一定是人在终端或脚本里跑的：
+    # 那里把"非交互退出"改成"进菜单等输入"会让自动化调用挂死（实测踩过）。
+    # 打包产物是给用户双击的，所以它要尽力把控制台找回来。
+    from modcheck.storage.paths import is_packaged
+
+    if sys.platform != "win32" or not is_packaged() or not console_attached():
+        return False
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    except Exception:
+        return False
+    changed = False
+    for std_handle, mode, device in ((-10, "r", "CONIN$"), (-11, "w", "CONOUT$")):
+        try:
+            handle = kernel32.GetStdHandle(std_handle)
+            if kernel32.GetFileType(handle) != 0:   # 0 = FILE_TYPE_UNKNOWN -> 句柄已失效
+                continue
+            stream = open(device, mode, encoding="utf-8", errors="replace", buffering=1)
+        except Exception:
+            continue
+        if std_handle == -10:
+            sys.stdin = stream
+        else:
+            sys.stdout = stream
+        changed = True
+    return changed
+
+
+def pause_before_exit(prompt: str = "") -> None:
+    """让控制台窗口停住，好让用户看清最后几行。
+
+    只在**挂着控制台**时调用（双击场景）。直接从 CONIN$ 读，绕开"stdin 是 NUL"这类
+    退化情况 —— 那种情况下读 sys.stdin 会立刻 EOF，窗口照样会关掉。
+    """
+    if not console_attached():
+        return
+    try:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+    except Exception:
+        pass
+    try:
+        if sys.platform == "win32":
+            with open("CONIN$", "r", encoding="utf-8", errors="replace") as handle:
+                handle.readline()
+        elif sys.stdin is not None:
+            sys.stdin.readline()
+    except Exception:
+        pass
+
+
 def resolve_width(fallback: int = 100) -> int:
     """取输出宽度；非 TTY 时优先 COLUMNS，其次用 100（不用 shutil 默认的 80）。"""
     env = os.environ.get("COLUMNS")
@@ -266,5 +346,7 @@ def debug_note(console: "Console", key: str, **kw: object) -> None:
 __all__ = [
     "Console", "init_terminal_encoding", "enable_windows_vt", "resolve_width",
     "display_width", "truncate", "pad", "debug_note",
-    "SYMBOL_READY", "SYMBOL_DEGRADED", "SYMBOL_BLOCKED", "SYMBOL_UNKNOWN", "SYMBOL_IGNORED",
+    "console_attached", "ensure_console_streams", "pause_before_exit",
+    "SYMBOL_READY", "SYMBOL_DEGRADED", "SYMBOL_PRERELEASE", "SYMBOL_BLOCKED",
+    "SYMBOL_UNKNOWN", "SYMBOL_IGNORED",
 ]

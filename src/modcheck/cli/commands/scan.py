@@ -94,14 +94,33 @@ def scan_dirs(directories: Sequence[Path], ctx: AppContext, *,
 
     digests: dict[Path, str] = {}
     metas = {}
+    # 用户反馈：30 个模组扫描也要等不少时间，设计容量还更大 —— 必须有进度。
+    # 读 jar + 算 sha1 是这里最慢的一步，进度条就画在这一段。
+    total_jars = sum(len(jars) for _d, jars, _s, _sub in per_dir)
+    step = max(1, total_jars // 5)
+    done = 0
+    # ctx.console 允许为 None（单测走纯逻辑路径时就是 None），所以全程用 getattr 兜底 ——
+    # 展示层缺失不该影响扫描本身。
+    out = getattr(ctx, "console", None)
     for _directory, jars, _skipped, _subdirs in per_dir:
         for jar in jars:
+            done += 1
+            if out is not None:
+                filled = int(done / total_jars * 20) if total_jars else 20
+                out.progress(t("scan.progress.reading",
+                               bar="█" * filled + "░" * (20 - filled),
+                               done=done, total=total_jars, name=jar.name))
+                # 非 TTY 下 progress() 不画（回车会污染管道输出），改成每 20% 打一行
+                if not out.is_tty and (done % step == 0 or done == total_jars):
+                    out.line(t("scan.progress.plain", done=done, total=total_jars))
             try:
                 digest = sha1_of_file(jar)
             except OSError:
                 continue
             digests[jar] = digest
             metas[jar] = read_jar_meta(jar)
+    if out is not None:
+        out.clear_progress()
 
     hash_hits = _lookup_hashes(digests, ctx, report)
 

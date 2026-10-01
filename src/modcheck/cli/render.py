@@ -251,7 +251,15 @@ def _group_title(status: Status, group: Sequence[ReportItem], report: Report) ->
 
 
 def _render_details(item: ReportItem, report: Report, console: Console) -> None:
-    """按组渲染详情行（🔴 3 行 / 🟡 4 行 / ⚪ 3 行 / 🟢 1 行 / ⚫ 1 行）。"""
+    """按组渲染详情行。
+
+    用户反馈（实测）：原来每条都打「原因 / 可用 / 建议」三行，同一组里**大量重复**，
+    既占版面又乱。现在只保留**每个模组不同**的信息：
+      * 🔴 阻塞 / ⚪ 未判定：保留「原因」—— 这是它为什么不行/查不到，逐条不同；
+      * 🟠 仅存测试版 / 🟡 需注意：**只留「可用：版本」**，共同的那句原因已经写在组标题里；
+      * ⚫ 已忽略：保留「建议」（很短）；
+      * 兜底：若上面什么都没打出来，退回打「原因」，不允许出现"只有一行标题没有内容"的条目。
+    """
     if item.status is Status.READY:
         if item.provider_message:
             console.line(t("report.item.reason", text=item.provider_message))
@@ -259,26 +267,28 @@ def _render_details(item: ReportItem, report: Report, console: Console) -> None:
     if item.status is Status.IGNORED:
         console.line(DETAIL_INDENT + advice_text(item, report))
         return
-    console.prose(t("report.item.reason", text=reason_text(item, report)))
     if item.status in (Status.DEGRADED, Status.PRERELEASE):
-        _render_available(item, report, console)
-    console.prose(t("report.item.advice", text=advice_text(item, report)))
+        if _render_available(item, report, console):
+            return
+    console.prose(t("report.item.reason", text=reason_text(item, report)))
 
 
-def _render_available(item: ReportItem, report: Report, console: Console) -> None:
-    """🟡 的「可用：」行。"""
+def _render_available(item: ReportItem, report: Report, console: Console) -> bool:
+    """🟠/🟡 的「可用：」行；返回是否真的打出了内容（供调用方兜底）。"""
     if item.reason is ReasonCode.OLD_VERSION_ONLY and item.latest_compat is not None:
         version = item.latest_compat
         if item.current_version and item.current_version == version.version_number:
             console.prose(t("report.item.already_latest"))
-            return
+            return True
         console.prose(t("report.item.available", version=version.version_number,
                         date=short_date(version.date_published)))
-        return
+        return True
     if item.latest_any is not None:
         console.prose(t("report.item.available_channel",
                         version=item.latest_any.version_number,
                         channel=item.latest_any.version_type))
+        return True
+    return False
 
 
 def render_summary(report: Report, console: Console) -> None:

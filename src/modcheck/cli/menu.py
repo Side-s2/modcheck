@@ -114,6 +114,19 @@ def run_menu(args: argparse.Namespace, *, input_fn: Callable[[str], str] | None 
         console.line()
 
 
+def _profile_label(summary) -> str:
+    """清单选项的文案（用户要求带上修改日期）。
+
+    同名或相似的清单多起来以后，"哪个是我上周改过的"比"有几个模组"更能帮用户选对；
+    日期取不到时退回不带日期的文案，绝不显示空白或 "None"。
+    """
+    stamp = (getattr(summary, "updated_at", "") or "").strip()
+    short = stamp[:16].replace("T", " ")          # 2026-10-01T19:20:31 -> 2026-10-01 19:20
+    if len(short) == 16:
+        return t("profile.option", name=summary.name, count=summary.mod_count, date=short)
+    return t("profile.option.nodate", name=summary.name, count=summary.mod_count)
+
+
 def _menu_check(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -> None:
     """功能①：交互式检查。"""
     from modcheck.cli.commands.check import run_check
@@ -124,9 +137,7 @@ def _menu_check(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -
             _menu_scan(ctx, prompter)
         return
     console = ctx.console
-    options = [Choice(key=summary.name,
-                      label=summary.name + "（" + str(summary.mod_count) + " 个模组）")
-               for summary in profiles]
+    options = [Choice(key=summary.name, label=_profile_label(summary)) for summary in profiles]
     selected = prompter.choose(t("profile.list.header", count=len(profiles),
                                  dir=ctx.profiles_dir), options, allow_back=True)
     if selected in ("b", "q"):

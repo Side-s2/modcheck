@@ -29,6 +29,13 @@ _MESSAGES: Final[dict[str, str]] = {
     "menu.item.settings": "设置                    （默认版本、加载器、代理、颜色、并发、缓存）",
     "menu.item.versions": "查看官方游戏版本列表",
     "menu.item.quit": "退出",
+    "menu.press_enter": "按回车键关闭窗口……",
+    # 清单选项：用户要求在选择清单时能看到修改日期（同名清单多时，"哪个是我上周改过的"最有用）
+    "profile.option": "{name}（{count} 个模组）  最后修改：{date}",
+    "profile.option.nodate": "{name}（{count} 个模组）",
+    # 扫描进度：30 个模组也要等不少时间，且实际容量更大 -> 用户要求必须有进度
+    "scan.progress.reading": "  [{bar}] {done}/{total}  {name}",
+    "scan.progress.plain": "  已读取 {done}/{total} 个模组文件……",
     "menu.hint.no_profile": "还没有任何模组清单。先选 [2] 扫描你的 mods 文件夹（通常在 服务端根目录\\mods）。",
     "menu.prompt": "请选择 > ",
     "menu.version.title": "请选择目标游戏版本（最近 10 个官方正式版）：",
