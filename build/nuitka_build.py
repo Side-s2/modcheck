@@ -58,6 +58,10 @@ def build(*, onefile: bool = False, output_dir: Path = Path("dist"),
            "--product-name=modcheck",
            "--file-version=0.1.0",
            "--product-version=0.1.0"]
+    icon = ROOT / "assets" / "modcheck.ico"
+    if icon.is_file():
+        # 有图标就用（资源管理器/任务栏里认得出是哪个程序）；没有也不影响构建
+        cmd.append("--windows-icon-from-ico=" + str(icon))
     if onefile:
         # ⚠️ 实测反馈：默认解包目录是 %TEMP%\onefile_<pid>_<time>_<rand>，
         # 而"从 %TEMP% 解包并执行子进程"正是杀毒软件最常拦截的行为模式 ——
@@ -76,6 +80,9 @@ def build(*, onefile: bool = False, output_dir: Path = Path("dist"),
         # **排除 cli**：GUI 不依赖命令行前端。这既是省体积，也是**构建期的分层断言** ——
         # 如果哪天 GUI 偷偷 import 了 cli，这里会直接构建失败，而不是悄悄变胖。
         cmd.append("--nofollow-import-to=modcheck.cli")
+        # 图标也带进产物：GUI 运行时用它设置窗口图标（exe 图标只影响资源管理器）
+        if icon.is_file():
+            cmd.append("--include-data-files=" + str(icon) + "=assets/modcheck.ico")
     for name in EXCLUDES:
         cmd.append("--nofollow-import-to=" + name)
     if not keep_intermediate:
