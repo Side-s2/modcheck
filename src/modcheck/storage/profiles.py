@@ -112,15 +112,31 @@ def load_profile(path: Path) -> Profile:
 
 
 def save_profile(profile: Profile, path: Path) -> None:
-    """原子写入清单（先写 .tmp 再 os.replace）。"""
+    """原子写入清单（先写 .tmp 再 os.replace）。
+
+    抛出：
+        ProfileError: 目录 / 文件写不进去（磁盘满、只读、没有权限）。
+    """
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
     profile.updated_at = now_iso()
     tmp = target.with_name(target.name + ".tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        json.dump(profile.to_dict(), handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-    os.replace(tmp, target)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tmp.open("w", encoding="utf-8") as handle:
+            json.dump(profile.to_dict(), handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(tmp, target)
+    except OSError as exc:
+        _cleanup_tmp(tmp)
+        raise ProfileError(t("err.profile.save_failed", path=target)) from exc
+
+
+def _cleanup_tmp(tmp: Path) -> None:
+    """写盘失败时清掉半成品 .tmp（不留垃圾，也不影响重试）。"""
+    try:
+        Path(tmp).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def new_profile(name: str, description: str = "") -> Profile:
@@ -131,8 +147,16 @@ def new_profile(name: str, description: str = "") -> Profile:
 
 
 def delete_profile(path: Path) -> None:
-    """删除清单文件。"""
-    Path(path).unlink(missing_ok=True)
+    """删除清单文件。
+
+    抛出：
+        ProfileError: 文件删不掉（被占用 / 只读 / 没有权限）。
+    """
+    target = Path(path)
+    try:
+        target.unlink(missing_ok=True)
+    except OSError as exc:
+        raise ProfileError(t("err.profile.delete_failed", path=target)) from exc
 
 
 def copy_profile(source: Path, target: Path) -> None:

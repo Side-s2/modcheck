@@ -47,14 +47,25 @@ def load_settings(path: Path) -> Settings:
 
 
 def save_settings(path: Path, settings: Settings) -> None:
-    """原子写入设置（先写 .tmp 再 os.replace）。"""
+    """原子写入设置（先写 .tmp 再 os.replace）。
+
+    抛出：
+        ConfigError: 目录 / 文件写不进去（磁盘满、只读、没有权限）。
+    """
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        json.dump(settings.to_dict(), handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-    os.replace(tmp, target)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tmp.open("w", encoding="utf-8") as handle:
+            json.dump(settings.to_dict(), handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(tmp, target)
+    except OSError as exc:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ConfigError(t("err.settings.save_failed", path=target)) from exc
 
 
 def _backup(path: Path) -> None:

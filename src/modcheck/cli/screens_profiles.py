@@ -491,8 +491,9 @@ def _op_rename(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
         return None
     try:
         delete_profile(source)
-    except OSError:
-        # 新清单已经写好了，只是旧文件删不掉：必须说清楚，否则用户会看到两个清单
+    except (ModcheckError, OSError):
+        # 新清单已经写好了，只是旧文件删不掉（Windows 上只读文件就是这样）：
+        # 必须说清楚，否则用户会看到两个清单
         console.line(t("manage.rename.partial", path=source))
         return None
     console.line(t(result.message_key, **result.message_args))
