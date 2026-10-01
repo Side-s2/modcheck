@@ -117,6 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument("name", nargs="?", default=None, help=t("cli.profile.name"))
     profile.add_argument("target", nargs="?", default=None, help=t("cli.profile.target"))
     profile.add_argument("--json", dest="json_out", action="store_true", help=t("cli.profile.json"))
+    profile.add_argument("--yes", action="store_true", help=t("cli.check.yes"))
 
     versions = _sub(sub, "versions")
     versions.add_argument("--limit", type=int, default=10, metavar=t("cli.metavar.value"), help=t("cli.versions.limit"))

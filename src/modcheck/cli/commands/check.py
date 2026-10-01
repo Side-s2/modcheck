@@ -86,6 +86,8 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
     mc_version = getattr(args, "mc", None) or ctx.settings.default_mc_version
     if not mc_version:
         raise ConfigError(t("err.mc.invalid", value=""))
+    # 先校验格式（不联网、立即失败），再取官方清单做存在性校验 —— 参数写错不该先等一次网络
+    validate_target_version(str(mc_version), None)
     known: set[str] | None = None
     try:
         known = MojangVersions(ctx.client).known_versions()

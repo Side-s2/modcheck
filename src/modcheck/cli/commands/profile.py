@@ -4,8 +4,10 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Sequence
 
 from modcheck.cli.context import AppContext
+from modcheck.console import display_width, pad, truncate
 from modcheck.core.models import MatchStatus, ModEntry
 from modcheck.errors import ConfigError, ProfileError
 from modcheck.i18n import t
@@ -74,16 +76,37 @@ def _action_show(args: argparse.Namespace, ctx: AppContext) -> int:
     ctx.console.line(t("profile.show.time", created=profile.created_at[:16],
                        updated=profile.updated_at[:16]))
     ctx.console.line()
-    ctx.console.line(t("profile.show.table_header"))
-    for index, entry in enumerate(profile.mods, start=1):
-        ctx.console.line(t("profile.show.row", index=index, name=entry.best_name,
-                           modid=entry.mod_id or entry.key,
-                           source=entry.sources.get("modrinth") or "—",
-                           origin=entry.source_kind.display if entry.source_kind else "—",
-                           version=entry.current_version or "—"))
+    rows = [(_cell_index(index), entry.best_name, entry.mod_id or entry.key,
+             str(entry.sources.get("modrinth") or "—"),
+             entry.source_kind.display if entry.source_kind else "—",
+             entry.current_version or "—")
+            for index, entry in enumerate(profile.mods, start=1)]
+    headers = (t("profile.show.col.index"), t("profile.show.col.name"),
+               t("profile.show.col.modid"), t("profile.show.col.source"),
+               t("profile.show.col.origin"), t("profile.show.col.version"))
+    # 表头与数据行必须用**同一套列宽**组装，否则永远对不齐（CJK 必须按显示宽度算）
+    widths = [max(display_width(headers[i]), *(display_width(row[i]) for row in rows)) if rows
+              else display_width(headers[i]) for i in range(len(headers))]
+    widths[0] = max(widths[0], 3)
+    ctx.console.line(_assemble(headers, widths))
+    for row in rows:
+        ctx.console.line(_assemble(row, widths))
     ctx.console.line()
     ctx.console.line(t("profile.show.json_hint", name=profile.name))
     return 0
+
+
+def _cell_index(index: int) -> str:
+    """序号列。"""
+    return str(index)
+
+
+def _assemble(cells: Sequence[str], widths: Sequence[int]) -> str:
+    """按列宽拼一行（显示宽度对齐，列间 2 空格）。"""
+    parts = [pad(cells[0].rjust(widths[0]), widths[0])]
+    for cell, width in zip(cells[1:], widths[1:]):
+        parts.append(pad(truncate(cell, width), width))
+    return "  " + "  ".join(parts)
 
 
 def _action_new(args: argparse.Namespace, ctx: AppContext) -> int:
@@ -162,19 +185,48 @@ def _action_add(args: argparse.Namespace, ctx: AppContext) -> int:
     return 0
 
 
+def _identifiers(entry: ModEntry) -> list[str]:
+    """一条记录的全部可用标识（用户输哪个都该命中）。"""
+    values = [entry.key, entry.mod_id, entry.display_name, entry.cn_name, entry.file_name]
+    values.extend(entry.aliases or [])
+    values.extend(str(slug) for slug in (entry.sources or {}).values() if slug)
+    return [str(value) for value in values if value]
+
+
+def find_entry(profile, raw: str) -> tuple[ModEntry | None, list[ModEntry]]:
+    """按任意标识查条目（大小写不敏感）；未命中时给出前缀候选。
+
+    返回：
+        (命中的条目或 None, 建议列表)
+    """
+    wanted = (raw or "").strip().lower()
+    if not wanted:
+        return None, []
+    for entry in profile.mods:
+        if any(ident.lower() == wanted for ident in _identifiers(entry)):
+            return entry, []
+    suggests = [entry for entry in profile.mods
+                if any(wanted in ident.lower() for ident in _identifiers(entry))]
+    return None, suggests
+
+
 def _action_remove(args: argparse.Namespace, ctx: AppContext) -> int:
-    """从清单里移除一个模组。"""
+    """从清单里移除一个模组（modid / slug / 名称 / 文件名都能匹配）。"""
     name = _require_name(args)
     mod_name = str(getattr(args, "target", None) or "")
     path = profile_path(ctx.profiles_dir, name)
     profile = load_profile(path)
-    before = len(profile.mods)
-    profile.mods = [entry for entry in profile.mods
-                    if entry.key != mod_name and entry.best_name != mod_name]
-    if len(profile.mods) == before:
+    entry, suggests = find_entry(profile, mod_name)
+    if entry is None:
+        if suggests:
+            hint = "、".join(item.best_name + "（modid=" + (item.mod_id or item.key) + "）"
+                             for item in suggests[:3])
+            raise ConfigError(t("profile.entry_not_found_hint", profile=name, name=mod_name,
+                                suggest=hint))
         raise ConfigError(t("profile.entry_not_found", profile=name, name=mod_name))
+    profile.mods = [item for item in profile.mods if item is not entry]
     save_profile(profile, path)
-    ctx.console.line(t("profile.removed", name=mod_name, profile=name))
+    ctx.console.line(t("profile.removed", name=entry.best_name, profile=name))
     return 0
 
 
