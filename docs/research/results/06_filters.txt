@@ -1,0 +1,38 @@
+==================================================================================
+【验证 I】版本端点是否支持 limit / 过滤，以及各取数方式的体积
+==================================================================================
+  全量                         HTTP体积=   6797.6 KB  条目数=3736    耗时= 1.55s
+  按加载器过滤                     HTTP体积=   2631.8 KB  条目数=1133    耗时= 0.92s
+  按加载器+游戏版本过滤                HTTP体积=    123.5 KB  条目数=79      耗时= 0.75s
+  limit=1                    HTTP体积=      1.1 KB  条目数=1       耗时= 0.57s
+  按加载器 + limit=1             HTTP体积=      1.1 KB  条目数=1       耗时= 0.61s
+  offset=0&limit=5           HTTP体积=     11.2 KB  条目数=5       耗时= 0.46s
+
+==================================================================================
+【验证 J】关键问题：能否用少量请求判定「该加载器的最新版是否支持目标 MC」
+==================================================================================
+
+  carpet: /project 体积=6.7 KB, versions[] 长度=134, 前3个id=['jzERAhet', 'AL0o28FC', 'WwXcEAQl']
+
+  journeymap: /project 体积=15.1 KB, versions[] 长度=1140, 前3个id=['fAg6IGvo', 'D4uv64fX', 'HWHM2qKO']
+
+  jei: /project 体积=46.6 KB, versions[] 长度=3736, 前3个id=['6QsZu0uX', 'vddb9IRK', 'OVe9dyBJ']
+
+  carpet 的 versions[] 前 6 个（逐个 /version/{id} 查询）:
+    jzERAhet     单体体积=  1008 B  version_number=1.1.3        type=release  loaders=['fabric'] gv=['1.14.4'] date=2022-12-29
+    AL0o28FC     单体体积=   983 B  version_number=1.4.8        type=release  loaders=['fabric'] gv=['1.15', '1.15.1'] date=2022-12-29
+    WwXcEAQl     单体体积=   998 B  version_number=1.4.44       type=release  loaders=['fabric'] gv=['1.16.2', '1.16.3'] date=2022-12-29
+    LXR8CUeL     单体体积=   971 B  version_number=1.4.57       type=release  loaders=['fabric'] gv=['1.17.1'] date=2022-12-29
+    Gt4ohwGH     单体体积=   982 B  version_number=1.4.69       type=release  loaders=['fabric'] gv=['1.18.2'] date=2022-12-29
+    SaOHo2Ac     单体体积=  1054 B  version_number=1.4.84       type=release  loaders=['fabric'] gv=['1.19.1', '1.19.2'] date=2022-12-29
+
+  journeymap 的 versions[] 前 8 个（验证多加载器交错情况）:
+    version_number=5.8.4+fabric-1.18.2      loaders=['fabric', 'quilt']    gv=['1.18.2']         date=2022-05-29
+    version_number=5.8.4+forge-1.18.2       loaders=['forge']              gv=['1.18.2']         date=2022-05-29
+    version_number=1.16.5-5.8.5p3           loaders=['forge']              gv=['1.16.5']         date=2022-06-06
+    version_number=1.18.2-5.8.5+forge       loaders=['forge']              gv=['1.18.2']         date=2022-06-06
+    version_number=1.18.2-5.8.5-fabric      loaders=['fabric', 'quilt']    gv=['1.18.2']         date=2022-06-07
+    version_number=1.19-5.8.5alpha1-forge   loaders=['forge']              gv=['1.19']           date=2022-06-08
+    version_number=1.19-5.8.5rc1-fabric     loaders=['fabric', 'quilt']    gv=['1.19']           date=2022-06-11
+    version_number=1.19-5.8.5rc1-forge      loaders=['forge']              gv=['1.19']           date=2022-06-11
+    /project/journeymap 体积=15.1 KB

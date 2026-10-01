@@ -1,0 +1,92 @@
+==========================================================================================
+【验证 A】jar 内部元数据是否可靠（决定 modid / 支持版本 / 加载器）
+==========================================================================================
+
+--- carpet / fabric / 26.3 ---
+    文件名: fabric-carpet-26.3+v260915.jar  大小: 1541420 bytes
+    实际条目 fabric.mod.json: True
+    id='carpet' name='Carpet Mod' version='26.3+v260915'
+    depends.minecraft='>=26.3'  depends keys=['minecraft', 'fabricloader', 'java']
+    loaders字段=None  environment='*'
+
+--- jei / fabric / 31.8.0.49 ---
+    文件名: jei-26.3-fabric-31.8.0.49.jar  大小: 2389062 bytes
+    实际条目 fabric.mod.json: True
+    id='jei' name='Just Enough Items' version='31.8.0.49'
+    depends.minecraft=None  depends keys=['mezz_config', 'fabricloader', 'fabric-api', 'java']
+    loaders字段=None  environment='*'
+
+--- jei / neoforge / 31.8.0.49 ---
+    文件名: jei-26.3-neoforge-31.8.0.49.jar  大小: 2381616 bytes
+    实际条目 META-INF/neoforge.mods.toml: True
+    TOML 头部摘录:
+      # There are several mandatory fields (#mandatory), and many more that are optional (#optional).
+      # The overall format is standard TOML format, v0.5.0.
+      # Note that there are a couple of TOML lists in this file.
+      # Find more information on toml format here:  https://github.com/toml-lang/toml
+      
+      # The name of the mod loader type to load - for regular FML @Mod mods it should be javafml
+      modLoader="javafml" #mandatory
+      
+      # A version range to match for said mod loader - for regular FML @Mod it will be the minecraft version (without the 1.)
+      loaderVersion="[4,)" #mandatory
+      
+      # A URL to refer people to when problems occur with this mod
+      issueTrackerURL="https://github.com/mezz/JustEnoughItems/issues?q=is%3Aissue" #optional
+      
+      # License
+      license="The MIT License (MIT)"
+      
+      # A text field displayed in the mod UI
+      #credits="Thanks for this example mod goes to Java" #optional
+      
+      [[mods]] #mandatory
+      
+      # The modid of the mod
+      modId="jei" #mandatory
+
+--- jei / forge / 11.68.0.1085 ---
+    文件名: jei-1.19.2-forge-11.68.0.1085.jar  大小: 2236468 bytes
+    实际条目 META-INF/mods.toml: True
+    TOML 头部摘录:
+      # There are several mandatory fields (#mandatory), and many more that are optional (#optional).
+      # The overall format is standard TOML format, v0.5.0.
+      # Note that there are a couple of TOML lists in this file.
+      # Find more information on toml format here:  https://github.com/toml-lang/toml
+      
+      # The name of the mod loader type to load - for regular FML @Mod mods it should be javafml
+      modLoader="javafml" #mandatory
+      
+      # A version range to match for said mod loader - for regular FML @Mod it will be the minecraft version (without the 1.)
+      loaderVersion="[41,)" #mandatory
+      
+      # A URL to refer people to when problems occur with this mod
+      issueTrackerURL="https://github.com/mezz/JustEnoughItems/issues?q=is%3Aissue" #optional
+      
+      # License
+      license="The MIT License (MIT)"
+      
+      # A text field displayed in the mod UI
+      #credits="Thanks for this example mod goes to Java" #optional
+      
+      # A list of mods - how many allowed here is determined by the individual mod loader
+      [[mods]] #mandatory
+      
+      # The modid of the mod
+
+==========================================================================================
+【验证 B】latest_all 必须按 version_number 分组（journeymap 的 paper/fabric 同版本号问题）
+==========================================================================================
+  version_number=26.3-6.0.9+paper           条目数=1 loaders=['paper'] game_versions(前3)=['26.3'] earliest=2026-09-19
+  version_number=26.3-6.0.9+neoforge        条目数=1 loaders=['neoforge'] game_versions(前3)=['26.3'] earliest=2026-09-19
+  version_number=26.3-6.0.9+forge           条目数=1 loaders=['forge'] game_versions(前3)=['26.3'] earliest=2026-09-19
+  version_number=26.3-6.0.9+fabric          条目数=1 loaders=['fabric', 'quilt'] game_versions(前3)=['26.3'] earliest=2026-09-19
+  version_number=1.21.1-6.0.9+neoforge      条目数=1 loaders=['neoforge'] game_versions(前3)=['1.21.1'] earliest=2026-09-19
+  version_number=1.21.1-6.0.9+forge         条目数=1 loaders=['forge'] game_versions(前3)=['1.21.1'] earliest=2026-09-19
+  version_number=1.21.1-6.0.9+fabric        条目数=1 loaders=['fabric', 'quilt'] game_versions(前3)=['1.21.1'] earliest=2026-09-19
+  version_number=1.20.1-6.0.6+forge         条目数=1 loaders=['forge'] game_versions(前3)=['1.20.1'] earliest=2026-09-19
+
+  按 version_number 分组的正确 latest_all（取最早发布时间代表该版本，避免多加载器互相抢占）:
+    latest_all(version_number) = 26.3-6.0.9+paper  loaders=['paper']
+    目标 26.3/fabric 下兼容的 version_number 数量 = 2，最新兼容 = 26.3-6.0.9+fabric
+    → 判定应为: DEGRADED

@@ -1,0 +1,21 @@
+# 统一换行符：源码与文档一律 LF，Windows 脚本用 CRLF
+* text=auto eol=lf
+
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# 二进制
+*.jar   binary
+*.png   binary
+*.ico   binary
+*.exe   binary
+*.whl   binary
+*.gz    binary
+*.zip   binary
+
+# 行尾 diff 归因
+*.py    text
+*.md    text
+*.toml  text
+*.json  text

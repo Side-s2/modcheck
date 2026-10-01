@@ -1,0 +1,30 @@
+========================================================================================
+【验证 C】用 jar 的 sha1 精确反查项目与版本（POST /v2/version_files）
+========================================================================================
+carpet     fabric-carpet-26.3+v260915.jar             本地sha1=564c46b80e3a9843… API声明=564c46b80e3a9843… 一致=True
+jei        jei-26.3-fabric-31.8.0.49.jar              本地sha1=d73b079023b1d59c… API声明=d73b079023b1d59c… 一致=True
+sodium     sodium-fabric-0.9.3-alpha.1+mc26.3.jar     本地sha1=5d88caf6f3e182cd… API声明=5d88caf6f3e182cd… 一致=True
+
+批量反查（一次请求提交 3 个 sha1）:
+  返回 project_id=u6dRKJwZ  version_number='31.8.0.49'  期望=('jei', '31.8.0.49', 'jei-26.3-fabric-31.8.0.49.jar')
+  返回 project_id=TQTTVgYE  version_number='26.3'  期望=('carpet', '26.3', 'fabric-carpet-26.3+v260915.jar')
+  返回 project_id=AANobbMI  version_number='mc26.3-0.9.3-alpha.1-fabric'  期望=('sodium', 'mc26.3-0.9.3-alpha.1-fabric', 'sodium-fabric-0.9.3-alpha.1+mc26.3.jar')
+  返回条数=3 / 提交条数=3
+
+不存在的哈希表现:
+  提交 1 个假哈希 -> 返回 {}
+
+========================================================================================
+【验证 D】只用 modid 搜索时的匹配质量
+========================================================================================
+  fabric-api     exact=['fabric-api']               top3=['fabric-api', 'forgified-fabric-api', 'qsl']
+  lithium        exact=['lithium']                  top3=['lithium', 'lithium-raycast-fix', 'villagersplus']
+  ferritecore    exact=['ferrite-core']             top3=['ferrite-core']
+  chunky         exact=['chunky', 'newbiichunkymod'] top3=['chunky', 'newbiichunkymod', 'chunkyborder']
+  spark          exact=['spark']                    top3=['spark', 'sparkweave', 'sparkle']
+  cloth-config   exact=['cloth-config']             top3=['cloth-config', 'cloth-config-forge', 'coal-cloth-config-adapter']
+  modernfix      exact=['modernfix']                top3=['modernfix', 'modernfix-mvus', 'continuity-unofficial-port-1.16']
+  sodium         exact=['sodium']                   top3=['sodium', 'sodium-extra', 'reeses-sodium-options']
+  servercore     exact=['servercore']               top3=['servercore']
+  c2me           exact=[]                           top3=['connectored-c2me-(c2me-fork-for-connector)', 'c2me-ocl', 'c2me-fabric']
+  carpet         exact=['carpet']                   top3=['carpet', 'carpet-fixes', 'carpet-tis-addition']

@@ -1,0 +1,25 @@
+========================================================================================
+【验证 K】limit 过滤法 vs. 之前全量法 —— 结果必须完全一致
+========================================================================================
+  OK   carpet       26.1  -> DEGRADED:OLD_VERSION_ONLY    (期望 DEGRADED:OLD_VERSION_ONLY)
+          最新 fabric 版 26.3 不支持 26.1；最新兼容版 26.1
+  OK   carpet       26.3  -> READY                        (期望 READY)
+          最新 fabric 正式版 26.3 支持 26.3
+  OK   journeymap   26.3  -> READY                        (期望 READY)
+          最新 fabric 正式版 26.3-6.0.9+fabric 支持 26.3
+  OK   jei          26.1  -> DEGRADED:OLD_VERSION_ONLY    (期望 DEGRADED:OLD_VERSION_ONLY)
+          最新 fabric 版 31.8.0.49 不支持 26.1；最新兼容版 29.34.0.90
+  OK   jei          26.3  -> DEGRADED:PRERELEASE_ONLY     (期望 DEGRADED:PRERELEASE_ONLY)
+          仅测试版可用：31.8.0.49 (beta)
+
+  全部一致: True
+  用掉 10 个请求 / 261.7 KB / 2.68s（5 次判定）
+  外推 200 个模组: 约 400 个请求 / 10.2 MB
+
+========================================================================================
+【验证 L】过滤参数支持度
+========================================================================================
+  version_type=release 过滤        -> 3 条: 19.51.0.418(release), 30.29.0.201(release), 15.56.0.205(release)
+  game_versions+loaders+limit    -> 3 条: 29.43.0.106(beta), 29.43.0.105(beta), 29.43.0.104(beta)
+
+  结论：version_type 参数 有效

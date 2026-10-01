@@ -1,0 +1,38 @@
+================================================================================
+【验证 E】/project/{id}/version 是否真的按发布时间倒序
+================================================================================
+HTTP 200, 条目数=134
+前 8 条发布时间: ['2026-09-18T17:13:20', '2026-09-18T17:12:10', '2026-09-18T17:10:24', '2026-09-18T17:09:06', '2026-06-17T00:08:13', '2026-06-16T11:47:40', '2026-06-16T11:46:34', '2026-06-16T11:45:26']
+是否严格倒序: True
+是否严格升序: False
+
+前 5 条 version_number / loaders / game_versions / type:
+   26.3                     loaders=['fabric'] gv=['26.3'] type=release date=2026-09-18
+   26.3-beta-3              loaders=['fabric'] gv=['26.3-snapshot-9'] type=beta date=2026-09-18
+   26.3-beta-2              loaders=['fabric'] gv=['26.3-snapshot-3'] type=beta date=2026-09-18
+   26.3-beta-1              loaders=['fabric'] gv=['26.3-snapshot-2'] type=beta date=2026-09-18
+   26.2                     loaders=['fabric'] gv=['26.2'] type=release date=2026-06-17
+
+================================================================================
+【验证 F】错误处理与限流头
+================================================================================
+GET /project/this-slug-definitely-does-not-exist-xyz -> HTTP 404  body=''
+GET /project/ -> HTTP 404  body='{"error":"not_found","description":"the requested route does not exist"}'
+
+限流相关响应头:
+   X-Ratelimit-Limit: 300
+   X-Ratelimit-Remaining: 300
+   X-Ratelimit-Reset: 0
+   （若上面为空，说明 Modrinth 未在响应头暴露限流信息，文档口径为 300 req/min）
+
+项目对象关键字段:
+   id = TQTTVgYE
+   slug = carpet
+   title = Carpet
+   project_type = mod
+   downloads = 11025966
+   game_versions = ['1.14.4', '1.15', '1.15.1', '1.15.2', '1.16', '1.16.1', '1.16.2', '1.16.3', '1.16.4', '1.16.5', '1.17.1', '1.18', '1.18
+   loaders = ['fabric']
+   server_side = required
+   client_side = optional
+   全部顶层字段 = ['additional_categories', 'approved', 'body', 'body_url', 'categories', 'client_side', 'color', 'description', 'discord_url', 'donation_urls', 'downloads', 'environment', 'followers', 'gallery', 'game_versions', 'icon_url', 'id', 'issues_url', 'license', 'loaders', 'moderator_message', 'monetization_status', 'organization', 'project_type', 'published', 'queued', 'raw_icon_url', 'requested_status', 'server_side', 'slug', 'source_url', 'status', 'team', 'thread_id', 'title', 'updated', 'versions', 'wiki_url']

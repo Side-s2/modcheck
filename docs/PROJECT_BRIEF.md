@@ -188,16 +188,20 @@ ReportItem {
 
 给定目标 MC 版本 `V`、目标加载器 `L`、模组 `M`，取 `M` 的全部版本集合 `Vers`（每项含 `game_versions[]`、`loaders[]`、`date_published`、`version_type`）。
 
-**定义**
+**定义（v1.1 修订：最新版必须按目标加载器过滤）**
 - `compat(M,V,L)` ≔ ∃ v ∈ Vers：`V ∈ v.game_versions` 且 `L ∈ v.loaders`
-- `latest_all(M)` ≔ Vers 中 `date_published` 最大者
-- `latest_compat(M,V,L)` ≔ 满足 compat 的版本中 `date_published` 最大者
+- `latest_for_loader(M,L)` ≔ Vers 中满足 `L ∈ v.loaders` 且发布时间最新的那一条
+- `latest_all(M)` ≔ Vers 中发布时间最新的一条（**仅用于展示"该项目全局最新版"，不参与判定**）
+- `latest_compat(M,V,L)` ≔ 满足 compat 的版本中发布时间最新的一条
+
+> ⚠️ **实测教训（必须遵守）**：同一模组会为不同加载器发布内容不同、**发布时间完全相同**的版本条目。实测 JourneyMap 有 `26.3-6.0.9+paper` / `26.3-6.0.9+neoforge` / `26.3-6.0.9+forge` / `26.3-6.0.9+fabric` 四条，日期均为 2026-09-19。若按"全局最新"判定会取到 paper 那条，把本该 🟢 就绪的模组**误判成 🟡**。因此**判定一律以 `latest_for_loader` 为准**。
+> ⚠️ **排序规则**：`date_published` 会并列。**直接使用 Modrinth API 返回的顺序**（官方已按发布时间倒序），取第一个满足条件者即可；**禁止**自行重新排序或依赖排序稳定性。
 
 **状态表（必须完全按此实现，reason_code 用于测试断言）**
 
 | 状态 | 触发条件 | reason_code |
 |---|---|---|
-| 🟢 READY | `latest_all(M)` 自身即满足 `V ∈ game_versions` 且 `L ∈ loaders` | `OK` |
+| 🟢 READY | `latest_for_loader(M,L)` 存在，且 `V ∈ its.game_versions` | `OK` |
 | 🟡 DEGRADED | 不满足 READY，但 `compat` 为真（只能停在旧版） | `OLD_VERSION_ONLY` |
 | 🟡 DEGRADED | `compat` 为真，但仅 beta/alpha 通道存在满足的版本 | `PRERELEASE_ONLY` |
 | 🔴 BLOCKED | 项目存在，但完全没有 `L` 加载器的文件 | `NO_LOADER` |
@@ -221,15 +225,20 @@ ReportItem {
 优先级从高到低：
 
 1. **已有记录**：`sources.modrinth` 非空 → 直接 `/v2/project/<slug>`，不再搜索。
-2. **精确同名**：用候选名（依次尝试 `mod_id` → 解析出的 `name` → `display_name`）调用 `/v2/search`（`limit=10`，`facets=[["project_type:mod"]]`），在结果里找 `normalize(slug) == normalize(N)` 或 `normalize(title) == normalize(N)`：
-   - 命中**恰好一个** → 自动认定，`match_status="exact"`，把 slug 写回 profile。
-   - 命中**多个** → 歧义，进入交互选择。
-3. **无精确同名** → **必须告警 + 交互**（用户明确要求：「找不到名称完全一致的模组的时候，弹出这个警告和交互」）：
+2. **jar 哈希精确反查（最强手段，已实测有效）**：若该条目关联了本地 jar，计算 **sha1** 后批量提交 `POST /v2/version_files`，body `{"hashes":[...], "algorithm":"sha1"}`：
+   - 命中 → 直接得到 `project_id` **以及用户当前安装的确切版本号**，`match_status="exact"`（来源标 `hash`）。**完全不受文件名被重命名（PCL 格式）影响**，实测重命名前后的哈希反查均 100% 命中。
+   - 未命中（返回 `{}`）→ 落到第 3 步。**不得**因为哈希未命中就判定项目不存在（可能未发布在 Modrinth，或文件被改动过）。
+   - 实现提示：200 个 jar 的 sha1 应在扫描阶段算好并缓存进 profile（避免每次检查重算），批量 POST 一次搞定。
+3. **精确同名（slug 优先）**：用候选名（依次尝试 `mod_id` → jar 内 `name` → 文件名解析出的 `name` → `display_name`）调用 `/v2/search`（`limit=10`，`facets=[["project_type:mod"]]`），按此顺序判定：
+   - `normalize(slug) == normalize(N)` 的命中**恰好 1 个** → 自动认定（`exact`）。**即使同时有多个 title 命中，也以唯一的 slug 命中为准。**（实测：搜 `chunky` 时 slug 唯一命中 `chunky`，但 title 还命中 `newbiichunkymod`，此时应直接认定 `chunky`。）
+   - 否则 `normalize(title) == normalize(N)` 的命中**恰好 1 个** → 自动认定（`exact`）。
+   - 否则（0 个或多个）→ 进入交互选择。
+4. **无精确同名** → **必须告警 + 交互**（用户明确要求：「找不到名称完全一致的模组的时候，弹出这个警告和交互」）：
    - 打印 ⚠️：`未找到与「<名字>」完全同名的项目`
    - 列出 top 5 候选：序号、`title`、`slug`、下载量、一句话简介
    - 选项：`1..5` 选择 ｜ `m` 手动输入 slug 或项目 URL ｜ `s` 本次跳过（标 ⚪ UNMATCHED）｜ `i` 永久忽略（写 `match_status="ignored"`）｜ `q` 退出
    - 选定后 `match_status="manual"` 并写回 profile
-4. **非交互模式**（`--yes` 或 stdin 非 TTY）→ **绝不猜**：标 ⚪ `UNMATCHED`，报告末尾汇总「N 个模组未能自动匹配，请交互运行确认」。
+5. **非交互模式**（`--yes` 或 stdin 非 TTY）→ **绝不猜**：标 ⚪ `UNMATCHED`，报告末尾汇总「N 个模组未能自动匹配，请交互运行确认」。
    > 有意的保守策略：**误报为绿比误报为红更危险**——服主会以为模组已就绪而直接升级。
 
 `normalize(s)`：转小写 → 删除所有 `-`、`_`、` `、`.` → 比较键。仅用于「完全同名」判断，不用于模糊打分。
@@ -256,8 +265,65 @@ class ModProvider(Protocol):
 - `GET https://api.modrinth.com/v2/search?query=<name>&limit=10&facets=[["project_type:mod"]]`
 - `GET https://api.modrinth.com/v2/project/<slug|id>`
 - `GET https://api.modrinth.com/v2/project/<slug|id>/version`（建议拉全量后本地过滤，缓存复用率更高；也可带 `?game_versions=["26.1"]&loaders=["fabric"]`）
+- `POST https://api.modrinth.com/v2/version_files`，body `{"hashes": ["<sha1>", ...], "algorithm": "sha1"}` → 返回 `{sha1: VersionInfo}`；未命中的哈希不出现在返回里（实测**不报错、返回 `{}`**）
+- ⚠️ `/project/{id}/version` 的返回顺序**已按发布时间倒序**，直接信任该顺序
 - 关键字段：`slug` `title` `loaders[]` `game_versions[]` `version_number` `date_published` `version_type` `files[].filename/url` `dependencies[]` `project_id`
 - 无需 API Key；`User-Agent` 必须标明程序名与版本。
+
+### 9.5 Modrinth 取数策略（**v1.2 实测验证过的最优算法，必须照此实现**）
+
+#### 9.5.1 关键实测数据（决定了架构）
+
+| 事实 | 实测值 | 影响 |
+|---|---|---|
+| JEI 全量版本数 | **3736 条 / 6.8 MB** | ❌ 全量拉取不可行 |
+| JourneyMap 全量 | 1140 条 / 2.2 MB | ❌ |
+| 外推 200 模组全量拉取 | **约 326 MB** | ❌ 完全不可接受 |
+| `?limit=1` 单条 | **1.1 KB** | ✅ 必须用 limit |
+| `?limit` / `?offset` | **支持**（实测生效） | ✅ |
+| `?loaders=["fabric"]` | **支持** | ✅ |
+| `?game_versions=["26.1"]` | **支持** | ✅ |
+| `?version_type=release` | **支持**（实测过滤生效，可服务端筛掉 beta/alpha） | ✅ |
+| `/project/{id}/version` 排序 | **严格按 date_published 倒序** | ✅ 直接取首个 |
+| `/project/{id}` 的 `versions[]` 字段 | **❌ 不是倒序**（carpet 的前几条是 2022 年的） | ⚠️ **严禁依赖它判断"最新版"** |
+| 未命中项目 | HTTP **404 且响应体为空** | ⚠️ 不可直接 `json.loads`，须先判空 |
+| 限流响应头 | `X-Ratelimit-Limit: 300` / `X-Ratelimit-Remaining` / `X-Ratelimit-Reset` | ✅ 应读取并据此退避 |
+
+#### 9.5.2 已验证的判定算法（每个模组仅 2 个小请求）
+
+```python
+WINDOW = 25           # 单次取多少条，足以覆盖"最近发布的若干条"
+L, V = target_loader, target_mc_version
+
+# 请求 A：目标加载器下的最新版本
+a = GET(f"/project/{slug}/version",
+        loaders=f'["{L}"]', version_type="release", limit=WINDOW)
+# 请求 B：目标加载器 + 目标 MC 版本下的最新版本
+b = GET(f"/project/{slug}/version",
+        game_versions=f'["{V}"]', loaders=f'["{L}"]', version_type="release", limit=WINDOW)
+# 请求 B2（仅当 B 为空时）：放宽到 beta/alpha
+b2 = GET(f"/project/{slug}/version",
+         game_versions=f'["{V}"]', loaders=f'["{L}"]', limit=WINDOW)
+
+latest_loader = a[0] if a else None          # 目标加载器最新正式版
+latest_compat = b[0] if b else None          # 目标加载器 + 目标 MC 最新正式版
+latest_any    = b2[0] if (not b and b2) else None
+
+if latest_loader is None and not a_any_channels:  -> 🔴 NO_LOADER
+elif latest_compat and latest_loader and latest_compat["id"] == latest_loader["id"]:
+                                                  -> 🟢 OK
+elif latest_compat:                               -> 🟡 OLD_VERSION_ONLY
+elif latest_any:                                  -> 🟡 PRERELEASE_ONLY
+else:                                             -> 🔴 NO_MC_VERSION
+```
+
+> **算法正确性已实测验证**：用该算法对 carpet / journeymap / jei 在 26.1 与 26.3 下判定，**5/5 与全量拉取法的结果完全一致**。
+> **成本**：5 次判定共 10 个请求 / 261 KB / 2.68 秒 → 外推 **200 个模组约 400 个请求 / 10.2 MB**，在 6 并发下预计 **30~60 秒**完成，完全可接受。
+
+#### 9.5.3 注意
+- `WINDOW` 取值需权衡：太小可能漏掉"最近若干条都是 beta/其他 MC 版本"的情况；25 是实测够用的值，可用 `--window` 暴露给高级用户。
+- `version_type` 过滤生效后，请求 B 若返回空且 B2（无 `version_type`）有值 → 说明只有 beta/alpha 支持 → 🟡 `PRERELEASE_ONLY`。
+- 缓存层应缓存**精简后的**版本记录（只留 `id/version_number/date_published/version_type/game_versions/loaders/files[].hashes`），实测可把体积压到原始的 **10%**。
 
 ### 9.3 Mojang 官方版本清单
 - `GET https://piston-meta.mojang.com/mc/game/version_manifest_v2.json`
@@ -313,25 +379,70 @@ class ModProvider(Protocol):
 
 ---
 
-## 11. 模组文件名解析规则（**重要**）
+## 11. 模组识别：jar 元数据 / 哈希 / 文件名（v1.1 **重要修订**）
 
-用户给出的两种命名格式：
-- **PCL 格式**：`[中文名] 服务端 名称 游戏版本 模组版本.jar`，实例：`[地毯] fabric-carpet-26.1+v260402.jar`
+### 11.1 实测结论（主 Agent 用真实模组验证过，必须据此设计）
+
+| 识别手段 | 实测结果 | 定位 |
+|---|---|---|
+| **jar 内部 `fabric.mod.json` / `mods.toml` / `neoforge.mods.toml`** | ✅ 稳定拿到 `id`（modid）、`name`、`version`。实测 carpet → `id=carpet`；jei → `id=jei` | **第一优先** |
+| **jar 的 sha1 反查 Modrinth** | ✅ 实测 3/3 命中，本地 sha1 与 API 声明完全一致，**重命名成 PCL 格式也照样命中** | **第一优先** |
+| **文件名解析** | ❌ **大面积失败**。见 11.2 | **仅兜底** |
+
+### 11.2 文件名解析为什么只能兜底（实测数据，务必告诉用户"低置信度"）
+
+对 14 个真实常见模组文件名跑朴素解析，**只有 3 个得到正确结果**：
+
+| 文件名 | 朴素解析结果 | 是否正确 |
+|---|---|---|
+| `[地毯] fabric-carpet-26.1+v260402.jar` | name=`carpet` mc=`26.1` ver=`v260402` cn=`地毯` | ✅ |
+| `journeymap-1.20.1-5.9.18-fabric.jar` | name=`journeymap` mc=`1.20.1` | ✅ |
+| `jei-1.20.1-fabric-15.2.0.27.jar` | name=`jei` mc=`1.20.1` | ✅ |
+| `fabric-api-0.92.2+1.20.1.jar` | name=`api-0.92.2` mc=`None` | ❌ |
+| `lithium-fabric-0.12.1.jar` | name=`lithium-fabric-0.12.1`（**文件名里根本没有 MC 版本**） | ❌ |
+| `ferritecore-6.0.1-fabric.jar` | name=`ferritecore-6.0.1-fabric` | ❌ |
+| `chunky-fabric-1.3.146.jar` | 同上 | ❌ |
+| `spark-1.10.53-fabric.jar` | 同上 | ❌ |
+| `cloth-config-11.1.106-fabric.jar` | 同上 | ❌ |
+| `modernfix-fabric-5.19.4+mc1.20.1.jar` | name 里混进了 `5.19.4` | ❌ |
+| `sodium-fabric-0.5.8+mc1.20.1.jar` | 同上 | ❌ |
+| `servercore-fabric-1.4.6+1.20.1.jar` | mc 被误认成 `1.4.6`（其实是模组版本） | ❌ |
+| `c2me-fabric-mc1.20.1-0.2.0+alpha.11.50.jar` | 同上 | ❌ |
+
+**结论（硬性要求）**：
+1. **绝不允许**用文件名推断出的 MC 版本作为判定依据 —— 它经常根本不存在或是错的。
+2. **绝不允许**用文件名推断出的名字直接搜索后"就近取一个"结果 —— 会把 `lithium-fabric-0.12.1` 搜出空结果。
+3. 文件名解析的**唯一合法用途**：当拿不到 jar（用户只粘贴了一份文件名清单）时，尽力产出 ``modid 候选`，并**强制标记为低置信度**（`match_status="guess"`），报告中必须以 ⚠️ 提示"依赖文件名猜测，请人工确认"。
+
+### 11.3 正确的识别流程（按优先级）
+
+```
+① 读 jar 内部元数据            → 得到 modid / 展示名 / mod 版本        【高置信】
+② 算 jar 的 sha1 批量反查 API  → 得到 project_id / 确切版本号          【高置信】
+③ 用 ① 或 ② 得到的名字做精确同名搜索（见第 8 节规则）                  【高置信】
+④ 都不行 → 用文件名尽力解析 → 标 match_status="guess"                  【低置信，UI 必须提示】
+⑤ 仍不行 → ⚠️ 告警 + 交互选择（或非交互下标 ⚪ UNMATCHED）
+```
+
+### 11.4 jar 元数据读取细节
+
+- 候选成员（按优先级）：`fabric.mod.json` → `quilt.mod.json` → `META-INF/neoforge.mods.toml` → `META-INF/mods.toml` → `META-INF/MANIFEST.MF`
+- Fabric：取 `id` / `name` / `version` / `depends.minecraft`（可有可无）/ `environment`
+- Forge/NeoForge：用 `tomllib` 解析 TOML，取 `[[mods]].modId` / `displayName` / `version`，以及 `[[dependencies.<modid>]]` 里 `modId="minecraft"` 的 `versionRange`
+- ⚠️ **实测**：Fabric 模组**不一定**声明 `depends.minecraft`（实测 jei 的 fabric 版就是 `None`）。所以 **jar 内的 MC 版本信息只作提示，不作判定依据**；判定一律以平台返回的 `game_versions` 为准。
+- jar 读取必须用 `zipfile`，并且**容错**：损坏的 zip、加密条目、超大文件都不能抛异常，只能返回"无元数据"。
+
+### 11.5 文件名解析规则（兜底路径，尽力而为）
+
+- **PCL 格式**：`[中文名] 服务端名称-游戏版本+模组版本.jar`，实例 `[地毯] fabric-carpet-26.1+v260402.jar`
 - **通用格式**：`fabric-carpet-26.1+v260402.jar`
+- 处理步骤：去 `.jar` / `.jar.disabled` → 取开头的 `[...]` 作为中文名（可多个，第一个非空为主名，其余进 notes）→ 剩下的部分里用**官方 MC 版本清单**做锚点找 MC 版本 token（不要用正则猜 `\d+\.\d+`）→ 取 `+` 之后为模组版本 → 去掉 `fabric-`/`forge-`/`neoforge-`/`quilt-` 前缀得到名字。
+- **必须**把置信度带进结果对象：`confidence: high | low`。
 
-要求：
-1. 首先用 **jar 内部元数据**（`fabric.mod.json`、`META-INF/mods.toml`、`META-INF/neoforge.mods.toml`、`quilt.mod.json`）拿到 modid；文件名的 `[中文名]` 作为中文名保留。
-2. 文件名解析用于：拿到 modid 之外的展示名、解析 mrpack 或已重命名的 jar。
-3. 解析文件名时的模式：`[中文名] <loader>-<name>-<mcver>+v<modver>.jar`，其中：
-   - 中括号前缀可有可无、可多个
-   - `+` 之前最后一个 `-NN.N` 段是 MC 版本（年份制如 26.1 / 26.1.1 / 26.3 或 1.21.4）
-   - `+` 之后是模组版本 `v260402`（也可能是 `-` 分隔）
-4. **搜索关键词**（用于 Modrinth search）：
-   - 优先用 `fabric.mod.json` 的 `id`（如 `carpet`）
-   - 文件名去除 `[中文名]`、去除 `-` 后的 MC 版本段与 `+v...` 后，剩下的 `name`
-   - 若搜索结果里存在 slug / title **完全等于**（忽略大小写与 `-`/`_`/` ` 差异）解析出的 name 或 modid → 直接认定匹配，写回 profile
-   - 否则弹警告 + 交互选择候选（列出 title / slug / downloads / 简短描述），并提供「手动输入 slug」「跳过」选项
-5. 去重合并：相同 modid 或完全相同文件名的条目合并；中文名不同时保留两个（`cn_name` 取非空者，其余并入 notes）。
+### 11.6 去重合并
+
+- 相同 modid（或相同 sha1）→ 合并为一条；保留全部来源文件名与中文名（`aliases`），`cn_name` 取非空者。
+- 同一 modid 的两个不同版本 jar → 合并，但**必须告警**"检测到同一模组存在多个版本文件"，并在 notes 里列出，避免服主漏删导致启动崩溃。
 
 ---
 
@@ -384,3 +495,70 @@ class ModProvider(Protocol):
 6. 功能①：选择游戏版本 + 服务接口（fabric/neoforge/forge） + 模组信息文档 → 自动读取模组 → 从 CurseForge 与 Modrinth 获取最新版本 → 判断所选接口下是否有满足当前游戏版本的模组 → 分行显示模组与当前最新版 → 满足标绿、不满足标红 → 两类分开显示
 7. 功能②：创建模组信息文档；选择文件夹（可多次），里面是 jar；文件名自动转模组名并保存到程序配置；重复自动合并
 8. 功能③：手动编辑模组信息文档（增删查改）+ 重命名配置
+
+---
+
+## 17. 附录：主 Agent 实测原始证据（2026-10-01）
+
+供程序员写测试用例时直接引用。
+
+### 17.1 Modrinth 端点实测
+| 端点 | 结果 |
+|---|---|
+| `GET /v2/search?query=<n>&limit=10&facets=[["project_type:mod"]]` | 200。11 个常见 modid 中 **10 个存在 slug 精确同名**；`c2me` 无精确同名（top1 是 `c2me-fabric`）→ 必须走交互 |
+| `GET /v2/project/<slug>/version` | 200，**已按发布时间倒序** |
+| `POST /v2/version_files` | 200。3/3 命中，返回 `project_id` + `version_number`；未命中哈希**不出现在返回中**且**不报错** |
+| `GET /v2/tag/loader` | 200，含 `fabric`/`forge`/`neoforge`/`quilt`/`paper` 等 28 种 |
+
+### 17.2 名字规范化（normalize）实测有效性
+`ferritecore` 去掉 `-` 后精确命中了 slug `ferrite-core` → 证明 normalize 规则有效，必须实现。
+但 `chunky` 同时 title 命中 `newbiichunkymod` → 证明**必须 slug 优先**（见第 8 节）。
+
+### 17.3 三态判定的真实样例（可直接用作测试断言）
+| 模组 | 目标 | 期望状态 | 依据 |
+|---|---|---|---|
+| carpet | 26.1 / fabric | 🟡 `OLD_VERSION_ONLY` | 最新 fabric 版是 26.3，latest_compat=26.1 |
+| carpet | 26.3 / fabric | 🟢 `OK` | latest fabric 版 26.3 支持 26.3 |
+| journeymap | 26.3 / fabric | 🟢 `OK`（**若用全局最新会误判为 🟡，这是回归测试重点**） | 存在 `26.3-6.0.9+fabric` |
+| jei | 26.1 / fabric | 🟡 `OLD_VERSION_ONLY` | latest_all=31.8.0.49 不支持 26.1；latest_compat=29.34.0.90 |
+| jei | 26.3 / fabric | 🟡 `PRERELEASE_ONLY` | release 通道无兼容版本，beta 有 |
+
+### 17.4 官方版本清单
+`version_manifest_v2.json`：正式版共 103 条；最近 5 个正式版：`26.3, 26.2, 26.1.2, 26.1.1, 26.1`。**版本号是年份制，绝不能假设 `1.x`。**
+
+### 17.5 终端编码实测
+在 PowerShell 控制台直接跑 Python 时，中文输出会因代码页不匹配变成乱码（`�ٷ���ʽ`）。→ 程序**必须**在启动时处理：优先 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`，Windows 上尝试 `SetConsoleOutputCP(65001)`，失败则降级且**不得崩溃**。
+
+### 17.7 请求体积实测（100 次判定的成本基线）
+| 取数方式 | HTTP 体积 | 条目数 | 耗时 |
+|---|---|---|---|
+| `/project/jei/version` 全量 | 6797.6 KB | 3736 | 1.55 s |
+| `?loaders=["fabric"]` | 2631.8 KB | 1133 | 0.92 s |
+| `?game_versions=["26.1"]&loaders=["fabric"]` | 123.5 KB | 79 | 0.75 s |
+| `?limit=1` | **1.1 KB** | 1 | 0.57 s |
+| `?loaders=["fabric"]&limit=1` | **1.1 KB** | 1 | 0.61 s |
+| 精简后的缓存体（carpet） | 14.6 KB（原始 139.2 KB 的 **10%**） | 134 | — |
+
+### 17.8 `/project/{id}` 的 `versions[]` 顺序反例（务必写进测试）
+`carpet` 的 `/project/carpet` 返回 `versions[]` 长度 134，**前 6 个**逐个查 `/version/{id}` 得到：
+`1.1.3 (2022-12-29)` → `1.4.8 (2022-12-29)` → `1.4.44 (2022-12-29)` → `1.4.57` → `1.4.69` → `1.4.84`
+**即：`versions[]` 是按发布时间升序/创建顺序，绝不是"最新在前"。** 任何"取 `versions[0]` 当最新版"的写法都是 bug。
+
+### 17.9 用 limit 过滤法 vs 全量法的等价性验证（可作为回归测试蓝本）
+| 模组 | 目标 | 两个方法的判定结果 | 一致的文案 |
+|---|---|---|---|
+| carpet | 26.1 / fabric | 🟡 `OLD_VERSION_ONLY` | 最新 fabric 版 26.3 不支持 26.1；最新兼容版 26.1 |
+| carpet | 26.3 / fabric | 🟢 `OK` | 最新 fabric 正式版 26.3 支持 26.3 |
+| journeymap | 26.3 / fabric | 🟢 `OK` | 最新 fabric 正式版 26.3-6.0.9+fabric 支持 26.3 |
+| jei | 26.1 / fabric | 🟡 `OLD_VERSION_ONLY` | 最新 fabric 版 31.8.0.49 不支持 26.1；最新兼容版 29.34.0.90 |
+| jei | 26.3 / fabric | 🟡 `PRERELEASE_ONLY` | 仅测试版可用：31.8.0.49 (beta) |
+**5/5 完全一致。**
+
+### 17.6 jar 元数据实测样例
+| 文件 | 元数据 | 关键字段 |
+|---|---|---|
+| `fabric-carpet-26.3+v260915.jar` | `fabric.mod.json` | `id="carpet"`, `name="Carpet Mod"`, `version="26.3+v260915"`, `depends.minecraft=">=26.3"` |
+| `jei-26.3-fabric-31.8.0.49.jar` | `fabric.mod.json` | `id="jei"`, `name="Just Enough Items"`, `version="31.8.0.49"`, **`depends.minecraft=None`** ← 证明 MC 依赖不可靠 |
+| `jei-26.3-neoforge-31.8.0.49.jar` | `META-INF/neoforge.mods.toml` | `modId="jei"`, `modLoader="javafml"`, `loaderVersion="[4,)"` |
+| `jei-1.19.2-forge-11.68.0.1085.jar` | `META-INF/mods.toml` | 同上（旧版 Forge 用此文件名） |
+
