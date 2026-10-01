@@ -190,8 +190,12 @@ def _manage_screen(ctx: AppContext, prompter: Prompter, name: str) -> str:
                 return BACK
             continue
         tries = 0
-        if handler(ctx, prompter, name) == QUIT:
+        result = handler(ctx, prompter, name)
+        if result == QUIT:
             return QUIT
+        if result and result != BACK:
+            # 操作换了清单名（重命名）：后续屏要用新名字，否则会"清单读不了"
+            name = result
 
 
 def match_cell(entry: ModEntry) -> str:
@@ -460,7 +464,10 @@ def _op_ignore(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
 
 
 def _op_rename(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
-    """[r] 重命名清单（文件名与 profile.name 同时更新，PRD §13.2 / R3-A08）。"""
+    """[r] 重命名清单（文件名与 profile.name 同时更新，PRD §13.2 / R3-A08）。
+
+    成功时返回**新清单名**，管理屏据此换到新名字继续管理（否则下一次读屏会报"读不了"）。
+    """
     console = ctx.console
     profile = _load_profile(ctx, name)
     if profile is None:
@@ -497,11 +504,14 @@ def _op_rename(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
         console.line(t("manage.rename.partial", path=source))
         return None
     console.line(t(result.message_key, **result.message_args))
-    return None
+    return value.strip()          # 让管理屏改用新名字继续管这份清单
 
 
 def _op_delete(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
-    """[d] 删除清单（必须完整输入清单名，PRD §13.2 / R3-A09）。"""
+    """[d] 删除清单（必须完整输入清单名，PRD §13.2 / R3-A09）。
+
+    删除成功后返回 BACK（清单已经不在了，留在这个屏只会报"读不了"）。
+    """
     console = ctx.console
     profile = _load_profile(ctx, name)
     if profile is None:
@@ -526,7 +536,7 @@ def _op_delete(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
         return None
     left = len(list_profiles(ctx.profiles_dir))
     console.line(t("manage.delete.done", name=profile.name, left=left))
-    return None
+    return BACK                   # 清单没了，回列表屏
 
 
 #: 按键 -> 处理函数（R3-A04~A09）；返回 QUIT 表示直接回主菜单
