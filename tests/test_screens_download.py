@@ -316,8 +316,41 @@ def test_confirm_start_counts_and_default(tmp_path: Path) -> None:
     assert "（已选：覆盖 0 个 ｜ 跳过 1 个）" in text
     assert "开始下载？(Y/n) > " in text
 # ---------------------------------------------------------------- 下载 + 汇总（整条路径）
+def progress_rows(text: str) -> list[tuple[str, str, str]]:
+    """从屏幕输出里取出"已下载 done/total：文件名（… MB）"行 -> (done, total, 文件名)。
+
+    注意：**不要**假定行与行之间的先后 —— 下载是并发的，完成顺序不确定（见下面的回归用例）。
+    """
+    rows: list[tuple[str, str, str]] = []
+    for line in text.splitlines():
+        if not line.startswith("已下载 "):
+            continue
+        head, _sep, rest = line.partition("：")
+        done, _slash, total = head.split(" ")[1].partition("/")
+        rows.append((done, total, rest.split("（")[0]))
+    return rows
+
+
+class SlowFirstClient(FakeClient):
+    """让指定文件慢一点，把"谁先下完"钉死（并发下完成顺序本来是不确定的）。"""
+
+    def __init__(self, slow_names: tuple[str, ...], **kw) -> None:
+        super().__init__(**kw)
+        self.slow_names = slow_names
+
+    def download(self, url: str, dest: Path, *, sha1: str | None = None,
+                 on_chunk=None, timeout: float | None = None) -> int:
+        if Path(dest).name in self.slow_names:
+            time.sleep(0.2)
+        return super().download(url, dest, sha1=sha1, on_chunk=on_chunk, timeout=timeout)
+
+
 def test_post_check_download_full_path(tmp_path: Path, monkeypatch) -> None:
-    """整条路径：询问 -> 对话框选目录 -> 开跑确认 -> 下载 -> 汇总（非 TTY 每完成一个一行）。"""
+    """整条路径：询问 -> 对话框选目录 -> 开跑确认 -> 下载 -> 汇总（非 TTY 每完成一个一行）。
+
+    ⚠️ 只断言"两行都在、done 是 1 与 2"，**不断言谁先谁后**：
+    jobs=3 是并发的，先派发不等于先下完（写死顺序的断言实测约 58% 概率红）。
+    """
     target = tmp_path / "dl"
     target.mkdir()
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
@@ -327,11 +360,31 @@ def test_post_check_download_full_path(tmp_path: Path, monkeypatch) -> None:
     assert outcome is not None and outcome.summary.ok == 2
     assert (target / "carpet.jar").read_bytes() == b"y" * 2048
     text = out(ctx)
-    assert "已下载 1/2：carpet.jar（0.0 MB）" in text
-    assert "已下载 2/2：lithium.jar（0.0 MB）" in text
+    rows = progress_rows(text)
+    assert len(rows) == 2
+    assert {name for _done, _total, name in rows} == {"carpet.jar", "lithium.jar"}
+    assert {done for done, _total, _name in rows} == {"1", "2"}      # done 不重号、不漏号
+    assert {total for _done, total, _name in rows} == {"2"}
+    assert all("（0.0 MB）" in line for line in text.splitlines() if line.startswith("已下载 "))
     assert "下载完成：2 个文件里 2 个成功、0 个跳过、0 个失败。" in text
     assert "  ✓ 成功 2 个 → " + str(target) in text
     assert "提示：把下好的 .jar 复制到服务端的 mods 文件夹，然后重启服务器。" in text
+
+
+def test_progress_lines_follow_completion_order(tmp_path: Path, monkeypatch) -> None:
+    """回归（"单独跑绿、一起跑红"）：非 TTY 的每文件行按**完成顺序**打。
+
+    把第二个文件变快、完成顺序钉死；任何"按计划顺序"的断言都会在这里红 ——
+    那正是旧用例约 58% 概率失败的原因（实测 200 次：lithium 先完成 116 次）。
+    它同时守住"文件名与 done 计数取自同一条目"，不会张冠李戴。
+    """
+    target = tmp_path / "dl"
+    target.mkdir()
+    monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
+    ctx = make_ctx(tmp_path, ["y", "y"], client=SlowFirstClient(("carpet.jar",)), tty=False)
+    outcome = screen.post_check_download(ctx, downloadable_report("carpet", "lithium"))
+    assert outcome is not None and outcome.summary.ok == 2
+    assert progress_rows(out(ctx)) == [("1", "2", "lithium.jar"), ("2", "2", "carpet.jar")]
 
 
 def test_post_check_download_ttyshows_single_progress_line(tmp_path: Path,

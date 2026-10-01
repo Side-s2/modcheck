@@ -139,9 +139,19 @@ def confirm_start(ctx: AppContext, prep: DownloadPrep,
 
 def run_with_progress(ctx: AppContext, prep: DownloadPrep,
                       decisions: dict[str, bool]) -> DownloadOutcome:
-    """带进度地跑完下载（Ctrl+C 会转成"取消"而不是 traceback）。"""
+    """带进度地跑完下载（Ctrl+C 会转成"取消"而不是 traceback）。
+
+    ⚠️ 非 TTY 的"每完成一个文件一行"是按**完成顺序**打的，不是计划顺序：
+    下载是 jobs=3 并发的，先派发不等于先下完（实测同一场景 200 次里
+    "第二个文件先完成"出现 116 次）。文件名与 done 计数始终取自**同一个条目**，
+    所以不会错位；但任何断言都不该假定文件之间的先后。
+    """
     console = ctx.console
     total = prep.total
+    # 渲染模式在这里**一次定型**：下面两个回调是在下载线程里被调用的，
+    # 中途再去读 console.is_tty 的话，任何外部改动都会让"每完成一个文件一行"
+    # 静默消失（这种幽灵问题排查代价极高）。一次下载只按一种模式渲染。
+    tty = bool(console.is_tty)
     state: dict = {"done": 0, "bytes": {}, "last": 0.0, "rate_limited": False,
                    "planned": prep.total_bytes}
     rate_limited_before = int(getattr(ctx.client, "rate_limited", 0) or 0)
@@ -150,7 +160,7 @@ def run_with_progress(ctx: AppContext, prep: DownloadPrep,
     def on_progress(item: DownloadItem, done_bytes: int, _file_total: int) -> None:
         """TTY：单行原地刷新（按间隔节流）；非 TTY：一个字都不打。"""
         state["bytes"][str(item.target)] = int(done_bytes)
-        if not console.is_tty:
+        if not tty:
             return
         now = time.monotonic()
         if now - state["last"] < PROGRESS_INTERVAL:
@@ -164,7 +174,7 @@ def run_with_progress(ctx: AppContext, prep: DownloadPrep,
             return
         state["done"] = int(state["done"]) + 1
         state["bytes"][str(item.target)] = int(item.file.size or 0)
-        if not console.is_tty:
+        if not tty:
             console.line(t("download.progress.plain", done=state["done"], total=total,
                            name=item.target.name, mb=format_mb(item.file.size)))
 
@@ -185,7 +195,7 @@ def run_with_progress(ctx: AppContext, prep: DownloadPrep,
     try:
         while thread.is_alive():
             thread.join(0.1)
-            _maybe_show_rate_limit(ctx, state, rate_limited_before)
+            _maybe_show_rate_limit(ctx, state, rate_limited_before, tty)
     except KeyboardInterrupt:
         event.set()                                # 停止派发 + 清理 .part（流程负责）
         while thread.is_alive():
@@ -279,9 +289,9 @@ def _progress_line(total: int, state: dict, name: str, started: float) -> str:
              seconds=int(time.monotonic() - started))
 
 
-def _maybe_show_rate_limit(ctx: AppContext, state: dict, before: int) -> None:
+def _maybe_show_rate_limit(ctx: AppContext, state: dict, before: int, tty: bool) -> None:
     """被限流时在进度行上说明一句（PRD §14.5 第 8 条；只提示一次）。"""
-    if state["rate_limited"] or not ctx.console.is_tty:
+    if state["rate_limited"] or not tty:
         return
     if int(getattr(ctx.client, "rate_limited", 0) or 0) <= before:
         return
