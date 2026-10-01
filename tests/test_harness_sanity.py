@@ -29,6 +29,16 @@ def test_cjk_width_helper_recipe():
     assert width("[地毯] Carpet") == 1 + 4 + 1 + 1 + 6
 
 
-@pytest.mark.live
-def test_live_is_deselected_by_default():
-    raise AssertionError("这条测试默认必须被 deselect；若它被执行，说明 pyproject 的 -m 'not live' 没生效")
+def test_live_marker_is_configured():
+    """确认 pyproject 里注册了 live 标记（由 -m 'not live' 默认排除）。
+
+    注意：早期这里用 `@pytest.mark.live` + 抛异常来当哨兵，
+    但那会污染 `pytest -m live` 的真实结果，已改为纯配置断言。
+    """
+    import tomllib
+    from pathlib import Path
+
+    cfg = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+    opts = cfg["tool"]["pytest"]["ini_options"]
+    assert any(m.startswith("live:") for m in opts["markers"])
+    assert "not live" in " ".join(opts["addopts"])
