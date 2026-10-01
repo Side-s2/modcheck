@@ -251,10 +251,10 @@ def _menu_scan(ctx: AppContext, prompter: Prompter) -> None:
 
 
 def _menu_profiles(ctx: AppContext) -> None:
-    """功能③：清单列表。"""
-    from modcheck.cli.commands.profile import run_profile
+    """功能③：清单列表 + 管理屏（R3-A03，PRD §13.2）。"""
+    from modcheck.cli.screens_profiles import run_profiles_screen
 
-    run_profile(argparse.Namespace(action="list", name=None, target=None, json_out=False), ctx)
+    run_profiles_screen(ctx)
 
 
 __all__ = ["run_menu", "print_banner", "print_menu", "MENU_ITEMS"]
