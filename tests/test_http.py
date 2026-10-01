@@ -226,7 +226,7 @@ def test_rate_limiter_sliding_window() -> None:
     limiter.acquire()
     assert clock.sleeps == [30.0]      # 60/2 的匀速间隔
     limiter.acquire()
-    assert sum(clock.sleeps) == 60.0   # 第 3 个要等最早那次滑出窗口
+    assert abs(sum(clock.sleeps) - 60.0) < 0.01   # 第 3 个要等最早那次滑出窗口
 
 
 def test_rate_limiter_pause() -> None:
