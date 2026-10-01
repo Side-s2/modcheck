@@ -109,6 +109,33 @@ def column_widths(items: Sequence[ReportItem]) -> tuple[int, int, int]:
     return (min(name, NAME_WIDTH), min(modid, MODID_WIDTH), min(version, VERSION_WIDTH))
 
 
+#: 行首固定开销：2 空格 + 1 符号 + 1 空格 + 3 列序号 + 1 空格
+ROW_PREFIX_WIDTH = 8
+
+
+def layout_widths(items: Sequence[ReportItem], terminal: int) -> tuple[tuple[int, int, int], bool]:
+    """按终端宽度决定列宽与是否显示日期列（窄终端必须真的变窄）。
+
+    返回：
+        ((名称宽, modid宽, 版本宽), 是否显示日期)
+    """
+    natural = column_widths(items)
+
+    def total(nn: int, mm: int, vv: int, with_date: bool) -> int:
+        return ROW_PREFIX_WIDTH + nn + 2 + mm + 2 + vv + ((2 + DATE_WIDTH) if with_date else 0)
+
+    if total(*natural, True) <= terminal:
+        return natural, True
+    if total(*natural, False) <= terminal:
+        return natural, False
+    # 还是放不下：按 名称 40% / modid 25% / 版本 35% 分配，并保证最小可读宽度
+    budget = max(24, terminal - ROW_PREFIX_WIDTH - 4)
+    name = max(8, int(budget * 0.40))
+    modid = max(6, int(budget * 0.25))
+    version = max(6, budget - name - modid)
+    return ((min(name, natural[0]), min(modid, natural[1]), min(version, natural[2])), False)
+
+
 def name_cell(item: ReportItem) -> str:
     """名称列：有中文名 -> [中文名] 英文名。"""
     entry = item.mod
@@ -130,14 +157,18 @@ def modid_cell(item: ReportItem) -> str:
     return truncate(raw, MODID_WIDTH)
 
 
-def _row(item: ReportItem, index: int, widths: tuple[int, int, int]) -> str:
-    """拼一条主体行。"""
+def _row(item: ReportItem, index: int, widths: tuple[int, int, int],
+         show_date: bool = True) -> str:
+    """拼一条主体行；窄终端下按实际列宽截断，绝不超出终端宽度。"""
     symbol = GROUP_SYMBOLS.get(item.status, SYMBOL_UNKNOWN)
-    return ("  " + symbol + " " + f"{index:>3}" + " "
-            + pad(name_cell(item), widths[0]) + "  "
-            + pad(modid_cell(item), widths[1]) + "  "
-            + pad(render_version_cell(item), widths[2]) + "  "
-            + short_date(item.latest_for_loader.date_published if item.latest_for_loader else ""))
+    line = (("  " + symbol + " " + f"{index:>3}" + " "
+             + pad(truncate(name_cell(item), widths[0]), widths[0]) + "  "
+             + pad(truncate(modid_cell(item), widths[1]), widths[1]) + "  "
+             + pad(truncate(render_version_cell(item), widths[2]), widths[2])))
+    if show_date:
+        line += "  " + short_date(
+            item.latest_for_loader.date_published if item.latest_for_loader else "")
+    return line.rstrip()
 
 
 def render_report(report: Report, console: Console, *, quiet: bool = False) -> None:
@@ -161,33 +192,33 @@ def render_report(report: Report, console: Console, *, quiet: bool = False) -> N
                    elapsed=f"{report.elapsed:.0f}", requests=report.requests_made,
                    cache_hits=report.cache_hits))
     console.line("═" * console.width)
-    console.line(verdict_line(report))
+    console.prose(verdict_line(report))
     if report.verdict().value == "all_blocked":
-        console.line(t("verdict.all_blocked.hint"))
+        console.prose(t("verdict.all_blocked.hint"))
     console.line()
 
     items = list(report.iter_items())
-    widths = column_widths(items)
+    widths, show_date = layout_widths(items, console.width)
     for status in GROUP_ORDER:
         group = report.groups.get(status, [])
         if not group:
             continue  # 空组不打印标题
-        console.line(_group_title(status, group, report))
+        console.prose(_group_title(status, group, report))
         console.rule("─")
         if status is Status.READY and quiet:
             console.line(t("group.ready.quiet", count=len(group)))
             console.line()
             continue
         for index, item in enumerate(group, start=1):
-            console.line(_row(item, index, widths))
+            console.line(_row(item, index, widths, show_date))
             _render_details(item, report, console)
         console.line()
 
     if any(entry.source_kind is SourceKind.FILENAME for entry in
            (item.mod for item in report.iter_items())):
-        console.line(t("report.origin.guess_note"))
+        console.prose(t("report.origin.guess_note"))
         console.line()
-    console.line(summary_line(report))
+    console.prose(summary_line(report))
     console.line("═" * console.width)
     console.line()
     render_next_steps(report, console)
@@ -208,10 +239,10 @@ def _render_details(item: ReportItem, report: Report, console: Console) -> None:
     if item.status is Status.IGNORED:
         console.line(DETAIL_INDENT + advice_text(item, report))
         return
-    console.line(t("report.item.reason", text=reason_text(item, report)))
+    console.prose(t("report.item.reason", text=reason_text(item, report)))
     if item.status is Status.DEGRADED:
         _render_available(item, report, console)
-    console.line(t("report.item.advice", text=advice_text(item, report)))
+    console.prose(t("report.item.advice", text=advice_text(item, report)))
 
 
 def _render_available(item: ReportItem, report: Report, console: Console) -> None:
@@ -219,20 +250,20 @@ def _render_available(item: ReportItem, report: Report, console: Console) -> Non
     if item.reason is ReasonCode.OLD_VERSION_ONLY and item.latest_compat is not None:
         version = item.latest_compat
         if item.current_version and item.current_version == version.version_number:
-            console.line(t("report.item.already_latest"))
+            console.prose(t("report.item.already_latest"))
             return
-        console.line(t("report.item.available", version=version.version_number,
-                       date=short_date(version.date_published)))
+        console.prose(t("report.item.available", version=version.version_number,
+                        date=short_date(version.date_published)))
         return
     if item.latest_any is not None:
-        console.line(t("report.item.available_channel",
-                       version=item.latest_any.version_number,
-                       channel=item.latest_any.version_type))
+        console.prose(t("report.item.available_channel",
+                        version=item.latest_any.version_number,
+                        channel=item.latest_any.version_type))
 
 
 def render_summary(report: Report, console: Console) -> None:
     """只渲染汇总行。"""
-    console.line(summary_line(report))
+    console.prose(summary_line(report))
 
 
 def render_next_steps(report: Report, console: Console) -> None:
@@ -247,8 +278,9 @@ def render_next_steps(report: Report, console: Console) -> None:
         console.line(t("report.empty.next2"))
         return
     for line in build_action_hints(report):
-        console.line(line)
+        console.prose(line)
 
 
 __all__ = ["render_report", "render_summary", "render_next_steps", "render_version_cell",
-           "column_widths", "version_label", "short_date", "name_cell", "modid_cell"]
+           "column_widths", "layout_widths", "ROW_PREFIX_WIDTH", "version_label", "short_date",
+           "name_cell", "modid_cell"]

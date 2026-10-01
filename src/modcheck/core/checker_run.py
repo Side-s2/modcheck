@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Final, Sequence
 
 from modcheck.core.checker import Classification, classify, for_reason
 from modcheck.core.matching import candidate_names, match_exact
@@ -41,9 +41,16 @@ def _blank_item(entry: ModEntry, result: Classification, *, current: str | None 
     )
 
 
-def _search_project(entry: ModEntry, provider, *, limit: int = 10) -> tuple[str | None, str | None]:
+#: 显式 --resolve 时每个模组最多试几个候选名（防止"全是猜的"清单把预算打穿）
+MAX_RESOLVE_CANDIDATES: Final[int] = 2
+
+
+def _search_project(entry: ModEntry, provider, *, limit: int = 10,
+                    max_candidates: int | None = None) -> tuple[str | None, str | None]:
     """按候选名做精确同名搜索，返回 (slug, 错误信息)。"""
     names = candidate_names(entry)
+    if max_candidates is not None:
+        names = names[:max_candidates]
     if not names:
         return None, ""
     for name in names:
@@ -54,8 +61,16 @@ def _search_project(entry: ModEntry, provider, *, limit: int = 10) -> tuple[str 
     return None, ""
 
 
+def _search_hits(entry: ModEntry, provider, *, limit: int = 10) -> list[ProjectHit]:
+    """取第一个候选名的搜索结果（供交互弹窗列候选）。"""
+    names = candidate_names(entry)
+    if not names:
+        return []
+    return list(provider.search(names[0], limit=limit))
+
+
 def check_one(entry: ModEntry, provider, *, loader: Loader, mc_version: str,
-              window: int = 25, prerelease: bool = False,
+              window: int = 25, prerelease: bool = False, resolve: bool = False,
               interactive_match: Callable[[ModEntry, Sequence[ProjectHit]], str | None] | None = None
               ) -> ReportItem:
     """检查单个模组并返回报告条目（**任何异常都降级为 ⚪，绝不冒泡**）。"""
@@ -65,23 +80,28 @@ def check_one(entry: ModEntry, provider, *, loader: Loader, mc_version: str,
     slug = entry.sources.get("modrinth")
     try:
         if not slug:
-            slug, _ = _search_project(entry, provider)
+            # 裁决 D34：默认路径**不发搜索请求**。
+            # 理由：scan（含 --from-list）已经用完全相同的规则试过全部候选名，
+            # check 再搜一遍结果必然相同，纯属浪费；而且会让"每模组 <= 3 请求"的
+            # 预算变得不可控。确定性优先，绝不把猜测引进本该确定的流程。
+            hits: list[ProjectHit] = []
+            if interactive_match is not None:
+                # 交互模式是唯一的人工兜底通道（决策 A4）：只在这里发搜索
+                hits = _search_hits(entry, provider)
+                slug = interactive_match(entry, hits)
+                if entry.match_status is MatchStatus.IGNORED:
+                    return _blank_item(entry, for_reason(ReasonCode.IGNORED))
+                if slug:
+                    entry.sources["modrinth"] = slug
+                    entry.match_status = MatchStatus.MANUAL
+            elif resolve:
+                # 显式 --resolve 才搜，且每模组最多试 MAX_RESOLVE_CANDIDATES 个候选
+                slug, _ = _search_project(entry, provider, max_candidates=MAX_RESOLVE_CANDIDATES)
+                if slug:
+                    entry.sources["modrinth"] = slug
+                    entry.match_status = MatchStatus.EXACT
             if not slug:
-                # 找不到完全同名 -> 交互选择（非交互模式下绝不猜）
-                if interactive_match is not None:
-                    names = candidate_names(entry)
-                    hits: list[ProjectHit] = []
-                    for name in names[:1]:
-                        hits = list(provider.search(name, limit=10))
-                    slug = interactive_match(entry, hits)
-                    if slug:
-                        entry.sources["modrinth"] = slug
-                        entry.match_status = MatchStatus.MANUAL
-                if not slug:
-                    return _blank_item(entry, for_reason(ReasonCode.UNMATCHED))
-            else:
-                entry.sources["modrinth"] = slug
-                entry.match_status = MatchStatus.EXACT
+                return _blank_item(entry, for_reason(ReasonCode.UNMATCHED))
 
         releases = list(provider.releases_for_loader(slug, loader, window=window,
                                                      prerelease=prerelease))
@@ -129,7 +149,7 @@ def check_one(entry: ModEntry, provider, *, loader: Loader, mc_version: str,
 
 
 def check_all(entries: Sequence[ModEntry], provider, *, loader: Loader, mc_version: str,
-              window: int = 25, prerelease: bool = False, jobs: int = 6,
+              window: int = 25, prerelease: bool = False, jobs: int = 6, resolve: bool = False,
               on_done: Callable[[int, int, ModEntry, ReportItem], None] | None = None,
               should_stop: Callable[[], bool] | None = None,
               interactive_match=None) -> list[ReportItem]:
@@ -142,7 +162,7 @@ def check_all(entries: Sequence[ModEntry], provider, *, loader: Loader, mc_versi
 
     def work_one(entry: ModEntry) -> ReportItem:
         return check_one(entry, provider, loader=loader, mc_version=mc_version,
-                         window=window, prerelease=prerelease,
+                         window=window, prerelease=prerelease, resolve=resolve,
                          interactive_match=interactive_match)
 
     if workers == 1 or len(entries) == 1:
@@ -167,4 +187,4 @@ def check_all(entries: Sequence[ModEntry], provider, *, loader: Loader, mc_versi
     return [item for item in results if item is not None]
 
 
-__all__ = ["check_one", "check_all"]
+__all__ = ["check_one", "check_all", "MAX_RESOLVE_CANDIDATES"]

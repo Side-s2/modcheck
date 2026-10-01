@@ -64,7 +64,8 @@ def run(tmp_path: Path, provider, entries: list[ModEntry], **overrides: object) 
     path = write_profile(tmp_path, entries)
     args = Namespace(profile=None, file=str(path), mods_dir=None, mc="26.3", loader="fabric",
                      json_out=None, md_out=None, csv_out=None, refresh=False, jobs=None,
-                     yes=True, pre=False, quiet=True, window=25, debug=False, no_color=True)
+                     yes=True, pre=False, quiet=True, window=25, debug=False, no_color=True,
+                     resolve=False)
     for key, value in overrides.items():
         setattr(args, key, value)
     code = run_check(args, ctx)
@@ -108,6 +109,39 @@ def test_unmatched_is_unknown_not_guessed(tmp_path: Path) -> None:
     code, text = run(tmp_path, provider, [ModEntry(key="mystery", display_name="Mystery")])
     assert code == 2
     assert "不会靠猜来匹配" in text
+
+
+def test_check_does_not_search_by_default(tmp_path: Path) -> None:
+    """裁决 D34：默认路径**不发搜索请求**（scan 已用同样规则搜过，结果必然相同）。"""
+    calls: list[str] = []
+    provider = FakeProvider(hits=[ProjectHit("P9", "mystery", "Mystery", 1, "d", "fake")])
+    original = provider.search
+
+    def counting_search(query: str, limit: int = 10):
+        calls.append(query)
+        return original(query, limit)
+
+    provider.search = counting_search  # type: ignore[method-assign]
+    code, _ = run(tmp_path, provider, [ModEntry(key="mystery", display_name="Mystery")])
+    assert calls == []
+    assert code == 2
+
+
+def test_resolve_searches_at_most_two_candidates(tmp_path: Path) -> None:
+    """显式 --resolve 才搜索，且每模组最多试 2 个候选名。"""
+    calls: list[str] = []
+    provider = FakeProvider(hits=[ProjectHit("P9", "mystery", "Mystery", 1, "d", "fake")])
+    original = provider.search
+
+    def counting_search(query: str, limit: int = 10):
+        calls.append(query)
+        return original(query, limit)
+
+    provider.search = counting_search  # type: ignore[method-assign]
+    entry = ModEntry(key="mystery", display_name="Mystery", mod_id="mystery")
+    code, _ = run(tmp_path, provider, [entry], resolve=True)
+    assert len(calls) <= 2
+    assert code in (0, 1, 2)
 
 
 def test_no_provider_exit_four(tmp_path: Path) -> None:

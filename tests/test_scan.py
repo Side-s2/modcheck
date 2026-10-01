@@ -58,9 +58,15 @@ def test_scan_demo_dir(tmp_path: Path) -> None:
 
     skipped = {item.name for item in report.skipped}
     assert "broken.jar" in skipped
-    assert "server-extra.jar" in skipped
     assert "old-mod.jar.disabled" in skipped
     assert "README.txt" in skipped
+    # 裁决 D35：没有可读元数据的 jar **必须进清单**（漏掉一个比多列一个危险得多）
+    assert "server-extra.jar" not in skipped
+    assert "server-extra.jar" in report.unidentified
+    extra = next(e for e in report.entries if e.file_name == "server-extra.jar")
+    assert extra.match_status in (MatchStatus.UNMATCHED, MatchStatus.GUESS)
+    assert extra.source_kind is SourceKind.FILENAME
+    assert extra.file_name == "server-extra.jar"
 
     # 同一 modid 的两个 jar 合并成一条，并产生告警
     carpet = [entry for entry in report.entries if entry.mod_id == "carpet"]
@@ -119,6 +125,34 @@ def test_scan_from_list_empty_file(tmp_path: Path) -> None:
     listing.write_text("\n\n", encoding="utf-8")
     with pytest.raises(ConfigError):
         scan_from_list(listing, make_ctx(make_provider()))  # type: ignore[arg-type]
+
+
+def test_hash_and_search_paths_write_the_same_identifier(tmp_path: Path) -> None:
+    """D38 不变量：同一模组无论走指纹路径还是搜索路径，写进清单的标识必须一致。
+
+    指纹反查返回的是 project_id（fQEb0iXm 这种），搜索返回的是 slug（krypton）——
+    统一取 slug；否则清单既不可读，用户改了文件名重扫还会出现重复条目。
+    """
+    import hashlib
+
+    from modcheck.core.models import ProjectInfo
+
+    mods = make_fixtures.make_mods_dir(tmp_path / "mods")
+    version = VersionInfo.from_api({
+        "id": "V1", "project_id": "fQEb0iXm", "version_number": "0.3.0", "name": "0.3.0",
+        "date_published": "2026-01-01T00:00:00Z", "version_type": "release",
+        "game_versions": ["26.3"], "loaders": ["fabric"], "files": []})
+    info = ProjectInfo(project_id="fQEb0iXm", slug="krypton", title="Krypton", description="",
+                       project_type="mod", loaders=("fabric",), game_versions=("26.3",),
+                       downloads=1, version_count=5)
+    digest = hashlib.sha1((mods / "lithium-fabric-0.12.1.jar").read_bytes()).hexdigest()
+    provider = FakeProvider(hits=[ProjectHit("Pk", "krypton", "Krypton", 1, "d", "fake")],
+                            hash_map={digest: version}, projects={"fQEb0iXm": info})
+    report = scan_dirs([mods], make_ctx(provider))  # type: ignore[arg-type]
+    lithium = next(e for e in report.entries if e.mod_id == "lithium")
+    assert lithium.sources["modrinth"] == "krypton"     # 不是 fQEb0iXm
+    assert lithium.key == "slug:modrinth:krypton"
+    assert all("fQEb" not in (e.sources.get("modrinth") or "") for e in report.entries)
 
 
 def test_scan_offline_still_builds_profile(tmp_path: Path) -> None:

@@ -103,6 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--quiet", action="store_true", default=argparse.SUPPRESS, help=t("cli.help.quiet"))
     check.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS, help=t("cli.help.no_color"))
     check.add_argument("--window", type=int, default=None, metavar=t("cli.metavar.value"), help=t("cli.check.window"))
+    check.add_argument("--resolve", action="store_true", help=t("cli.check.resolve"))
 
     scan = _sub(sub, "scan")
     scan.add_argument("paths", nargs="*", help=t("cli.scan.paths"))

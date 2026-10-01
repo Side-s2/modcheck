@@ -138,6 +138,10 @@ class Console:
         self.width = width if width is not None else resolve_width()
         self.color_enabled = self._resolve_color(color)
         self._progress_len = 0
+        try:
+            self.is_tty = bool(self.stream.isatty())
+        except Exception:
+            self.is_tty = False
 
     def _resolve_color(self, color: str) -> bool:
         if color == "never":
@@ -163,6 +167,35 @@ class Console:
         """输出不带换行的原始文本。"""
         self._write(text)
 
+    def wrap(self, text: str, width: int | None = None) -> list[str]:
+        """按显示宽度把一行文字折成多行（CJK 安全，保留原缩进）。
+
+        窄终端里"原因/建议"这类说明文字**折行**比截断更有用：
+        截断会把关键结论吃掉，折行至少信息还在。
+        """
+        limit = max(8, (self.width if width is None else width))
+        if display_width(text) <= limit:
+            return [text]
+        indent = text[:len(text) - len(text.lstrip(" "))]
+        out: list[str] = []
+        current = ""
+        used = 0
+        for ch in text.strip():
+            step = 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+            if used + step > limit - display_width(indent):
+                out.append(indent + current)
+                current, used = "", 0
+            current += ch
+            used += step
+        if current:
+            out.append(indent + current)
+        return out
+
+    def prose(self, text: str) -> None:
+        """输出一段说明文字（必要时折行）。"""
+        for chunk in self.wrap(text):
+            self.line(chunk)
+
     def rule(self, ch: str = "─") -> None:
         """输出一条铺满终端宽度的分隔线。"""
         self.line(ch * max(1, self.width))
@@ -181,8 +214,12 @@ class Console:
 
     # ---------------------------------------------------------------- 进度行
     def progress(self, text: str) -> None:
-        """原地刷新一行进度（用回车回到行首，并清掉上一次的残留字符）。"""
-        if self.quiet:
+        """原地刷新一行进度（用回车回到行首，并清掉上一次的残留字符）。
+
+        非 TTY（重定向/管道）下**不画进度行**：回车会污染文件内容，
+        这种情况由调用方改成每 20% 打印一行（PRD §5.5）。
+        """
+        if self.quiet or not self.is_tty:
             return
         visible = truncate(text, self.width)
         padding = " " * max(0, self._progress_len - display_width(visible))

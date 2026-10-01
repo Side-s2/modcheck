@@ -58,6 +58,8 @@ class ScanReport:
     by_search: int = 0
     guessed: int = 0
     offline: bool = False
+    #: 没有可读元数据的 jar（已列入清单，但需要人工确认）
+    unidentified: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------- 目录模式
@@ -120,16 +122,57 @@ def scan_dirs(directories: Sequence[Path], ctx: AppContext, *,
                 candidates.append((jar, entry))
                 continue
             if not meta.has_meta:
-                report.skipped.append(SkipItem(jar.name, t("scan.skipped.not_mod")))
+                # 裁决 D35：**必须进清单**。
+                # 漏掉一个模组比多列一个危险得多 —— 漏掉的往往正是让服务器起不来的那个；
+                # 清单与 mods 文件夹不一致还会让用户彻底不再信任这份清单。
+                # 这里标成"未识别"，检查时显示 ⚪ 未判定 + 建议。
+                entry = _entry_from_filename(jar, digest)
+                report.unidentified.append(jar.name)
+                report.entries.append(entry)
+                candidates.append((jar, entry))
                 continue
             entry = _entry_from_meta(jar, meta, digest)
             report.by_meta += 1
             report.entries.append(entry)
             candidates.append((jar, entry))
 
+    _resolve_slugs(report.entries, ctx)
     _resolve_by_name(candidates, ctx, report)
     _merge_duplicates(report)
     return report
+
+
+def _resolve_slugs(entries: list[ModEntry], ctx: AppContext) -> None:
+    """把"项目 ID"换成人类可读的 slug（裁决 D38）。
+
+    两条识别路径原本写进去的是不同种类的标识：hash 反查给的是 project_id，
+    搜索命中给的是 slug。Modrinth 两种都接受，所以查询不会出错，但：
+      ① 清单是给用户手改的，看到 fQEb0iXm 根本不知道那是什么；
+      ② 两条路径的 key 不一致，换文件名重扫时兜底失效会出现重复条目。
+    这里统一成 slug —— 只在首次扫描、且条目还没解析过 slug 时发生。
+    """
+    pending = {entry.sources.get("modrinth") for entry in entries if entry.sources.get("modrinth")}
+    if not pending:
+        return
+    try:
+        provider = ctx.registry.primary()
+    except ProviderError:
+        return
+    resolved: dict[str, str] = {}
+    for entry in entries:
+        ident = entry.sources.get("modrinth")
+        if not ident:
+            continue
+        if ident not in resolved:
+            try:
+                info = provider.get_project(ident)
+            except ProviderError:
+                resolved[ident] = ident
+                continue
+            resolved[ident] = info.slug if (info is not None and info.slug) else ident
+        if resolved[ident] != ident:
+            entry.sources["modrinth"] = resolved[ident]
+            entry.key = key_of(entry)
 
 
 def _lookup_hashes(digests: dict[Path, str], ctx: AppContext,
@@ -198,6 +241,23 @@ def _entry_from_meta(jar: Path, meta, digest: str) -> ModEntry:
         loaders.append(parsed.loader)
     entry.detected = Detected(mc_versions=mc_versions, loaders=loaders,
                               mod_version=meta.version or parsed.mod_version)
+    entry.key = key_of(entry)
+    return entry
+
+
+def _entry_from_filename(jar: Path, digest: str) -> ModEntry:
+    """没有元数据时的兜底条目：靠文件名尽力识别（低置信，但**绝不丢弃**）。"""
+    parsed = parse_jar_filename(jar.name)
+    entry = ModEntry(
+        key="", display_name=parsed.name or parsed.cn_name or jar.stem,
+        cn_name=parsed.cn_name, mod_id=None, file_name=jar.name, sha1=digest,
+        sources={"modrinth": None, "curseforge": None},
+        match_status=MatchStatus.UNMATCHED, source_kind=SourceKind.FILENAME,
+    )
+    entry.detected = Detected(
+        mc_versions=[parsed.mc_version] if parsed.mc_version else [],
+        loaders=[parsed.loader] if parsed.loader else [],
+        mod_version=parsed.mod_version)
     entry.key = key_of(entry)
     return entry
 
@@ -367,6 +427,10 @@ def _print_dir_stats(report: ScanReport, console) -> None:
     console.line(t("scan.identify.hash", count=report.by_hash))
     console.line(t("scan.identify.meta", count=report.by_meta))
     console.line(t("scan.identify.search", count=report.by_search))
+    if report.unidentified:
+        console.line(t("scan.identify.unidentified", count=len(report.unidentified)))
+        for name in report.unidentified:
+            console.line(t("scan.unidentified.item", name=name))
     if report.guessed:
         console.line(t("scan.noninteractive_unmatched", count=report.guessed))
     for warning in report.warnings:
