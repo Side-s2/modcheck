@@ -15,12 +15,13 @@ from modcheck.cli.render import assemble_row
 from modcheck.console import display_width
 from modcheck.core.models import ModEntry
 from modcheck.core.profile_ops import (INVALID_NAME_CHARS, PAGE_SIZE, page_of,
-                                       parse_project_selector, remove_mods, resolve_selector,
-                                       set_ignored, set_source, validate_profile_name)
+                                       parse_project_selector, remove_mods, rename,
+                                       resolve_selector, set_ignored, set_source,
+                                       validate_profile_name)
 from modcheck.errors import ConfigError, ModcheckError, ProviderError
 from modcheck.i18n import t
-from modcheck.storage.profiles import (ProfileSummary, list_profiles, load_profile,
-                                       new_profile, profile_path, save_profile)
+from modcheck.storage.profiles import (ProfileSummary, delete_profile, list_profiles,
+                                       load_profile, new_profile, profile_path, save_profile)
 
 #: 屏幕返回值
 QUIT: Final[str] = KIND_QUIT
@@ -36,6 +37,7 @@ MANAGE_ITEMS: Final[tuple[tuple[str, str], ...]] = (
     ("2", "manage.one.remove"),
     ("3", "manage.one.set_source"),
     ("4", "manage.one.ignore"),
+    ("r", "manage.one.rename"),
 )
 
 #: 匹配状态列的文字（PRD §13.2 的「匹配」列）
@@ -456,12 +458,53 @@ def _op_ignore(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
     return None
 
 
+def _op_rename(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
+    """[r] 重命名清单（文件名与 profile.name 同时更新，PRD §13.2 / R3-A08）。"""
+    console = ctx.console
+    profile = _load_profile(ctx, name)
+    if profile is None:
+        return None
+    kind, value = read_line(prompter, t("manage.rename.prompt", chars=invalid_chars_text()))
+    if kind == QUIT:
+        return QUIT
+    if kind == BACK or not value:
+        return None
+    try:
+        result = rename(profile, value)          # 校验非法字符 + 造新对象
+    except ConfigError as exc:
+        console.line(exc.message)
+        return None
+    if not result.changed:
+        console.line(t(result.message_key, **result.message_args))
+        return None
+    source = profile_path(ctx.profiles_dir, name)
+    target = profile_path(ctx.profiles_dir, value.strip())
+    if target.exists():
+        # 绝不覆盖已有清单
+        console.line(t("manage.rename.exists", name=value.strip()))
+        return None
+    try:
+        save_profile(result.profile, target)
+    except (ModcheckError, OSError):
+        console.line(t("manage.rename.failed", path=target))
+        return None
+    try:
+        delete_profile(source)
+    except OSError:
+        # 新清单已经写好了，只是旧文件删不掉：必须说清楚，否则用户会看到两个清单
+        console.line(t("manage.rename.partial", path=source))
+        return None
+    console.line(t(result.message_key, **result.message_args))
+    return None
+
+
 #: 按键 -> 处理函数（R3-A04~A09 逐条填进来）；返回 QUIT 表示直接回主菜单
 MANAGE_HANDLERS: dict[str, Callable[[AppContext, Prompter, str], str | None]] = {
     "1": _op_view,
     "2": _op_remove,
     "3": _op_set_source,
     "4": _op_ignore,
+    "r": _op_rename,
 }
 
 

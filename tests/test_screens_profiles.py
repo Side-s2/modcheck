@@ -12,17 +12,24 @@ from modcheck.core.models import ModEntry, Settings
 from modcheck.storage.profiles import new_profile, profile_path, save_profile
 
 
-def feed(values: list[str]):
-    """注入输入序列；用完后一律返回 q（保证不会挂死）。"""
+def feed(values: list[str], prompts: list[str] | None = None):
+    """注入输入序列；用完后一律返回 q（保证不会挂死）。
+
+    prompts 非空时把每个提问文本也记下来 —— 注入 input_fn 时提示不会进 console 流，
+    但"提示逐字对不对"同样是要验收的东西。
+    """
     queue = list(values)
 
-    def _input(_prompt: str = "") -> str:
+    def _input(prompt: str = "") -> str:
+        if prompts is not None:
+            prompts.append(prompt)
         return queue.pop(0) if queue else "q"
 
     return _input
 
 
-def make_ctx(tmp_path: Path, values: list[str] | None = None, provider=None) -> AppContext:
+def make_ctx(tmp_path: Path, values: list[str] | None = None, provider=None,
+             prompts: list[str] | None = None) -> AppContext:
     """最小上下文：console / config_dir / prompter（需要数据源的用例再传 provider）。"""
     console = Console(stream=io.StringIO(), color="never", width=100)
     registry = None
@@ -32,7 +39,8 @@ def make_ctx(tmp_path: Path, values: list[str] | None = None, provider=None) -> 
         registry = ProviderRegistry(providers=[provider])
     return AppContext(settings=Settings(), config_dir=tmp_path, console=console,
                       registry=registry, cache=None, client=None, interactive=True,
-                      prompter=Prompter(input_fn=feed(list(values or ["q"])), out=console))
+                      prompter=Prompter(input_fn=feed(list(values or ["q"]), prompts),
+                                        out=console))
 
 
 def out(ctx: AppContext) -> str:
@@ -151,6 +159,94 @@ def many_mods(count: int) -> list[ModEntry]:
     return [ModEntry(key="m" + str(i), display_name="Mod" + str(i), mod_id="m" + str(i),
                      sources={"modrinth": "slug" + str(i)}, current_version="1.0")
             for i in range(count)]
+
+
+# ---------------------------------------------------------------- R3-A08 重命名清单
+def test_rename_profile_updates_file_and_name(tmp_path: Path) -> None:
+    """成功：文件名与 profile.name 同时更新，旧文件不再存在。"""
+    write_entries(tmp_path, "服务器A", many_mods(2))
+    ctx = make_ctx(tmp_path, ["1", "r", "主服", "q"])
+    run_profiles_screen(ctx)
+    assert "✓ 清单「服务器A」已重命名为「主服」。文件也已经改名。" in out(ctx)
+    assert not (tmp_path / "profiles" / "服务器A.json").exists()
+    new_path = tmp_path / "profiles" / "主服.json"
+    assert new_path.exists()
+    from modcheck.storage.profiles import load_profile
+
+    assert load_profile(new_path).name == "主服"
+    assert len(load_profile(new_path).mods) == 2
+
+
+def test_rename_profile_prompt_shows_chars(tmp_path: Path) -> None:
+    """提示里必须列出非法字符（与校验规则同源）。"""
+    write_entries(tmp_path, "服务器A", many_mods(1))
+    prompts: list[str] = []
+    ctx = make_ctx(tmp_path, ["1", "r", "b", "q"], prompts=prompts)
+    run_profiles_screen(ctx)
+    wanted = '请输入新的清单名称（不能包含 ' + chr(92) + ' / : * ? " < > | 这些字符），[b] 返回 > '
+    assert wanted in prompts
+
+
+def test_rename_profile_rejects_existing(tmp_path: Path) -> None:
+    """重名被拒并给建议，两个文件都不变。"""
+    write_entries(tmp_path, "服务器A", many_mods(1))
+    write_entries(tmp_path, "测试服", many_mods(1))
+    before = (tmp_path / "profiles" / "测试服.json").read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "r", "测试服", "q"])
+    run_profiles_screen(ctx)
+    assert "✗ 已经有一个叫「测试服」的清单了。换一个名字，或先用 [d] 删掉它。" in out(ctx)
+    assert (tmp_path / "profiles" / "测试服.json").read_bytes() == before
+    assert (tmp_path / "profiles" / "服务器A.json").exists()
+
+
+def test_rename_profile_rejects_invalid_chars(tmp_path: Path) -> None:
+    """非法字符被拒，清单不变。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+    before = path.read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "r", "a/b", "q"])
+    run_profiles_screen(ctx)
+    assert "✗ 清单名不能为空" in out(ctx)
+    assert path.read_bytes() == before
+
+
+def test_rename_profile_same_name(tmp_path: Path) -> None:
+    """改成同一个名字：明确回执，不写盘。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+    before = path.read_bytes()
+    ctx = make_ctx(tmp_path, ["1", "r", "服务器A", "q"])
+    run_profiles_screen(ctx)
+    assert "清单名字没有变化。" in out(ctx)
+    assert path.read_bytes() == before
+
+
+def test_rename_profile_keeps_old_when_save_fails(tmp_path: Path, monkeypatch) -> None:
+    """写盘失败：旧文件还在，新文件没生成。"""
+    path = write_entries(tmp_path, "服务器A", many_mods(1))
+    before = path.read_bytes()
+
+    def boom(*_args, **_kwargs):
+        raise OSError("read-only")
+
+    monkeypatch.setattr("modcheck.cli.screens_profiles.save_profile", boom)
+    ctx = make_ctx(tmp_path, ["1", "r", "主服", "q"])
+    run_profiles_screen(ctx)
+    assert "✗ 重命名失败：" in out(ctx)
+    assert path.read_bytes() == before
+    assert not (tmp_path / "profiles" / "主服.json").exists()
+
+
+def test_rename_profile_reports_leftover_old_file(tmp_path: Path, monkeypatch) -> None:
+    """新文件写好了但旧文件删不掉：必须明确告警（否则会出现两个清单）。"""
+    write_entries(tmp_path, "服务器A", many_mods(1))
+
+    def boom(*_args, **_kwargs):
+        raise OSError("locked")
+
+    monkeypatch.setattr("modcheck.cli.screens_profiles.delete_profile", boom)
+    ctx = make_ctx(tmp_path, ["1", "r", "主服", "q"])
+    run_profiles_screen(ctx)
+    assert "⚠ 新清单已经写好了，但旧的" in out(ctx)
+    assert (tmp_path / "profiles" / "主服.json").exists()
 
 
 # ---------------------------------------------------------------- R3-A07 忽略 / 取消忽略

@@ -490,6 +490,7 @@ _MESSAGES: Final[dict[str, str]] = {
     "manage.rename.done": "✓ 清单「{old}」已重命名为「{new}」。文件也已经改名。",
     "manage.rename.same": "清单名字没有变化。",
     "manage.rename.failed": "✗ 重命名失败：{path} 写不进去（磁盘或权限问题）。清单没有改动。",
+    "manage.rename.partial": "⚠ 新清单已经写好了，但旧的 {path} 删不掉（磁盘或权限问题）。请手工删掉它，否则会出现两个清单。",
     # ---------------------------------------------------------------- 删除清单（R3-A09）
     "manage.delete.warn1": "⚠ 即将删除清单「{name}」（{count} 个模组）。",
     "manage.delete.warn2": "   这个操作不能撤销：清单文件会被直接删除，里面记录的中文名、备注、手动指定的平台项目都会一起消失。",

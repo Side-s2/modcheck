@@ -25,7 +25,7 @@ from modcheck.i18n import t
 #: 清单名里不允许出现的字符（Windows 与 Linux 都不安全）；storage 复用这一份。
 #: chr(34)=双引号、chr(92)=反斜杠：写成转义序列在源码里极易看错，这里刻意用 chr()。
 INVALID_NAME_CHARS: Final[tuple[str, ...]] = (
-    "/", ":", "*", "?", chr(34), "<", ">", "|", chr(92),
+    chr(92), "/", ":", "*", "?", chr(34), "<", ">", "|",
 )
 
 #: 一页多少个模组（PRD §13.2）
