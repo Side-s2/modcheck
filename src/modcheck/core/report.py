@@ -337,14 +337,19 @@ def build_action_hints(report: Report) -> list[str]:
         lines.append(t("report.next.none"))
         return lines
     lines.append(t("report.next.title"))
+    # 编号必须**动态生成**：条件跳段时用固定前缀会出现"只有 3."这种断号
+    # （实测：只有 ⚪ 项时输出从 "3." 开始，用户会以为少了一步）。
+    steps: list[str] = []
     if data["blocked"] > 0:
-        lines.append(t("report.next.step1", blocked=data["blocked"]))
-    if data["degraded"] > 0:
-        lines.append(t("report.next.step2", degraded=actionable_degraded(report)))
+        steps.append(t("report.next.step1", index=len(steps) + 1, blocked=data["blocked"]))
+    actionable = actionable_degraded(report)
+    if actionable > 0:
+        steps.append(t("report.next.step2", index=len(steps) + 1, degraded=actionable))
     if data["unknown"] > 0:
-        lines.append(t("report.next.step3", unknown=data["unknown"]))
-        lines.append(t("report.next.command", profile=report.profile_name,
+        steps.append(t("report.next.step3", index=len(steps) + 1, unknown=data["unknown"]))
+        steps.append(t("report.next.command", profile=report.profile_name,
                        mc=report.mc_version, loader=report.loader.value))
+    lines.extend(steps)
     return lines
 
 

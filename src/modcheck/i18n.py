@@ -112,9 +112,9 @@ _MESSAGES: Final[dict[str, str]] = {
     # ---------------------------------------------------------------- 汇总 / 下一步
     "report.summary": "汇总：共 {total_all} 个模组，本次检查 {total_checked} 个  ｜  🟢 就绪 {ready}  ｜  🟡 需降级 {degraded}  ｜  🔴 阻塞 {blocked}  ｜  ⚪ 未判定 {unknown}  ｜  ⚫ 已忽略 {ignored}",
     "report.next.title": "下一步：",
-    "report.next.step1": "  1. 先处理上面 🔴 的 {blocked} 个阻塞项（每一行都给了原因和建议）",
-    "report.next.step2": "  2. 再拍板 🟡 的 {degraded} 个：能接受旧版/测试版就继续，不能就等作者更新",
-    "report.next.step3": "  3. 最后重跑一次，把 ⚪ 的 {unknown} 个查清楚：",
+    "report.next.step1": "  {index}. 先处理上面 🔴 的 {blocked} 个阻塞项（每一行都给了原因和建议）",
+    "report.next.step2": "  {index}. 再拍板 🟡 的 {degraded} 个：能接受旧版/测试版就继续，不能就等作者更新",
+    "report.next.step3": "  {index}. 最后重跑一次，把 ⚪ 的 {unknown} 个查清楚：",
     "report.next.command": "       modcheck check --profile {profile} --mc {mc} --loader {loader} --refresh",
     "report.next.none": "可以开始升级了。升级前记得备份存档和 mods 文件夹。",
     "report.empty.next1": "  1. 扫描你的 mods 文件夹建立清单：",
