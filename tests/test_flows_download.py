@@ -311,6 +311,12 @@ def test_run_download_flow_skips_user_choice(tmp_path: Path) -> None:
     assert outcome.summary.skipped_names == ("carpet-26.3.jar",)
     assert outcome.summary.skipped_items[0].message_key == "download.skip.user"
     assert (outcome.summary.ok, outcome.summary.skipped) == (1, 1)
+    # sample_report 里还有一个"没有可下载 .jar"的 jei，它也算跳过（自洽性见下一个用例）
+    assert outcome.summary.skipped_rows == (("carpet-26.3.jar", "download.skip.user"),
+                                            ("jei", "download.skip.no_jar"))
+    # 汇总行的数字必须加得起来（主 Agent 裁决 4）
+    assert outcome.summary.outcome_total == (outcome.summary.ok + outcome.summary.skipped_total
+                                             + outcome.summary.failed)
 
 
 def test_run_download_flow_disk_write_failure_is_isolated(tmp_path: Path) -> None:
@@ -369,8 +375,11 @@ def test_run_download_flow_429_not_counted_as_retry(tmp_path: Path) -> None:
     assert outcome.summary.ok == 1 and len(fetcher.calls) == 3 and sleeps == []
 
 
-def test_run_download_flow_no_jar_entries_listed_in_failures(tmp_path: Path) -> None:
-    """没有可下载 .jar 的模组也要出现在失败清单里（§14.5 第 2 条）。"""
+def test_run_download_flow_no_jar_entries_counted_as_skipped(tmp_path: Path) -> None:
+    """没有可下载 .jar 的模组归到**跳过**里，且带原因（主 Agent 裁决 4）。
+
+    归到失败会让"汇总行说失败 1 个、失败清单却列 2 条" —— 用户会以为程序算错了。
+    """
     report = make_report(
         report_item(entry("carpet"), Status.READY,
                     latest=version("26.3", files=(file_info("carpet-26.3.jar", primary=True),))),
@@ -380,9 +389,12 @@ def test_run_download_flow_no_jar_entries_listed_in_failures(tmp_path: Path) -> 
     )
     outcome = run_download_flow(prepare_download(report, tmp_path), FakeFetcher(),
                                 sleep=no_sleep)
-    rows = outcome.summary.failure_rows
-    assert ("jei", SKIP_NO_JAR, "") in rows       # 条目没有 file_name 时用显示名
-    assert outcome.summary.failed == 0            # 它不是"下载失败"，但要在清单里可见
+    summary = outcome.summary
+    assert ("jei", SKIP_NO_JAR) in summary.skipped_rows   # 条目没有 file_name 时用显示名
+    assert summary.failed == 0 and summary.failure_rows == ()
+    assert summary.skipped_total == 1 and summary.skipped == 0
+    assert summary.outcome_total == 2                     # 两个 🟢 条目都进汇总分母
+    assert summary.outcome_total == summary.ok + summary.skipped_total + summary.failed
 
 
 def test_run_download_flow_all_failed_flag(tmp_path: Path) -> None:
@@ -568,12 +580,40 @@ def test_ensure_target_dir(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_summary_reports_small_numbers(tmp_path: Path) -> None:
-    """汇总的数字自洽：ok + skipped + failed + cancelled == total。"""
+    """汇总的数字自洽：ok + skipped(全部) + failed == outcome_total。"""
     prep = prepare_download(sample_report(), tmp_path)
     outcome = run_download_flow(prep, FakeFetcher(payload=b"y" * 7), sleep=no_sleep)
     summary = outcome.summary
     cancelled = sum(1 for item in outcome.report.items if item.status == STATUS_CANCELLED)
     assert summary.ok + summary.skipped + summary.failed + cancelled == summary.total
+    assert summary.outcome_total == (summary.ok + summary.skipped_total + summary.failed)
     assert summary.bytes_total == 14
     assert summary.elapsed >= 0.0
     assert summary.retries == 2
+
+
+def test_summary_numbers_add_up_with_every_skip_kind(tmp_path: Path) -> None:
+    """三类跳过混在一起时，汇总行的数字仍然加得起来（主 Agent 裁决 4 的核心）。"""
+    report = make_report(
+        # 🟢 能下（但用户选择跳过）
+        report_item(entry("carpet"), Status.READY,
+                    latest=version("26.3", files=(file_info("carpet-26.3.jar", primary=True),))),
+        # 🟢 能下（照常下载）
+        report_item(entry("sodium"), Status.READY,
+                    latest=version("26.3", files=(file_info("sodium-26.3.jar", primary=True),))),
+        # 🟢 没有可下载的 .jar
+        report_item(entry("jei"), Status.READY,
+                    latest=version("26.3", files=(file_info("jei-26.3-sources.jar",
+                                                            primary=True),))),
+        # 🟡 没有「可用」版本
+        report_item(entry("old"), Status.DEGRADED, latest=version("26.3")),
+    )
+    prep = prepare_download(report, tmp_path)
+    outcome = run_download_flow(prep, FakeFetcher(), overwrite={"carpet-26.3.jar": False},
+                                sleep=no_sleep)
+    summary = outcome.summary
+    assert (summary.ok, summary.skipped, summary.failed) == (1, 1, 0)
+    assert summary.skipped_total == 3                     # 用户跳过 + 无 jar + 无版本
+    assert summary.outcome_total == 4                     # 4 个条目都进了汇总
+    assert summary.outcome_total == (summary.ok + summary.skipped_total + summary.failed)
+    assert len({name for name, _key in summary.skipped_rows}) == 3   # 三条都列出来

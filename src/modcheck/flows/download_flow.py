@@ -26,10 +26,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Final, Mapping, Sequence
 
-from modcheck.core.downloader import (SKIP_NO_JAR, SKIP_NO_VERSION, STATUS_FAILED, STATUS_OK,
-                                      STATUS_SKIPPED, STATUS_VERIFY_FAILED, DownloadItem,
-                                      DownloadPlan, DownloadReport, conflicts, download_all,
-                                      extra_files_count, overwrite_key, plan_for)
+from modcheck.core.downloader import (SKIP_NO_JAR, SKIP_NO_VERSION, SKIP_USER, STATUS_FAILED,
+                                      STATUS_OK, STATUS_SKIPPED, STATUS_VERIFY_FAILED,
+                                      DownloadItem, DownloadPlan, DownloadReport, conflicts,
+                                      download_all, extra_files_count, overwrite_key, plan_for)
 from modcheck.core.models import ModEntry
 from modcheck.core.report import Report
 
@@ -118,6 +118,8 @@ class DownloadSummary:
     skipped_items: tuple[DownloadItem, ...] = ()
     failed_items: tuple[DownloadItem, ...] = ()
     no_jar: tuple[ModEntry, ...] = ()
+    #: 🟡 但没有"可用"版本可下（PRD §14.5 第 17 条）
+    no_version: tuple[ModEntry, ...] = ()
 
     @property
     def megabytes(self) -> float:
@@ -130,24 +132,47 @@ class DownloadSummary:
         return self.total > 0 and self.ok == 0 and not self.cancelled
 
     @property
-    def failure_rows(self) -> tuple[tuple[str, str, str], ...]:
-        """失败清单的 (文件名, 原因 key, 具体原因)。
+    def skipped_total(self) -> int:
+        """跳过的**条目**总数：用户选择 + 没有可下载的 .jar + 没有可用版本。
 
-        具体原因（detail）只有"网络失败"那条文案用得上（"下载失败（{detail}）"），
-        其它原因 key 自带完整句子，多传一个参数不会影响格式化。
-
-        PRD §14.5 第 2 条要求"没有可下载的 .jar"的模组也列在失败清单里，
-        所以这里把它和正式失败条目合并给出 —— 渲染方不必自己拼。
+        三类必须合成一个数：汇总行说"跳过 N 个"，下面就得恰好列 N 条 ——
+        用户会去数，数不上就会以为程序算错了（主 Agent 裁决 4）。
         """
-        rows = [(item.target.name, item.message_key or "download.error.net", item.detail)
-                for item in self.failed_items]
-        rows += [((entry.file_name or entry.best_name or entry.key), SKIP_NO_JAR, "")
-                 for entry in self.no_jar]
+        return self.skipped + len(self.no_jar) + len(self.no_version)
+
+    @property
+    def outcome_total(self) -> int:
+        """汇总行的分母：计划里的文件 + 计划期就下不了的条目（不含被取消的）。
+
+        完成时的恒等式（有测试守）：outcome_total == ok + skipped_total + failed。
+        """
+        return self.total + len(self.no_jar) + len(self.no_version)
+
+    @property
+    def skipped_rows(self) -> tuple[tuple[str, str], ...]:
+        """跳过清单的 (名字, 原因 key)：三类跳过都在这里，**每条都自带原因**。"""
+        rows = [(item.target.name, item.message_key or SKIP_USER)
+                for item in self.skipped_items]
+        rows += [(_entry_name(entry), SKIP_NO_JAR) for entry in self.no_jar]
+        rows += [(_entry_name(entry), SKIP_NO_VERSION) for entry in self.no_version]
         return tuple(rows)
 
     @property
+    def failure_rows(self) -> tuple[tuple[str, str, str], ...]:
+        """失败清单的 (文件名, 原因 key, 具体原因)：**只含真正的下载失败**。
+
+        "没有可下载的 .jar" 不算失败，归到跳过里（主 Agent 裁决 4）——
+        否则汇总行写"失败 1 个"、失败清单却列了 2 条，用户会以为程序算错了。
+
+        具体原因（detail）只有"网络失败"那条文案用得上（"下载失败（{detail}）"），
+        其它原因 key 自带完整句子，多传一个参数不会影响格式化。
+        """
+        return tuple((item.target.name, item.message_key or "download.error.net", item.detail)
+                     for item in self.failed_items)
+
+    @property
     def skipped_names(self) -> tuple[str, ...]:
-        """用户选择跳过的文件名（汇总的 ⏭ 行）。"""
+        """用户选择跳过的文件名（只看用户选择的那一类）。"""
         return tuple(item.target.name for item in self.skipped_items)
 
 
@@ -179,6 +204,11 @@ class TargetCheck:
 def plan_skips(plan: DownloadPlan, reason_key: str) -> tuple[ModEntry, ...]:
     """按原因 key 取出计划里被跳过的条目（保持报告顺序）。"""
     return tuple(entry for entry, key in plan.skipped if key == reason_key)
+
+
+def _entry_name(entry: ModEntry) -> str:
+    """条目在界面上的名字：优先文件名，其次显示名（都没有就用 key）。"""
+    return entry.file_name or entry.best_name or entry.key
 
 
 def prepare_download(report: Report, target_dir: Path) -> DownloadPrep:
@@ -288,7 +318,7 @@ def _summarize(prep: DownloadPrep, report: DownloadReport, *, retries: int) -> D
         skipped_items=tuple(item for item in items if item.status == STATUS_SKIPPED),
         failed_items=tuple(item for item in items
                            if item.status in (STATUS_FAILED, STATUS_VERIFY_FAILED)),
-        no_jar=prep.no_jar)
+        no_jar=prep.no_jar, no_version=prep.no_version)
 
 
 def _probe_writable(directory: Path) -> bool:
@@ -378,8 +408,9 @@ class _ReportingFetcher:
         return written
 
 
-__all__ = ["DEFAULT_JOBS", "DEFAULT_RETRIES", "SPACE_MARGIN", "TARGET_IS_FILE",
-           "TARGET_MISSING", "TARGET_NOT_WRITABLE", "UNKNOWN_FREE", "DownloadOutcome",
+__all__ = ["DEFAULT_JOBS", "DEFAULT_RETRIES", "SKIP_NO_JAR", "SKIP_NO_VERSION",
+           "SPACE_MARGIN", "TARGET_IS_FILE", "TARGET_MISSING", "TARGET_NOT_WRITABLE",
+           "UNKNOWN_FREE", "DownloadOutcome",
            "DownloadPrep", "DownloadSummary", "ItemFn", "ProgressFn", "StopFn", "TargetCheck",
            "check_target_dir", "ensure_target_dir", "looks_like_mods_dir", "plan_skips",
            "prepare_download", "run_download_flow"]

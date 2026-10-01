@@ -491,5 +491,71 @@ def test_render_result_all_failed_hint(tmp_path: Path) -> None:
     assert "      carpet.jar —— 下载失败（连接超时），已重试 2 次" in text
     assert "{detail}" not in text                  # 未填的占位符绝不能漏到用户面前
     assert "✗ 一个都没下成功。可以稍后重试；如果是网络问题，先检查代理设置：" in text
+# ---------------------------------------------------------------- 数字自洽（主 Agent 裁决 4）
+def sources_only_report(name: str = "jei") -> Report:
+    """一个 🟢 模组，但它的版本里只有 sources.jar（没有可下载的主文件）。"""
+    report = Report(mc_version="26.3", loader=Loader.FABRIC, profile_name="demo",
+                    generated_at="")
+    entry = ModEntry(key=name, display_name=name.title(), mod_id=name,
+                     sources={"modrinth": name})
+    addon = FileInfo(filename=name + "-26.3-sources.jar", url="https://cdn.example/x",
+                     primary=True, size=100, hashes={})
+    report.add(ReportItem(mod=entry, status=Status.READY, reason=ReasonCode.OK,
+                          reason_key="reason.ok", hint_key="advice.ok",
+                          latest_for_loader=version("26.3", (addon,))))
+    return report
+
+
+def test_nothing_lines_keep_prd_wording_when_truly_nothing(tmp_path: Path) -> None:
+    """检查结果里本来就没有 🟢/🟡 -> PRD 那句逐字，且句句属实。"""
+    report = Report(mc_version="26.3", loader=Loader.FABRIC, profile_name="demo",
+                    generated_at="")
+    report.add(ReportItem(mod=ModEntry(key="c", display_name="C"), status=Status.BLOCKED,
+                          reason=ReasonCode.OK, reason_key="r", hint_key="h"))
+    prep = prepare_download(report, tmp_path)
+    assert screen.nothing_lines(report, prep) == [
+        "没有需要下载的模组：这次检查里没有 🟢 就绪 或 🟡 需注意 的条目"
+        "（🔴 1 ｜ 🟠 0 ｜ 🟡 0 ｜ ⚪ 0 ｜ 🟢 0）。"]
+
+
+def test_nothing_lines_list_reasons_when_mods_exist(tmp_path: Path) -> None:
+    """有 🟢 但不能下：不能再说"没有 🟢 就绪 的条目（🟢 0）"—— 那是假话。"""
+    report = sources_only_report("jei")
+    prep = prepare_download(report, tmp_path)
+    lines = screen.nothing_lines(report, prep)
+    assert lines[0] == ("没有可以下载的文件：🟢 就绪 / 🟡 需注意 的条目里没有可下载的主文件"
+                        "（.jar）。")
+    assert lines[1] == "  Jei：这个版本没有可下载的 .jar 文件"   # 显示名（条目没有 file_name）
+    assert all("🟢 0" not in line for line in lines)
+
+
+def test_post_check_download_nothing_screen_is_honest(tmp_path: Path) -> None:
+    """菜单路径：这个场景打印的是原因清单，不是那句"没有 🟢 就绪"的话。"""
+    ctx = make_ctx(tmp_path, ["y"])
+    assert screen.post_check_download(ctx, sources_only_report("jei")) is None
+    text = out(ctx)
+    assert "  Jei：这个版本没有可下载的 .jar 文件" in text
+    assert "没有需要下载的模组" not in text
+
+
+def test_summary_numbers_add_up_on_screen(tmp_path: Path, monkeypatch) -> None:
+    """跳一个、失败一个、成功一个：汇总行的三个数与下面的清单必须对得上。"""
+    target = tmp_path / "dl"
+    target.mkdir()
+    (target / "carpet.jar").write_bytes(b"old")
+    monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
+    client = FakeClient(fail_names=("sodium.jar",))
+    # y=要下载, s=跳过同名文件, y=开跑
+    ctx = make_ctx(tmp_path, ["y", "s", "y"], client=client, tty=False)
+    outcome = screen.post_check_download(ctx, downloadable_report("carpet", "sodium", "lithium"))
+    assert outcome is not None
+    summary = outcome.summary
+    assert summary.outcome_total == (summary.ok + summary.skipped_total + summary.failed)
+    text = out(ctx)
+    assert "下载完成：3 个文件里 1 个成功、1 个跳过、1 个失败。" in text
+    assert "  ⏭ 跳过 1 个：carpet.jar（你选择了跳过）" in text
+    assert "  ✗ 失败 1 个：" in text
+    assert text.count(" —— ") == 1                # 失败清单只有一条
+
 
 

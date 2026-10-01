@@ -22,7 +22,8 @@ from modcheck.cli.context import AppContext
 from modcheck.cli.folderpicker import (FOLDER_CANCELLED, FOLDER_OK, FOLDER_UNAVAILABLE,
                                        pick_folder_ex)
 from modcheck.cli.prompts import KIND_BACK, KIND_QUIT, read_line
-from modcheck.core.downloader import DownloadItem, overwrite_key
+from modcheck.core.downloader import (SKIP_NO_JAR, SKIP_NO_VERSION, DownloadItem,
+                                      overwrite_key)
 from modcheck.core.report import Report
 from modcheck.flows.download_flow import (TARGET_MISSING, DownloadOutcome, DownloadPrep,
                                           check_target_dir, ensure_target_dir,
@@ -45,6 +46,24 @@ def download_nothing_line(report: Report) -> str:
     data = report.summary
     return t("download.nothing", blocked=data.get("blocked", 0),
              prerelease=data.get("prerelease", 0), unknown=data.get("unknown", 0))
+
+
+def nothing_lines(report: Report, prep: DownloadPrep) -> list[str]:
+    """没有可下载文件时要说的行。
+
+    两种完全不同的情况不能共用一句话（PRD §14.4 那句里写死了「🟢 0」）：
+      * 检查结果里本来就没有 🟢/🟡 -> 用 PRD 那句，逐字、且句句属实；
+      * 有 🟢/🟡、但它们的版本里没有可下载的主文件 -> 逐条列出原因，
+        否则用户看到"没有需要下载的模组（🟢 0）"会以为程序没认出他的模组。
+    """
+    reasons = [(entry, key) for entry, key in prep.plan.skipped
+               if key in (SKIP_NO_JAR, SKIP_NO_VERSION)]
+    if not reasons:
+        return [download_nothing_line(report)]
+    lines = [t("download.nothing.skipped")]
+    lines += [t("download.nothing.item", name=entry.file_name or entry.best_name or entry.key,
+                reason=t(key)) for entry, key in reasons]
+    return lines
 
 
 def ask_download(ctx: AppContext) -> bool:
@@ -187,17 +206,18 @@ def render_result(ctx: AppContext, outcome: DownloadOutcome) -> None:
     if summary.cancelled:
         console.line(t("download.cancelled", done=summary.ok, dir=summary.target_dir))
         return
-    console.line(t("download.summary.line", count=summary.total, ok=summary.ok,
-                   skipped=summary.skipped, failed=summary.failed,
+    # 汇总行的三个数必须能加得起来：outcome_total == ok + skipped_total + failed
+    console.line(t("download.summary.line", count=summary.outcome_total, ok=summary.ok,
+                   skipped=summary.skipped_total, failed=summary.failed,
                    seconds=int(summary.elapsed), mb=format_mb(summary.bytes_total)))
     if summary.ok:
         console.line(t("download.summary.ok", count=summary.ok, dir=summary.target_dir))
-    for index, name in enumerate(summary.skipped_names):
+    for index, (name, reason_key) in enumerate(summary.skipped_rows):
         key = "download.summary.skipped" if index == 0 else "download.summary.skipped_more"
-        console.line(t(key, count=summary.skipped, name=name))
+        console.line(t(key, count=summary.skipped_total, name=name, reason=t(reason_key)))
     rows = summary.failure_rows
     if rows:
-        console.line(t("download.summary.failed", count=len(rows)))
+        console.line(t("download.summary.failed", count=summary.failed))
         for name, reason_key, detail in rows:
             reason = t(reason_key, detail=detail or t("download.error.detail.unknown"))
             # 写不进去是确定性的：重试也救不回来，所以不说"已重试 N 次"
@@ -228,7 +248,8 @@ def post_check_download(ctx: AppContext, report: Report) -> DownloadOutcome | No
         return None
     prep = prepare_download(report, Path("."))     # 只为了先看"有没有东西可下"
     if not prep.has_work:
-        console.line(download_nothing_line(report))
+        for line in nothing_lines(report, prep):
+            console.line(line)
         return None
     target = choose_target_dir(ctx, prep)
     if target is None:
@@ -348,4 +369,4 @@ def _confirm_target(ctx: AppContext, target: Path, prep: DownloadPrep, check=Non
 
 __all__ = ["BAR_WIDTH", "PROGRESS_INTERVAL", "ask_download", "ask_overwrite",
            "choose_target_dir", "confirm_start", "download_nothing_line", "format_mb",
-           "post_check_download", "render_result", "run_with_progress"]
+           "nothing_lines", "post_check_download", "render_result", "run_with_progress"]

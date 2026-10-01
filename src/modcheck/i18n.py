@@ -491,6 +491,10 @@ _MESSAGES: Final[dict[str, str]] = {
     "download.ask.note3": "    · 不会动你现在的 mods 文件夹，只会往你选的文件夹里写文件。",
     "download.ask.prompt": "要不要把可用的版本下载下来？(y/N) > ",
     "download.nothing": "没有需要下载的模组：这次检查里没有 🟢 就绪 或 🟡 需注意 的条目（🔴 {blocked} ｜ 🟠 {prerelease} ｜ 🟡 0 ｜ ⚪ {unknown} ｜ 🟢 0）。",
+    # 有 🟢/🟡、但它们的版本里没有可下载的主文件时改用下面两句：
+    # 上面那句写死了「🟢 0 / 🟡 0」，此时说它就是假话（用户会以为程序没认出他的模组）
+    "download.nothing.skipped": "没有可以下载的文件：🟢 就绪 / 🟡 需注意 的条目里没有可下载的主文件（.jar）。",
+    "download.nothing.item": "  {name}：{reason}",
     # 选择文件夹
     "download.folder.dialog_title": "选择下载到哪个文件夹",
     "download.folder.header": "请选择下载到哪个文件夹。",
@@ -521,8 +525,8 @@ _MESSAGES: Final[dict[str, str]] = {
     "download.cancelled": "已取消下载。已经下好的 {done} 个文件保留在 {dir} 里，没下完的临时文件已清理。",
     "download.summary.line": "下载完成：{count} 个文件里 {ok} 个成功、{skipped} 个跳过、{failed} 个失败。用时 {seconds} 秒，共 {mb} MB。",
     "download.summary.ok": "  ✓ 成功 {count} 个 → {dir}",
-    "download.summary.skipped": "  ⏭ 跳过 {count} 个：{name}（你选择了跳过）",
-    "download.summary.skipped_more": "      {name}（你选择了跳过）",
+    "download.summary.skipped": "  ⏭ 跳过 {count} 个：{name}（{reason}）",
+    "download.summary.skipped_more": "      {name}（{reason}）",
     "download.summary.failed": "  ✗ 失败 {count} 个：",
     "download.summary.failed_item": "      {name} —— {reason}",
     "download.summary.failed_item.retried": "      {name} —— {reason}，已重试 {retries} 次",

@@ -55,5 +55,6 @@ else:
 print()
 print("新增模块是否被覆盖：")
 for name in ("core/profile_ops.py", "core/settings_ops.py", "core/downloader.py",
-             "flows/__init__.py", "flows/scan_flow.py", "flows/check_flow.py"):
+             "flows/__init__.py", "flows/scan_flow.py", "flows/check_flow.py",
+             "flows/download_flow.py"):
     print(f"  {'✅' if (ROOT / name).exists() else '❌'} {name}")
