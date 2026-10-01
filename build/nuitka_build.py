@@ -96,7 +96,42 @@ def build(*, onefile: bool = False, output_dir: Path = Path("dist"),
     code = subprocess.call(cmd, cwd=str(ROOT), env=env)
     if code == 0:
         _fix_dist_name(Path(output_dir), onefile, gui=gui)
+        _write_launchers(Path(output_dir), gui=gui, onefile=onefile)
     return code
+
+
+#: 启动脚本内容（**纯 ASCII**：cmd.exe 用 OEM 代码页，中文注释会变成乱码 —— 踩过两次）
+LAUNCHER_CLI = (
+    "@echo off\r\n"
+    "REM modcheck CLI launcher. ASCII only: cmd.exe runs in the OEM codepage\r\n"
+    "REM and non-ASCII comments would show up as mojibake.\r\n"
+    "cd /d \"%~dp0\"\r\n"
+    "modcheck\\modcheck.exe\r\n"
+    "echo.\r\n"
+    "pause\r\n"
+)
+LAUNCHER_GUI = (
+    "@echo off\r\n"
+    "REM modcheck GUI launcher. start is used so this console closes at once:\r\n"
+    "REM a GUI app should not leave a black box behind it.\r\n"
+    "cd /d \"%~dp0\"\r\n"
+    "start \"\" \"modcheck-gui\\modcheck-gui.exe\"\r\n"
+)
+
+
+def _write_launchers(output_dir: Path, *, gui: bool, onefile: bool) -> None:
+    """构建后补上双击启动脚本。
+
+    ⚠️ 必须由构建脚本生成：_clean_output 会清空输出目录，
+    手工放进去的脚本每次重新打包都会消失（实测丢了两次）。
+    """
+    target = Path(output_dir)
+    if onefile:
+        return                       # 单文件版本身就是双击运行的，不需要脚本
+    if gui:
+        (target / "启动GUI.cmd").write_bytes(LAUNCHER_GUI.encode("ascii"))
+    else:
+        (target / "启动CLI.cmd").write_bytes(LAUNCHER_CLI.encode("ascii"))
 
 
 def _clean_output(output_dir: Path) -> None:
