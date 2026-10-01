@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Sequence
+from typing import Callable
 
 from modcheck import __version__
 from modcheck.cli.context import AppContext, build_context
@@ -44,7 +44,7 @@ def print_menu(ctx: AppContext) -> None:
 
 def _ask_target(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -> bool:
     """交互式补齐目标版本与加载器；返回是否继续。"""
-    if not args.mc:
+    if not getattr(args, "mc", None):
         raw = prompter.ask(t("cli.check.mc") + " > ")
         if raw in ("q", ""):
             return False
@@ -60,11 +60,20 @@ def _ask_target(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -
     return True
 
 
-def run_menu(args: argparse.Namespace) -> int:
-    """主菜单循环；主菜单里 Ctrl+C 退出（130），子流程里 Ctrl+C 回主菜单。"""
-    console = Console(color="never" if getattr(args, "no_color", False) else "auto")
-    ctx = build_context(args, console)
-    prompter = Prompter(out=console)
+def run_menu(args: argparse.Namespace, *, input_fn: Callable[[str], str] | None = None,
+             console: Console | None = None, ctx: AppContext | None = None) -> int:
+    """主菜单循环；主菜单里 Ctrl+C 退出（130），子流程里 Ctrl+C 回主菜单。
+
+    参数：
+        input_fn: 注入的输入函数（测试用；默认读标准输入）。
+        console: 注入的控制台（测试用）。
+        ctx: 注入的上下文（测试用；默认按 args 装配）。
+    """
+    if console is None:
+        console = Console(color="never" if getattr(args, "no_color", False) else "auto")
+    if ctx is None:
+        ctx = build_context(args, console)
+    prompter = Prompter(input_fn=input_fn, out=console)
     ctx.prompter = prompter
     ctx.interactive = True
     print_banner(ctx)
@@ -123,7 +132,7 @@ def _menu_check(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -
     if selected in ("b", "q"):
         return
     args.profile = selected
-    if not args.mc:
+    if not getattr(args, "mc", None):
         args.mc = ctx.settings.default_mc_version
     if not _ask_target(args, ctx, prompter):
         return

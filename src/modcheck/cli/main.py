@@ -135,6 +135,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+#: 菜单会复用的子命令参数（缺了它们，菜单第一条路径就会 AttributeError）
+MENU_REUSED_COMMANDS: Final[tuple[str, ...]] = ("check", "scan", "profile")
+
+
+def apply_menu_defaults(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """把子命令解析器的默认值补进顶层 Namespace。
+
+    为什么必须做：无参数启动时 argparse 只填顶层参数（command/config_dir/debug/no_color），
+    但菜单的 [1] 检查会直接复用这个 Namespace 去调 run_check。
+    实测（P0）：双击 exe → 选 1 → 选清单 → `AttributeError: 'Namespace' object has no attribute 'mc'`，
+    也就是**用户的第一条路径直接崩**。这里统一补齐，菜单与子命令共享同一套默认值。
+    """
+    subparsers = [action for action in parser._actions  # noqa: SLF001
+                  if action.dest == "command" and hasattr(action, "choices")]
+    if not subparsers:
+        return
+    mapping = subparsers[0]._name_parser_map  # noqa: SLF001
+    for name in MENU_REUSED_COMMANDS:
+        sub = mapping.get(name)
+        if sub is None:
+            continue
+        for action in sub._actions:
+            dest = action.dest
+            if not dest or dest == "help" or hasattr(args, dest):
+                continue
+            if action.default is argparse.SUPPRESS:
+                continue
+            setattr(args, dest, action.default)
+
+
 def _load_attr(module_path: str, attr: str) -> object:
     import importlib
 
@@ -164,6 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     debug = bool(getattr(args, "debug", False))
     try:
         if args.command is None:
+            apply_menu_defaults(args, parser)
             run_menu = _load_attr("modcheck.cli.menu", "run_menu")
             return int(run_menu(args))  # type: ignore[operator]
         return _dispatch(str(args.command), args, console)
