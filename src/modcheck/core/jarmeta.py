@@ -49,6 +49,7 @@ class JarMeta:
     depends: dict[str, list[str]] = field(default_factory=dict)
     source_member: str | None = None
     error: str | None = None
+    error_code: str | None = None   # broken | no_meta | not_found | too_large | read
 
     @property
     def has_meta(self) -> bool:
@@ -193,7 +194,7 @@ def read_jar_meta(path: Path) -> JarMeta:
     target = Path(path)
     try:
         if not target.is_file():
-            return JarMeta(path=target, error=t("jar.error.not_found"))
+            return JarMeta(path=target, error=t("jar.error.not_found"), error_code="not_found")
         with zipfile.ZipFile(target) as zf:
             names = {name.lower(): name for name in zf.namelist()}
             for member in MEMBER_PRIORITY:
@@ -203,10 +204,12 @@ def read_jar_meta(path: Path) -> JarMeta:
                 try:
                     info = zf.getinfo(real)
                     if info.file_size > MAX_MEMBER_BYTES:
-                        return JarMeta(path=target, error=t("jar.error.too_large", limit=MAX_MEMBER_BYTES))
+                        return JarMeta(path=target, error=t("jar.error.too_large", limit=MAX_MEMBER_BYTES),
+                                       error_code="too_large")
                     raw = zf.read(real)
                 except (KeyError, RuntimeError, zipfile.BadZipFile, OSError) as exc:
-                    return JarMeta(path=target, error=t("jar.error.read", detail=type(exc).__name__))
+                    return JarMeta(path=target, error_code="read",
+                                   error=t("jar.error.read", detail=type(exc).__name__))
                 if member.endswith(".json"):
                     mod_id, name, version, depends, error = parse_fabric_json(raw)
                 elif member.endswith(".toml"):
@@ -225,13 +228,15 @@ def read_jar_meta(path: Path) -> JarMeta:
                 return JarMeta(path=target, mod_id=mod_id, name=name, version=version,
                                loader_hint=loader, mc_hint=_mc_hint_from_depends(depends),
                                depends=depends, source_member=member, error=None)
-            return JarMeta(path=target, error=t("jar.error.no_meta"))
+            return JarMeta(path=target, error=t("jar.error.no_meta"), error_code="no_meta")
     except zipfile.BadZipFile:
-        return JarMeta(path=target, error=t("jar.error.broken"))
+        return JarMeta(path=target, error=t("jar.error.broken"), error_code="broken")
     except (OSError, ValueError, EOFError) as exc:
-        return JarMeta(path=target, error=t("jar.error.read", detail=type(exc).__name__))
+        return JarMeta(path=target, error_code="read",
+                       error=t("jar.error.read", detail=type(exc).__name__))
     except Exception as exc:  # 兜底：读 jar 绝不允许把整个扫描打断
-        return JarMeta(path=target, error=t("jar.error.read", detail=type(exc).__name__))
+        return JarMeta(path=target, error_code="read",
+                       error=t("jar.error.read", detail=type(exc).__name__))
 
 
 __all__ = [

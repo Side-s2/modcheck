@@ -126,6 +126,8 @@ _MESSAGES: Final[dict[str, str]] = {
     "progress.rate_limited": "ℹ 被 Modrinth 限流，正在放慢速度重试……",
     "progress.estimating": "正在准备检查……",
     # ---------------------------------------------------------------- 扫描
+    "err.scan.no_dir": "✗ 请给出要扫描的文件夹路径（例如 modcheck scan \"C:\\\\servers\\\\survival\\\\mods\"）。",
+    "err.scan.from_list_empty": "✗ 读不到文件名清单：{path}（文件不存在或没有内容）。",
     "scan.header": "正在扫描：{dir}",
     "scan.read": "  ✓ 读到 {count} 个 jar 文件",
     "scan.hash": "  ✓ 已计算 {count} 个文件的指纹（sha1）",
@@ -159,6 +161,9 @@ _MESSAGES: Final[dict[str, str]] = {
     "scan.from_list.unnamed": "  ⚠ {count} 个连名字都没解析出来（只记了文件名）",
     "scan.from_list.hint": "提示：把 jar 文件放在一个文件夹里，用 modcheck scan <文件夹> 可以精确识别（文件指纹 + jar 内信息）。",
     "scan.merged_note": "已合并：{file}",
+    "warn.merge.multiple_files": "⚠ 检测到同一模组存在多个版本文件：{modid}（{files}）",
+    "warn.merge.dupe_key": "⚠ 清单里有 2 条记录的 modid 都是「{key}」，已按 key 合并，保留「{kept}」。",
+    "warn.merge.dupe_file_same": "⚠ 同一个文件被扫描了两次：{file}",
     "scan.noninteractive_unmatched": "  ⚠ {count} 个未能自动匹配，运行交互模式可逐个确认。",
     # ---------------------------------------------------------------- 匹配交互
     "match.warn.title": "⚠️  未找到与「{name}」完全同名的项目",

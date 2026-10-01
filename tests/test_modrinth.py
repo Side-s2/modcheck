@@ -171,6 +171,7 @@ def test_project_versions_order_is_never_used() -> None:
     assert not any("versions" in text for text in subscripts), subscripts
     attrs = [node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)]
     assert "date_published" not in attrs, "数据源不该碰 date_published"
+    assert "sort" not in attrs, "禁止对 /version 的返回原地排序（要信任 API 顺序）"
 
 
 # ---------------------------------------------------------------- 指纹反查

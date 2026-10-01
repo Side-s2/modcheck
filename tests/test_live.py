@@ -99,17 +99,16 @@ def test_live_jei_cost_is_two_requests(live) -> None:
     实测（2026-10-01，limit=25）：**2 个请求 / 28,179 字节**，而全量拉取是
     6,797.6 KB —— 相差 240 倍。
 
-    ⚠️ 与文档的出入：PRD S13 写"单模组 <= 3 个请求、<= 5 KB"，
-    但基线自己实测的是 "?limit=1 -> 1.1 KB"，即**每条版本记录约 1.1 KB**；
-    limit=25 时的真实成本必然在 25 KB 量级（基线 §9.5.2 的 "10 个请求 / 261 KB"
-    也印证了这一点）。所以这里按实测事实断言 <= 64 KB，
-    并保留"请求数 <= 3"这条硬约束（它才是防止全量拉取的关键）。
+    阈值是主 Agent 裁决后的 S13：**<= 3 个请求、<= 150 KB**（冷缓存最坏情况）。
+    实测参考：JEI 3 请求 / 54 KB，JourneyMap 3 请求 / 86 KB，carpet 2 请求 / 26 KB；
+    全量拉取则是 6,797.6 KB —— 差两个数量级。
+    注意本用例在冷缓存下应发出 3 个请求（A -> B 空 -> B2）。
     """
     provider, transport = live
     _decide(provider, "jei", "26.1")
     print("JEI 请求数=", transport.calls, " 下载字节=", transport.bytes)
     assert transport.calls <= 3, transport.urls
-    assert transport.bytes <= 64 * 1024, transport.bytes
+    assert transport.bytes <= 150 * 1024, transport.bytes
 
 
 def test_live_never_pulls_full_version_list(live) -> None:
