@@ -1,0 +1,20 @@
+{
+  "hits": [
+    {
+      "project_id": "Pnewb",
+      "slug": "newbiichunky-mod",
+      "title": "Newbiichunky Mod",
+      "downloads": 41230,
+      "description": "A chunky-like pre-generator",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Pchunky",
+      "slug": "chunky",
+      "title": "Chunky",
+      "downloads": 41053320,
+      "description": "Pre-generates chunks, quickly and efficiently",
+      "project_type": "mod"
+    }
+  ]
+}

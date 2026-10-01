@@ -1,0 +1,68 @@
+{
+  "hits": [
+    {
+      "project_id": "Pcarpet",
+      "slug": "carpet",
+      "title": "Carpet",
+      "downloads": 11016662,
+      "description": "Take full control over your vanilla game",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Pfixes",
+      "slug": "carpet-fixes",
+      "title": "Carpet Fixes",
+      "downloads": 2022994,
+      "description": "The carpet extension to fix all vanilla minecraft bugs",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Ptiss",
+      "slug": "carpet-tis-addition",
+      "title": "Carpet TIS Addition",
+      "downloads": 1580317,
+      "description": "A Carpet mod extension providing a series of useful tools",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Ppvp",
+      "slug": "carpet-pvp",
+      "title": "Carpet PVP",
+      "downloads": 1240230,
+      "description": "Fork of Carpet Mod that fixes PVP-related bugs",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Pextra",
+      "slug": "carpet-extra",
+      "title": "Carpet Extra",
+      "downloads": 785668,
+      "description": "Extra Features for Carpet Mod",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Porg",
+      "slug": "carpet-org-addition",
+      "title": "Carpet Org Addition",
+      "downloads": 402100,
+      "description": "More useful tools for Carpet Mod",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Pstairs",
+      "slug": "carpeted-stairs-slabs",
+      "title": "Carpeted Stairs & Slabs",
+      "downloads": 12033,
+      "description": "Carpet stairs and slabs",
+      "project_type": "mod"
+    },
+    {
+      "project_id": "Pams",
+      "slug": "carpet-ams-addition",
+      "title": "Carpet AMS Addition",
+      "downloads": 88211,
+      "description": "Another Carpet addition",
+      "project_type": "mod"
+    }
+  ]
+}
