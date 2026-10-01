@@ -1,0 +1,582 @@
+{
+  "generated_by": "11_oracle_mods_sample.py（独立实现）",
+  "sample_size": 30,
+  "hash_hit": 30,
+  "cases": {
+    "26.3/fabric": {
+      "antideath-carpet-addition-v1.4.7-mc26.1.jar": {
+        "slug": "antideath-carpet-addition",
+        "installed": "v1.4.7-mc26.1",
+        "status": "BLOCKED",
+        "reason": "NO_MC_VERSION",
+        "detail": {
+          "max_supported_mc": "26.2"
+        }
+      },
+      "carpet-ams-addition-v26.2-mc26.1.2.jar": {
+        "slug": "carpet-ams-addition",
+        "installed": "mc26.1.2-v26.2",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "mc1.18.2-v26.3",
+          "latest_compat": "mc26.3-v26.3"
+        }
+      },
+      "carpet-extra-26.1-26.1.jar": {
+        "slug": "carpet-extra",
+        "installed": "26.1",
+        "status": "BLOCKED",
+        "reason": "NO_MC_VERSION",
+        "detail": {
+          "max_supported_mc": "26.2"
+        }
+      },
+      "carpet-extra-extras-26.1-1.4.0.jar": {
+        "slug": "carpet-extra-extras",
+        "installed": "26.1-1.4.0",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "26.3-1.4.2"
+        }
+      },
+      "carpet-org-addition-mc26.1.x-v1.45.1-2606231615.jar": {
+        "slug": "carpet-org-addition",
+        "installed": "1.45.1",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "1.41.7",
+          "latest_compat": "1.46.0"
+        }
+      },
+      "carpet-tis-addition-v1.81.0-mc26.1.2.jar": {
+        "slug": "carpet-tis-addition",
+        "installed": "v1.81.0-mc26.1.2",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "v1.82.4-mc26.3"
+        }
+      },
+      "entityculling-fabric-1.10.5-mc26.1.jar": {
+        "slug": "entityculling",
+        "installed": "1.10.5",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "1.11.2"
+        }
+      },
+      "fabric-api-0.153.0+26.1.2.jar": {
+        "slug": "fabric-api",
+        "installed": "0.153.0+26.1.2",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.161.0+26.3"
+        }
+      },
+      "fabric-carpet-26.1+v260402.jar": {
+        "slug": "carpet",
+        "installed": "26.1",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "26.3"
+        }
+      },
+      "fabric-language-kotlin-1.13.12+kotlin.2.4.0.jar": {
+        "slug": "fabric-language-kotlin",
+        "installed": "1.13.12+kotlin.2.4.0",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "1.14.1+kotlin.2.4.20"
+        }
+      },
+      "fabric-permissions-api-0.7.0.jar": {
+        "slug": "fabric-permissions-api",
+        "installed": "0.7.0",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.7.0"
+        }
+      },
+      "ferritecore-9.0.0-fabric.jar": {
+        "slug": "ferrite-core",
+        "installed": "9.0.0-fabric",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "9.0.0-fabric"
+        }
+      },
+      "gugle-carpet-addition-v2.12.1+build.83.jar": {
+        "slug": "gca",
+        "installed": "v2.12.1+build.83",
+        "status": "DEGRADED",
+        "reason": "PRERELEASE_ONLY",
+        "detail": {
+          "channel": "beta",
+          "version": "v2.12.8+build.97"
+        }
+      },
+      "ImmediatelyFast-Fabric-1.15.2+26.1.2.jar": {
+        "slug": "immediatelyfast",
+        "installed": "1.15.2+26.1.2-fabric",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "1.17.1+26.3-fabric"
+        }
+      },
+      "krypton-0.3.0.jar": {
+        "slug": "krypton",
+        "installed": "0.3.0",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.3.2"
+        }
+      },
+      "litematica-fabric-26.1.2-0.27.7.jar": {
+        "slug": "litematica",
+        "installed": "0.27.7",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.29.1"
+        }
+      },
+      "litematica-server-paster-v1.3.13-mc26.1.2.jar": {
+        "slug": "litematica-server-paster",
+        "installed": "v1.3.13-mc26.1.2",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "v1.3.14-mc26.3"
+        }
+      },
+      "lithium-fabric-0.24.6+mc26.1.2.jar": {
+        "slug": "lithium",
+        "installed": "mc26.1.2-0.24.6-fabric",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "mc26.3-0.26.2-fabric"
+        }
+      },
+      "MagicLib-mc26.1.2-fabric-0.8.838-stable.jar": {
+        "slug": "magiclib",
+        "installed": "v0.8.838-mc26.1.2-fabric",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "v0.8.882-mc26.2-fabric",
+          "latest_compat": "v0.8.882-mc26.3-fabric"
+        }
+      },
+      "malilib-fabric-26.1.2-0.28.7.jar": {
+        "slug": "malilib",
+        "installed": "0.28.7",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.30.2"
+        }
+      },
+      "midnightlib-fabric-1.9.3+26.1.jar": {
+        "slug": "midnightlib",
+        "installed": "1.9.3+26.1-fabric",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "1.9.3+26.3-fabric"
+        }
+      },
+      "minihud-fabric-26.1.2-0.39.6.jar": {
+        "slug": "minihud",
+        "installed": "0.39.6",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.41.2"
+        }
+      },
+      "placeholder-api-3.0.0+26.1.jar": {
+        "slug": "placeholder-api",
+        "installed": "3.0.0+26.1",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "3.2.0+26.3"
+        }
+      },
+      "ScalableLux-0.2.0+fabric.2b63825-all.jar": {
+        "slug": "scalablelux",
+        "installed": "0.2.0+fabric.2b63825",
+        "status": "DEGRADED",
+        "reason": "PRERELEASE_ONLY",
+        "detail": {
+          "channel": "alpha",
+          "version": "0.3.0-alpha.0.6+26.3"
+        }
+      },
+      "ServerReplay-3.4.3+26.1.jar": {
+        "slug": "server-replay",
+        "installed": "3.4.3+26.1",
+        "status": "DEGRADED",
+        "reason": "PRERELEASE_ONLY",
+        "detail": {
+          "channel": "beta",
+          "version": "3.6.0-beta.2+26.3"
+        }
+      },
+      "servux-fabric-26.1.2-0.10.3.jar": {
+        "slug": "servux",
+        "installed": "0.10.3",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.12.2"
+        }
+      },
+      "spark-1.10.173-fabric.jar": {
+        "slug": "spark",
+        "installed": "1.10.173-fabric",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "1.10.187-fabric"
+        }
+      },
+      "syncmatica-fabric-26.1.1-0.3.18.jar": {
+        "slug": "syncmatica",
+        "installed": "0.3.18",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.3.20"
+        }
+      },
+      "tweakermore-v3.31.0-mc26.1.2.jar": {
+        "slug": "tweakermore",
+        "installed": "v3.31.0-mc26.1.2",
+        "status": "DEGRADED",
+        "reason": "PRERELEASE_ONLY",
+        "detail": {
+          "channel": "beta",
+          "version": "v3.33.3-beta.1-mc26.3"
+        }
+      },
+      "tweakeroo-fabric-26.1.2-0.28.5.jar": {
+        "slug": "tweakeroo",
+        "installed": "0.28.5",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.30.1"
+        }
+      }
+    },
+    "26.1/fabric": {
+      "antideath-carpet-addition-v1.4.7-mc26.1.jar": {
+        "slug": "antideath-carpet-addition",
+        "installed": "v1.4.7-mc26.1",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "v1.5.1-hotfix-mc1.21.11",
+          "latest_compat": "v1.5.1-hotfix-mc26.1"
+        }
+      },
+      "carpet-ams-addition-v26.2-mc26.1.2.jar": {
+        "slug": "carpet-ams-addition",
+        "installed": "mc26.1.2-v26.2",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "mc1.18.2-v26.3",
+          "latest_compat": "mc26.1-v26.3"
+        }
+      },
+      "carpet-extra-26.1-26.1.jar": {
+        "slug": "carpet-extra",
+        "installed": "26.1",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "26.2",
+          "latest_compat": "26.1"
+        }
+      },
+      "carpet-extra-extras-26.1-1.4.0.jar": {
+        "slug": "carpet-extra-extras",
+        "installed": "26.1-1.4.0",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "26.3-1.4.2",
+          "latest_compat": "26.1-1.4.1"
+        }
+      },
+      "carpet-org-addition-mc26.1.x-v1.45.1-2606231615.jar": {
+        "slug": "carpet-org-addition",
+        "installed": "1.45.1",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "1.41.7",
+          "latest_compat": "1.46.0"
+        }
+      },
+      "carpet-tis-addition-v1.81.0-mc26.1.2.jar": {
+        "slug": "carpet-tis-addition",
+        "installed": "v1.81.0-mc26.1.2",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "v1.82.4-mc26.3",
+          "latest_compat": "v1.82.4-mc26.1.2"
+        }
+      },
+      "entityculling-fabric-1.10.5-mc26.1.jar": {
+        "slug": "entityculling",
+        "installed": "1.10.5",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "1.11.2",
+          "latest_compat": "1.11.2"
+        }
+      },
+      "fabric-api-0.153.0+26.1.2.jar": {
+        "slug": "fabric-api",
+        "installed": "0.153.0+26.1.2",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.161.0+26.3",
+          "latest_compat": "0.155.3+26.1.2"
+        }
+      },
+      "fabric-carpet-26.1+v260402.jar": {
+        "slug": "carpet",
+        "installed": "26.1",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "26.3",
+          "latest_compat": "26.1"
+        }
+      },
+      "fabric-language-kotlin-1.13.12+kotlin.2.4.0.jar": {
+        "slug": "fabric-language-kotlin",
+        "installed": "1.13.12+kotlin.2.4.0",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "1.14.1+kotlin.2.4.20"
+        }
+      },
+      "fabric-permissions-api-0.7.0.jar": {
+        "slug": "fabric-permissions-api",
+        "installed": "0.7.0",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "0.7.0"
+        }
+      },
+      "ferritecore-9.0.0-fabric.jar": {
+        "slug": "ferrite-core",
+        "installed": "9.0.0-fabric",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "9.0.0-fabric"
+        }
+      },
+      "gugle-carpet-addition-v2.12.1+build.83.jar": {
+        "slug": "gca",
+        "installed": "v2.12.1+build.83",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "v2.12.1+build.83"
+        }
+      },
+      "ImmediatelyFast-Fabric-1.15.2+26.1.2.jar": {
+        "slug": "immediatelyfast",
+        "installed": "1.15.2+26.1.2-fabric",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "1.17.1+26.3-fabric",
+          "latest_compat": "1.15.3+26.1-fabric"
+        }
+      },
+      "krypton-0.3.0.jar": {
+        "slug": "krypton",
+        "installed": "0.3.0",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.3.2",
+          "latest_compat": "0.3.0"
+        }
+      },
+      "litematica-fabric-26.1.2-0.27.7.jar": {
+        "slug": "litematica",
+        "installed": "0.27.7",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.29.1",
+          "latest_compat": "0.27.14"
+        }
+      },
+      "litematica-server-paster-v1.3.13-mc26.1.2.jar": {
+        "slug": "litematica-server-paster",
+        "installed": "v1.3.13-mc26.1.2",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "v1.3.14-mc26.3",
+          "latest_compat": "v1.3.14-mc26.1.2"
+        }
+      },
+      "lithium-fabric-0.24.6+mc26.1.2.jar": {
+        "slug": "lithium",
+        "installed": "mc26.1.2-0.24.6-fabric",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "mc26.3-0.26.2-fabric",
+          "latest_compat": "mc26.1.2-0.24.7-fabric"
+        }
+      },
+      "MagicLib-mc26.1.2-fabric-0.8.838-stable.jar": {
+        "slug": "magiclib",
+        "installed": "v0.8.838-mc26.1.2-fabric",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "v0.8.882-mc26.2-fabric",
+          "latest_compat": "v0.8.882-mc26.1.2-fabric"
+        }
+      },
+      "malilib-fabric-26.1.2-0.28.7.jar": {
+        "slug": "malilib",
+        "installed": "0.28.7",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.30.2",
+          "latest_compat": "0.28.12"
+        }
+      },
+      "midnightlib-fabric-1.9.3+26.1.jar": {
+        "slug": "midnightlib",
+        "installed": "1.9.3+26.1-fabric",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "1.9.3+26.3-fabric",
+          "latest_compat": "1.9.3+26.1-fabric"
+        }
+      },
+      "minihud-fabric-26.1.2-0.39.6.jar": {
+        "slug": "minihud",
+        "installed": "0.39.6",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.41.2",
+          "latest_compat": "0.39.11"
+        }
+      },
+      "placeholder-api-3.0.0+26.1.jar": {
+        "slug": "placeholder-api",
+        "installed": "3.0.0+26.1",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "3.2.0+26.3",
+          "latest_compat": "3.0.0+26.1"
+        }
+      },
+      "ScalableLux-0.2.0+fabric.2b63825-all.jar": {
+        "slug": "scalablelux",
+        "installed": "0.2.0+fabric.2b63825",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.2.1+fabric.2b08348",
+          "latest_compat": "0.2.0+fabric.2b63825"
+        }
+      },
+      "ServerReplay-3.4.3+26.1.jar": {
+        "slug": "server-replay",
+        "installed": "3.4.3+26.1",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "3.5.2+26.2",
+          "latest_compat": "3.4.3+26.1"
+        }
+      },
+      "servux-fabric-26.1.2-0.10.3.jar": {
+        "slug": "servux",
+        "installed": "0.10.3",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.12.2",
+          "latest_compat": "0.10.7"
+        }
+      },
+      "spark-1.10.173-fabric.jar": {
+        "slug": "spark",
+        "installed": "1.10.173-fabric",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "1.10.187-fabric"
+        }
+      },
+      "syncmatica-fabric-26.1.1-0.3.18.jar": {
+        "slug": "syncmatica",
+        "installed": "0.3.18",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.3.20",
+          "latest_compat": "0.3.20"
+        }
+      },
+      "tweakermore-v3.31.0-mc26.1.2.jar": {
+        "slug": "tweakermore",
+        "installed": "v3.31.0-mc26.1.2",
+        "status": "READY",
+        "reason": "OK",
+        "detail": {
+          "latest": "v3.33.2-mc26.1.2"
+        }
+      },
+      "tweakeroo-fabric-26.1.2-0.28.5.jar": {
+        "slug": "tweakeroo",
+        "installed": "0.28.5",
+        "status": "DEGRADED",
+        "reason": "OLD_VERSION_ONLY",
+        "detail": {
+          "latest": "0.30.1",
+          "latest_compat": "0.28.10"
+        }
+      }
+    }
+  }
+}
