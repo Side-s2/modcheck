@@ -10,7 +10,8 @@
 | `core/` | 纯计算、读 jar、调用**注入**的 Provider | print / input / sys.exit / import 具体 Provider / 联网 |
 | `storage/` | 读写配置与清单（一律 UTF-8 + 原子写） | print / input / sys.exit |
 | `providers/` | 出网、解析响应、抛领域异常 | 直接写标准流 |
-| `cli/` | 全部展示、交互、退出码 | 把业务逻辑写进命令里（逻辑都在 core） |
+| `flows/` | 流程编排：扫描识别、兼容性检查（**注入** Provider 与回调，返回结构化结果） | print / input / sys.exit / import cli（进度走 `on_progress`，取消走 `should_stop`） |
+| `cli/` | 解析参数 → 调 flow → 渲染；交互与退出码 | 把流程逻辑写在命令里（流程都在 flows，判定在 core） |
 
 `core/checker.py` 是纯函数判定；`core/checker_run.py` 是编排（并发、省请求、异常隔离）。
 拆成两个文件是为了让"判定"可以完全离线单测，不受并发与网络影响。
@@ -141,3 +142,48 @@
 - 横切 C01/C02/C03（纯控制台可用性实测、分层静态检查测试、README 增补）。
   ⚠️ 我人工核对过 C02 的三条（三个新 core 模块无 print/input/sys.exit、无 `open(`、无第三方 import），
   但没有把它固化成自动化测试 —— B 组那轮补上更合适。
+
+## 8. 第 4 轮（0 期：流程下沉重构 —— 为 Qt GUI 铺路）
+
+> 对应 `docs/GUI_DESIGN.md` §1。目标：**CLI 行为逐字不变**，把"流程编排"从 `cli/commands/`
+> 搬到新的 `flows/`，让 GUI 复用同一套流程而不是各写一份。
+
+### 8.1 搬了什么、留在哪
+
+| 新家 | 从哪来 | 说明 |
+|---|---|---|
+| `flows/scan_flow.py` | `cli/commands/scan.py` 的 9 个纯逻辑函数 | `scan_dirs` / `scan_from_list` / `_resolve_slugs` / `_lookup_hashes` / `_entry_from_hash` / `_entry_from_meta` / `_entry_from_filename` / `_resolve_by_name` / `_merge_duplicates`，外加 `ScanReport` / `SkipItem` / `HASH_BATCH` / `DEFAULT_PROFILE` |
+| `flows/check_flow.py` | `cli/commands/check.py` 的非渲染部分 | `load_profile_entries`（原 `_load_profile_entries`）、`run_check_flow`（建 Report + 跑 check_all + 收集统计 + 判数据源可用性）、`source_unavailable`、`CheckStats` |
+| `cli/commands/scan.py` | 只留三件事 | 解析参数 → 调 flow（把 console 包成回调）→ 渲染统计：`run_scan` / `scan_progress_callback` / `_print_*` / `_count_lines` |
+| `cli/commands/check.py` | 只留三件事 | `run_check`（编排+渲染）、`_progress_line`、`make_interactive_matcher`、`_export`、`_save_if_changed` |
+
+依赖注入：flows **不 import `cli`**（有 AST 测试守着），Provider / 回调 / 探针全部由调用方传入。
+
+### 8.2 与任务书的 5 处出入（请主 Agent 裁决）
+
+| # | 任务书 | 我的实现 | 理由 |
+|---|---|---|---|
+| 1 | `scan_dirs(directories, *, provider, profiles_dir, ...)` | **没有** `profiles_dir` | 它不写盘（落盘仍在 `run_scan`），加了就是死参数。要统一签名的话我加回去 |
+| 2 | `run_check_flow(...) -> Report` | 仍是 `-> Report`，但多一个**可选出参** `stats: CheckStats` | "数据源整体不可用"是退出码 4 的判据，必须把"检查区间的请求增量"传回 CLI；`Report` 在 core 里（本轮一行不许改），没有别的通道 |
+| 3 | 进度回调 `on_progress(done, total, name)` | 保留它，另加**可选** `on_item(done, total, entry, item)` | 终端的 TTY 进度行要显示「已发现 N 个阻塞」（PRD §5.5），它需要每条的 status；GUI 只用 `on_progress` 即可 |
+| 4 | 扫描也要能中途取消 | `ScanReport.cancelled` + 循环内探针（读 jar / 逐目录 / 命名搜索三处） | `cancelled=True` 是"不许落盘"的硬信号；`run_scan` 里加了守卫（CLI 今天不传 `should_stop`，所以这条分支在 CLI 路径上暂不可达） |
+| 5 | 只搬列出的函数 | 顺手删掉 `scan_dirs` 的 `known_mc_versions` 死参数（原代码从未使用） | `scan_from_list` 的同名参数**真的在用**，保留 |
+
+### 8.3 中断语义（本次唯一的行为等价重写）
+
+原来 `run_check` 用 `except UserCancelled / KeyboardInterrupt` 自己拼"不完整报告"。
+现在由 `run_check_flow` 内部接住这两类中断，返回 `interrupted=True` 的报告（`completed` 仍是已完成条数、
+统计字段不填，与旧行为逐字一致），CLI 只负责渲染与退出码 130 —— 这样 GUI 也能拿到同一份"取消后给结果"的语义。
+`should_stop` 提前收工时同样标 `interrupted`。
+
+### 8.4 验证证据（本轮）
+
+- `pytest`：**719 → 758 passed**（新增 39 条 flows 单测；`tests/test_scan.py` 改为直接调流程层 API）。
+- 13 个 golden 用例：用 `git worktree` 拉出重构前的代码，与重构后**同一配置目录**各跑一遍快照脚本，
+  27 个文件（13 用例 × stdout/stderr + manifest）**逐字节一致**；与仓库里已提交的快照也一致
+  （配置目录是脚本自己 mkdtemp 的随机路径，只有它需要归一化后再比）。
+- 扩展基线：另抓 scan / check 两条**真正跑流水线**的进程内输出（那 13 个用例一条都没覆盖它们），
+  30 个场景（含 --mods-dir / 限流 / 退出码 4 / 中断 / 交互匹配 / 导出 / 多目录）逐字节一致。
+- 分层自检：`docs/research/36_layering_check.py` 已把 `flows/` 纳入（20 个模块 0 违规），
+  并固化成 `tests/test_layering_flows.py`（AST 检查 + 包结构 + 回调参数存在性）。
+

@@ -185,6 +185,7 @@ _MESSAGES: Final[dict[str, str]] = {
     "scan.dupe.extra": "              另有一个 {extra} —— 建议手工删除多余的那个",
     "scan.summary": "清单「{profile}」已更新：新增 {added} 个，合并 {merged} 个，跳过 {skipped} 个，共 {total} 个模组",
     "scan.profile_file": "文件：{path}",
+    "scan.cancelled": "扫描已取消：清单没有任何改动。",
     "scan.offline": "  ⚠ 连不上 Modrinth，本次只用 jar 内信息识别（不影响生成清单，但识别率会低一些）。",
     "scan.profile_not_exist": "没有名为「{name}」的清单，将新建一个。",
     "scan.from_list.header": "正在读取文件名清单：{path}（{lines} 行）",

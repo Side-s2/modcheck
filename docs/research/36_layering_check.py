@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
-"""分层自检：core/ 与 storage/ 不得依赖 cli/，且不得直接 print/input/sys.exit。
+"""分层自检：core/、storage/、flows/ 不得依赖 cli/，且不得直接 print/input/sys.exit。
 
-这是"未来要封装 GUI"的硬约束：core 一旦沾上 IO，GUI 就没法复用它。
+这是"未来要封装 GUI"的硬约束：
+  * core / storage 一旦沾上终端 IO，GUI 就没法复用；
+  * flows 一旦沾上终端输出，GUI 就得另写一份流程 —— 两份逻辑早晚漂移。
+
+flows/ 是 0 期"流程下沉重构"新增的一层（docs/GUI_DESIGN.md §1），
+它只允许：调 core/storage、通过 on_progress 回调报进度、通过 should_stop 探针取消。
 """
 import ast
 import sys
@@ -11,10 +16,11 @@ ROOT = Path(r"D:\Programme\python_prgram\mod-version-checker") / "src" / "modche
 BAD_IMPORTS = ("modcheck.cli",)
 BAD_CALLS = {"print", "input", "exit", "quit"}
 BAD_ATTRS = {("sys", "exit"), ("os", "system")}
+LAYERS = ("core", "storage", "flows")
 
 problems: list[str] = []
 checked = 0
-for layer in ("core", "storage"):
+for layer in LAYERS:
     for path in sorted((ROOT / layer).rglob("*.py")):
         checked += 1
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -37,7 +43,7 @@ for layer in ("core", "storage"):
                     problems.append(f"{rel}:{node.lineno} 调用 {f.value.id}.{f.attr}()")
 
 print("=" * 84)
-print(f"检查了 {checked} 个 core/storage 模块")
+print(f"检查了 {checked} 个模块（" + " / ".join(LAYERS) + "）")
 print("=" * 84)
 if problems:
     print("发现分层违规：")
@@ -45,7 +51,9 @@ if problems:
         print("  ✗ " + p)
 else:
     print("  ✅ core/ 与 storage/ 不依赖 cli/，且没有 print/input/sys.exit")
+    print("  ✅ flows/ 不依赖 cli/，且没有 print/input/sys.exit（进度/取消走回调与探针）")
 print()
 print("新增模块是否被覆盖：")
-for name in ("core/profile_ops.py", "core/settings_ops.py", "core/downloader.py"):
+for name in ("core/profile_ops.py", "core/settings_ops.py", "core/downloader.py",
+             "flows/__init__.py", "flows/scan_flow.py", "flows/check_flow.py"):
     print(f"  {'✅' if (ROOT / name).exists() else '❌'} {name}")

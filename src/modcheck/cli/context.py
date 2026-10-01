@@ -13,6 +13,7 @@ from typing import Any
 from modcheck.cache import HttpCache
 from modcheck.console import Console
 from modcheck.core.models import Loader, Settings
+from modcheck.errors import ProviderError
 from modcheck.i18n import t
 from modcheck.providers.http import HttpConfig, HttpClient, RateLimiter
 from modcheck.providers.registry import ProviderRegistry
@@ -115,4 +116,17 @@ def loader_from_args(args: Any, ctx: AppContext) -> Loader:
     return ctx.settings.default_loader
 
 
-__all__ = ["AppContext", "build_context", "loader_from_args", "MAX_JOBS", "RATE_LIMIT_PER_MIN"]
+def provider_or_none(ctx: AppContext) -> Any:
+    """可用的主数据源；一个都没有时返回 None。
+
+    与 registry.primary()（抛 ProviderUnavailable -> 退出码 4）的区别在于调用方的意图：
+    扫描允许"没有数据源"，只是识别率低一点；检查则必须报错退出。
+    """
+    try:
+        return ctx.registry.primary()
+    except ProviderError:
+        return None
+
+
+__all__ = ["AppContext", "build_context", "loader_from_args", "provider_or_none",
+           "MAX_JOBS", "RATE_LIMIT_PER_MIN"]

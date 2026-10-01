@@ -1,26 +1,31 @@
-"""check 子命令：功能①的主检查（PRD §4.2 / §5.3）。"""
+"""check 子命令：解析参数 -> 调 flows.check_flow -> 渲染报告（PRD §4.2 / §5.3）。
+
+流程（选清单、跑 check_all、统计、判数据源可用性）全在 flows/check_flow.py；
+这里只剩：参数与交互的装配、把 console 包成进度回调、把 Report 渲染出来、映射退出码。
+"""
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from pathlib import Path
 from typing import Sequence
+
 from modcheck.cli.commands.export import (default_filename, export_csv, export_json,
                                           export_markdown)
-from modcheck.cli.context import AppContext, loader_from_args
+from modcheck.cli.commands.scan import scan_progress_callback
+from modcheck.cli.context import AppContext, loader_from_args, provider_or_none
 from modcheck.cli.render import render_report
-from modcheck.core.checker_run import check_all
 from modcheck.core.matching import candidate_names, format_downloads, rank_candidates
 from modcheck.core.mcversion import validate_target_version
 from modcheck.core.models import MatchStatus, ModEntry, ProjectHit
-from modcheck.core.report import Report, ReportItem, Verdict
+from modcheck.core.report import Report, Verdict
 from modcheck.errors import (EXIT_NO_SOURCE, ConfigError, ModcheckError, ProviderError,
                              UserCancelled)
+from modcheck.flows.check_flow import CheckStats, load_profile_entries, run_check_flow, \
+    source_unavailable
 from modcheck.i18n import t
 from modcheck.providers.mojang import MojangVersions
-from modcheck.storage.profiles import (list_profiles, load_profile, profile_path,
-                                       save_profile)
+from modcheck.storage.profiles import load_profile, save_profile
 
 #: 退出码映射（PRD §10.4）
 VERDICT_EXIT = {
@@ -30,39 +35,6 @@ VERDICT_EXIT = {
     Verdict.ALL_UNKNOWN: 2,
     Verdict.INTERRUPTED: 130,
 }
-
-
-def _load_profile_entries(args: argparse.Namespace, ctx: AppContext
-                          ) -> tuple[list[ModEntry], str, bool, str, Path | None]:
-    """决定这次检查用哪份模组清单。
-
-    返回：
-        (条目列表, 清单名, 是否已保存, 目录来源或空串, 清单文件路径或 None)
-    """
-    profile_name = getattr(args, "profile", None)
-    file_arg = getattr(args, "file", None)
-    mods_dir = getattr(args, "mods_dir", None)
-    if profile_name and mods_dir:
-        raise ConfigError(t("err.profile.mutex"))
-    if mods_dir:
-        directory = Path(mods_dir)
-        if not directory.is_dir():
-            raise ConfigError(t("err.dir.not_found", path=directory))
-        from modcheck.cli.commands.scan import scan_dirs
-
-        report = scan_dirs([directory], ctx)
-        return report.entries, directory.name, False, str(directory), None
-    path = Path(file_arg) if file_arg else None
-    if path is None:
-        if not profile_name:
-            raise ConfigError(t("err.no_profile_selected"))
-        path = profile_path(ctx.profiles_dir, profile_name)
-        if not path.exists():
-            available = "、".join(p.name for p in list_profiles(ctx.profiles_dir))
-            raise ConfigError(t("err.profile.not_found", name=profile_name,
-                                available=available or t("err.profile.none_available")))
-    profile = load_profile(path)
-    return profile.mods, profile.name or path.stem, True, "", path
 
 
 def _progress_line(done: int, total: int, name: str, blocked: int, elapsed: float,
@@ -162,7 +134,16 @@ def make_interactive_matcher(ctx: AppContext, changed: dict[str, bool],
 def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
     """执行一次兼容性检查；返回退出码。"""
     console = ctx.console
-    entries, profile_name, saved, _source, profile_file = _load_profile_entries(args, ctx)
+    source = load_profile_entries(
+        profiles_dir=ctx.profiles_dir,
+        profile=getattr(args, "profile", None),
+        file=getattr(args, "file", None),
+        mods_dir=getattr(args, "mods_dir", None),
+        # --mods-dir 那条路径要现场扫一遍文件夹：进度画法与 scan 子命令完全一致
+        provider=provider_or_none(ctx),
+        on_progress=scan_progress_callback(console))
+    console.clear_progress()
+    entries = source.entries
     loader = loader_from_args(args, ctx)
 
     mc_version = getattr(args, "mc", None) or ctx.settings.default_mc_version
@@ -185,85 +166,56 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
     jobs = int(ctx.settings.concurrency)
     quiet = bool(getattr(args, "quiet", False))
 
-    report = Report(mc_version=str(mc_version), loader=loader, profile_name=profile_name,
-                    generated_at=time.strftime("%Y-%m-%d %H:%M:%S"),
-                    source_status=ctx.registry.status_line(), profile_saved=saved,
-                    total=len(entries))
-    start = time.monotonic()
-    blocked_seen = 0
-
-    step = max(1, len(entries) // 5)
-
-    def on_done(done: int, total: int, entry: ModEntry, item: ReportItem) -> None:
-        nonlocal blocked_seen
-        if item.status.value == "blocked":
-            blocked_seen += 1
-        if quiet:
-            return
-        if console.is_tty:
-            console.progress(_progress_line(done, total, entry.best_name, blocked_seen,
-                                            time.monotonic() - start, console.width))
-        elif done % step == 0 or done == total:
-            # 重定向/管道：每 20% 打一行，绝不写回车
-            console.line(t("progress.percent", done=done, total=total))
-
-    if len(entries) < 3 and not quiet:
-        console.progress(t("progress.simple"))
-
-    # 只为"数据源是否整体不可用"统计检查区间的请求增量（不含之前的 Mojang 探测）
-    stats_before = (ctx.client.stats[0], ctx.client.successes)
-    rate_limited_before = ctx.client.rate_limited
     # 交互模式才允许弹窗（PRD §5.7）；非交互模式绝不问、也绝不猜
     changed: dict[str, bool] = {"flag": False}
     matcher = None
     if ctx.interactive and ctx.prompter is not None:
-        matcher = make_interactive_matcher(ctx, changed, profile_name)
+        matcher = make_interactive_matcher(ctx, changed, source.name)
 
-    try:
-        items = check_all(entries, provider, loader=loader, mc_version=str(mc_version),
-                          window=window, prerelease=prerelease, jobs=jobs,
-                          resolve=bool(getattr(args, "resolve", False)), on_done=on_done,
-                          interactive_match=matcher)
-    except UserCancelled:
-        console.clear_progress()
-        report.interrupted = True
-        console.line(t("progress.interrupted", done=report.completed, total=len(entries)))
-        report.elapsed = time.monotonic() - start
-        _save_if_changed(changed, entries, profile_file, saved, ctx)
-        render_report(report, console, quiet=quiet)
-        return 130
-    except KeyboardInterrupt:
-        # S12：中断后 1 秒内给结论，绝不打印 traceback
-        console.clear_progress()
-        report.interrupted = True
-        console.line(t("progress.interrupted", done=report.completed, total=len(entries)))
-        report.elapsed = time.monotonic() - start
-        _save_if_changed(changed, entries, profile_file, saved, ctx)
-        render_report(report, console, quiet=quiet)
-        return 130
+    if len(entries) < 3 and not quiet:
+        console.progress(t("progress.simple"))
+
+    start = time.monotonic()
+    blocked_seen = 0
+    step = max(1, len(entries) // 5)
+
+    def on_progress(done: int, total: int, name: str) -> None:
+        """通用进度：非 TTY 下每 20% 打一行（回车会污染管道输出）。"""
+        if quiet or console.is_tty:
+            return
+        if done % step == 0 or done == total:
+            console.line(t("progress.percent", done=done, total=total))
+
+    def on_item(done: int, total: int, entry: ModEntry, item) -> None:
+        """逐条进度：TTY 下的进度行要知道"已发现几个阻塞"。"""
+        nonlocal blocked_seen
+        if item.status.value == "blocked":
+            blocked_seen += 1
+        if quiet or not console.is_tty:
+            return
+        console.progress(_progress_line(done, total, entry.best_name, blocked_seen,
+                                        time.monotonic() - start, console.width))
+
+    stats = CheckStats(ctx.client)
+    report = run_check_flow(
+        entries, provider=provider, loader=loader, mc_version=str(mc_version), window=window,
+        prerelease=prerelease, jobs=jobs, resolve=bool(getattr(args, "resolve", False)),
+        on_progress=on_progress, on_item=on_item, interactive_match=matcher, stats=stats,
+        profile_name=source.name, profile_saved=source.saved,
+        source_status=ctx.registry.status_line())
 
     console.clear_progress()
-    for item in items:
-        report.add(item)
-    report.completed = len(items)
-    report.elapsed = time.monotonic() - start
-    # 被限流导致的未判定必须显式告诉用户：否则他会把这 18 条 ⚪ 当成"这些模组查不到"，
-    # 而不会想到"再跑一次就有了"（实测 200 个不同项目冷跑出现过 18 条）。
-    if ctx.client.rate_limited > rate_limited_before and report.summary["unknown"] > 0:
-        report.warnings.append(t("warn.rate_limited_summary",
-                                 count=report.summary["unknown"]))
-    report.requests_made, report.cache_hits = ctx.client.stats
-    for item in items:
-        kind = item.mod.source_kind
-        if kind is not None:
-            report.source_stats[kind] = report.source_stats.get(kind, 0) + 1
+    if report.interrupted:
+        # S12：中断后 1 秒内给结论，绝不打印 traceback（报告由 flow 标成 interrupted）
+        console.line(t("progress.interrupted", done=report.completed, total=len(entries)))
+        _save_if_changed(changed, entries, source.path, source.saved, ctx)
+        render_report(report, console, quiet=quiet)
+        return 130
 
-    _save_if_changed(changed, entries, profile_file, saved, ctx)
+    _save_if_changed(changed, entries, source.path, source.saved, ctx)
     render_report(report, console, quiet=quiet)
     _export(report, args, ctx)
-    if report.interrupted:
-        return 130
-    if _source_unavailable(report, ctx, stats_before):
+    if source_unavailable(report, stats):
         # E01：一个可用数据源都没有 —— 这比"有几个模组没查到"严重得多，
         # 脚本里必须能靠退出码区分「网络/代理坏了」与「部分未判定」。
         console.line()
@@ -271,22 +223,6 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
             console.line(line)
         return EXIT_NO_SOURCE
     return VERDICT_EXIT.get(report.verdict(), 0)
-
-
-def _source_unavailable(report: Report, ctx: AppContext, before: tuple[int, int]) -> bool:
-    """数据源是否整体不可用（E01 -> 退出码 4）。
-
-    判据：**本次检查期间确实发出过请求、但一次都没成功**，且没有任何模组得出结论。
-    只看总量会误判：检查前拉 Mojang 版本清单失败也算"请求过"，但那不代表
-    **模组数据源**不可用（实测过这个误报）。所以只统计检查区间的增量。
-    """
-    data = report.summary
-    if data["total_checked"] == 0 or data["unknown"] != data["total_checked"]:
-        return False
-    requests_made, _cache_hits = ctx.client.stats
-    delta_requests = requests_made - before[0]
-    delta_successes = ctx.client.successes - before[1]
-    return delta_requests > 0 and delta_successes == 0
 
 
 def _save_if_changed(changed: dict[str, bool], entries: list[ModEntry],
@@ -322,4 +258,4 @@ def _export(report: Report, args: argparse.Namespace, ctx: AppContext) -> None:
         ctx.console.line(str(target))
 
 
-__all__ = ["run_check", "VERDICT_EXIT"]
+__all__ = ["make_interactive_matcher", "run_check", "VERDICT_EXIT"]

@@ -1,4 +1,8 @@
-"""T-20 scan 流水线测试（离线，用假 Provider）。"""
+"""T-20 scan 流水线测试（离线，用假 Provider）。
+
+流水线本体在 modcheck.flows.scan_flow（CLI 只做参数与渲染），
+所以这里直接测流程层；run_scan 的端到端写盘另有一条用例。
+"""
 from __future__ import annotations
 
 import sys
@@ -7,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from modcheck.cli.commands.scan import DEFAULT_PROFILE, scan_dirs, scan_from_list
 from modcheck.core.models import Loader, MatchStatus, ProjectHit, SourceKind, VersionInfo
 from modcheck.errors import ConfigError
+from modcheck.flows.scan_flow import DEFAULT_PROFILE, scan_dirs, scan_from_list
 from modcheck.providers.registry import ProviderRegistry
 from modcheck.storage.profiles import load_profile, profile_path
 from fakes import FakeProvider
@@ -20,7 +24,7 @@ import make_fixtures  # noqa: E402  （与测试同目录的现场生成脚本�
 
 @dataclass
 class FakeCtx:
-    """只带 scan 需要的字段的上下文。"""
+    """只带 run_scan 需要的字段的上下文。"""
 
     registry: ProviderRegistry
     console: object = None
@@ -49,7 +53,7 @@ def make_provider() -> FakeProvider:
 def test_scan_demo_dir(tmp_path: Path) -> None:
     """验收用例 23：识别 carpet/lithium/fabric-api，跳过 broken/server-extra/disabled。"""
     mods = make_fixtures.make_mods_dir(tmp_path / "mods")
-    report = scan_dirs([mods], make_ctx(make_provider()))  # type: ignore[arg-type]
+    report = scan_dirs([mods], provider=make_provider())
 
     names = {entry.mod_id for entry in report.entries}
     assert "carpet" in names
@@ -83,7 +87,7 @@ def test_scan_uses_hash_and_search(tmp_path: Path) -> None:
     mods = make_fixtures.make_mods_dir(tmp_path / "mods")
     provider = make_provider()
     # 让某文件的 sha1 命中假指纹表：直接改成真实计算值不方便，这里改用搜索路径断言
-    report = scan_dirs([mods], make_ctx(provider))  # type: ignore[arg-type]
+    report = scan_dirs([mods], provider=provider)
     carpet = next(e for e in report.entries if e.mod_id == "carpet")
     assert carpet.sources["modrinth"] == "carpet"
     assert carpet.source_kind is SourceKind.SEARCH
@@ -94,7 +98,7 @@ def test_scan_uses_hash_and_search(tmp_path: Path) -> None:
 def test_scan_missing_dir_raises() -> None:
     """目录不存在 -> ConfigError（退出码 3）。"""
     with pytest.raises(ConfigError):
-        scan_dirs([Path("no/such/dir")], make_ctx(make_provider()))  # type: ignore[arg-type]
+        scan_dirs([Path("no/such/dir")], provider=make_provider())
 
 
 def test_scan_from_list_all_guess(tmp_path: Path) -> None:
@@ -103,7 +107,7 @@ def test_scan_from_list_all_guess(tmp_path: Path) -> None:
     listing.write_text("[\u5730\u6bef] fabric-carpet-26.1+v260402.jar\nlithium-fabric-0.12.1.jar\n",
                        encoding="utf-8")
     provider = make_provider()
-    report = scan_from_list(listing, make_ctx(provider))  # type: ignore[arg-type]
+    report = scan_from_list(listing, provider=provider)
     assert len(report.entries) == 2
     assert all(entry.match_status in (MatchStatus.GUESS, MatchStatus.EXACT)
                for entry in report.entries)
@@ -116,7 +120,7 @@ def test_scan_from_list_all_guess(tmp_path: Path) -> None:
 def test_scan_from_list_missing_file(tmp_path: Path) -> None:
     """清单文件不存在 -> ConfigError。"""
     with pytest.raises(ConfigError):
-        scan_from_list(tmp_path / "nope.txt", make_ctx(make_provider()))  # type: ignore[arg-type]
+        scan_from_list(tmp_path / "nope.txt", provider=make_provider())
 
 
 def test_scan_from_list_empty_file(tmp_path: Path) -> None:
@@ -124,7 +128,7 @@ def test_scan_from_list_empty_file(tmp_path: Path) -> None:
     listing = tmp_path / "empty.txt"
     listing.write_text("\n\n", encoding="utf-8")
     with pytest.raises(ConfigError):
-        scan_from_list(listing, make_ctx(make_provider()))  # type: ignore[arg-type]
+        scan_from_list(listing, provider=make_provider())
 
 
 def test_hash_and_search_paths_write_the_same_identifier(tmp_path: Path) -> None:
@@ -148,7 +152,7 @@ def test_hash_and_search_paths_write_the_same_identifier(tmp_path: Path) -> None
     digest = hashlib.sha1((mods / "lithium-fabric-0.12.1.jar").read_bytes()).hexdigest()
     provider = FakeProvider(hits=[ProjectHit("Pk", "krypton", "Krypton", 1, "d", "fake")],
                             hash_map={digest: version}, projects={"fQEb0iXm": info})
-    report = scan_dirs([mods], make_ctx(provider))  # type: ignore[arg-type]
+    report = scan_dirs([mods], provider=provider)
     lithium = next(e for e in report.entries if e.mod_id == "lithium")
     assert lithium.sources["modrinth"] == "krypton"     # 不是 fQEb0iXm
     assert lithium.key == "slug:modrinth:krypton"
@@ -161,7 +165,7 @@ def test_scan_offline_still_builds_profile(tmp_path: Path) -> None:
 
     mods = make_fixtures.make_mods_dir(tmp_path / "mods")
     provider = FakeProvider(raise_on={"*": ProviderUnavailable("offline")})
-    report = scan_dirs([mods], make_ctx(provider))  # type: ignore[arg-type]
+    report = scan_dirs([mods], provider=provider)
     assert report.offline is True
     assert {entry.mod_id for entry in report.entries} >= {"carpet", "lithium", "fabric-api"}
 
