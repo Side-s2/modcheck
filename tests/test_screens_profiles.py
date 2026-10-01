@@ -131,6 +131,74 @@ def test_new_profile_appears_in_list(tmp_path: Path) -> None:
     assert "[1] 服务器B（0 个模组" in out(ctx)
 
 
+def write_entries(tmp_path: Path, name: str, mods: list[ModEntry]) -> Path:
+    """写一份带指定模组的清单。"""
+    (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)
+    profile = new_profile(name)
+    profile.mods = mods
+    path = profile_path(tmp_path / "profiles", name)
+    save_profile(profile, path)
+    return path
+
+
+def many_mods(count: int) -> list[ModEntry]:
+    """造 count 条模组记录（modid = m0..mN）。"""
+    return [ModEntry(key="m" + str(i), display_name="Mod" + str(i), mod_id="m" + str(i),
+                     sources={"modrinth": "slug" + str(i)}, current_version="1.0")
+            for i in range(count)]
+
+
+# ---------------------------------------------------------------- R3-A04 查看模组列表
+def test_view_list_first_page(tmp_path: Path) -> None:
+    """第一页 20 条：标题给出 第 1/2 页，表头有「匹配」列，第 21 条不在这一页。"""
+    write_entries(tmp_path, "服务器A", many_mods(30))
+    ctx = make_ctx(tmp_path, ["1", "1", "q", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "清单「服务器A」的模组（共 30 个，第 1/2 页）：" in text
+    assert "  [n] 下一页  [p] 上一页  [b] 返回" in text
+    assert "匹配" in text and "未匹配" in text      # 表头 + 数据行的匹配列
+    assert "m19" in text and "m20" not in text
+
+
+def test_view_list_paging_and_boundaries(tmp_path: Path) -> None:
+    """n 到第 2 页；再 n 提示最后一页；p 回第 1 页；再 p 提示第一页。"""
+    write_entries(tmp_path, "服务器A", many_mods(30))
+    ctx = make_ctx(tmp_path, ["1", "1", "n", "n", "p", "p", "p", "b", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "第 1/2 页" in text and "第 2/2 页" in text
+    assert "已经是最后一页了。" in text
+    assert "已经是第一页了。" in text
+    assert "m29" in text
+
+
+def test_view_empty_profile(tmp_path: Path) -> None:
+    """空清单给专门文案（R3-A04 验收）。"""
+    write_entries(tmp_path, "空清单", [])
+    ctx = make_ctx(tmp_path, ["1", "1", "q"])
+    run_profiles_screen(ctx)
+    assert "这个清单里还没有模组。回上一层用 [b]，或回主菜单选 [2] 扫描 mods 文件夹。" in out(ctx)
+
+
+def test_view_quit_returns_to_main_menu(tmp_path: Path) -> None:
+    """查看屏里按 q 直接回主菜单（不是回管理屏）。"""
+    write_entries(tmp_path, "服务器A", many_mods(3))
+    ctx = make_ctx(tmp_path, ["1", "1", "q"])
+    assert run_profiles_screen(ctx) == QUIT
+    assert "m2" in out(ctx)
+
+
+def test_view_invalid_choice_reprompts(tmp_path: Path) -> None:
+    """查看屏里的非法输入就地重问，不退出。"""
+    write_entries(tmp_path, "服务器A", many_mods(3))
+    ctx = make_ctx(tmp_path, ["1", "1", "!@#", "q", "q"])
+    run_profiles_screen(ctx)
+    text = out(ctx)
+    assert "✗ 没有这个选项，请重新选择。" in text
+    assert text.count("清单「服务器A」的模组") == 2      # 非法输入后又画了一次
+
+
 def test_broken_profile_is_listed_not_crashing(tmp_path: Path) -> None:
     """损坏的清单只显示错误，不影响其它清单（也不能崩）。"""
     (tmp_path / "profiles").mkdir(parents=True, exist_ok=True)

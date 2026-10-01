@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Sequence
 
 from modcheck.cli.context import AppContext
+from modcheck.cli.render import assemble_row
 from modcheck.console import display_width, pad, truncate
 from modcheck.core.models import MatchStatus, ModEntry
 from modcheck.errors import ConfigError, ProfileError
@@ -102,11 +103,8 @@ def _cell_index(index: int) -> str:
 
 
 def _assemble(cells: Sequence[str], widths: Sequence[int]) -> str:
-    """按列宽拼一行（显示宽度对齐，列间 2 空格）。"""
-    parts = [pad(cells[0].rjust(widths[0]), widths[0])]
-    for cell, width in zip(cells[1:], widths[1:]):
-        parts.append(pad(truncate(cell, width), width))
-    return "  " + "  ".join(parts)
+    """按列宽拼一行（实现集中在 cli/render.py，profile show 与清单管理屏共用）。"""
+    return assemble_row(cells, widths)
 
 
 def _action_new(args: argparse.Namespace, ctx: AppContext) -> int:

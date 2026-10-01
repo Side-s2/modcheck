@@ -11,7 +11,11 @@ from typing import Callable, Final
 from modcheck.cli.context import AppContext
 from modcheck.cli.prompts import (KIND_BACK, KIND_OK, KIND_QUIT, MAX_INVALID_TRIES, Prompter,
                                   read_line)
-from modcheck.core.profile_ops import INVALID_NAME_CHARS, validate_profile_name
+from modcheck.cli.render import assemble_row
+from modcheck.console import display_width
+from modcheck.core.models import ModEntry
+from modcheck.core.profile_ops import (INVALID_NAME_CHARS, PAGE_SIZE, page_of,
+                                       validate_profile_name)
 from modcheck.errors import ConfigError, ModcheckError
 from modcheck.i18n import t
 from modcheck.storage.profiles import (ProfileSummary, list_profiles, load_profile,
@@ -26,7 +30,18 @@ NEW: Final[str] = "new"
 #: 管理屏的操作表：(按键, 文案 key, 处理函数名)
 #: 逐条长出来（R3-A04 查看 / A05 删除 / A06 指定 / A07 忽略 / A08 重命名 / A09 删除清单），
 #: 最终顺序与 PRD §13.2 完全一致。
-MANAGE_ITEMS: Final[tuple[tuple[str, str], ...]] = ()
+MANAGE_ITEMS: Final[tuple[tuple[str, str], ...]] = (
+    ("1", "manage.one.view"),
+)
+
+#: 匹配状态列的文字（PRD §13.2 的「匹配」列）
+MATCH_STATUS_KEYS: Final[dict[str, str]] = {
+    "exact": "match.status.exact",
+    "manual": "match.status.manual",
+    "unmatched": "match.status.unmatched",
+    "ignored": "match.status.ignored",
+    "guess": "match.status.guess",
+}
 
 
 def run_profiles_screen(ctx: AppContext) -> str:
@@ -168,11 +183,81 @@ def _manage_screen(ctx: AppContext, prompter: Prompter, name: str) -> str:
                 return BACK
             continue
         tries = 0
-        handler(ctx, prompter, name)
+        if handler(ctx, prompter, name) == QUIT:
+            return QUIT
 
 
-#: 按键 -> 处理函数（R3-A04~A09 逐条填进来）
-MANAGE_HANDLERS: dict[str, Callable[[AppContext, Prompter, str], None]] = {}
+def match_cell(entry: ModEntry) -> str:
+    """「匹配」列的文字。"""
+    return t(MATCH_STATUS_KEYS.get(entry.match_status.value, "match.status.unmatched"))
+
+
+def _table_rows(entries: list[ModEntry], *, offset: int) -> list[tuple[str, ...]]:
+    """模组列表的行（列与 profile show 一致，第五列改成「匹配」）。"""
+    return [(str(offset + index), entry.best_name, entry.mod_id or entry.key,
+             str(entry.sources.get("modrinth") or t("report.item.empty_cell")),
+             match_cell(entry),
+             entry.current_version or t("report.item.empty_cell"))
+            for index, entry in enumerate(entries, start=1)]
+
+
+def _print_table(console, rows: list[tuple[str, ...]]) -> None:
+    """打印表头 + 数据行（表头与数据行必须用同一套列宽，D32）。"""
+    headers = (t("profile.show.col.index"), t("profile.show.col.name"),
+               t("profile.show.col.modid"), t("profile.show.col.source"),
+               t("manage.view.col.match"), t("profile.show.col.version"))
+    widths = [max(display_width(headers[i]), *(display_width(row[i]) for row in rows))
+              for i in range(len(headers))]
+    widths[0] = max(widths[0], 3)
+    console.line(assemble_row(headers, widths))
+    for row in rows:
+        console.line(assemble_row(row, widths))
+
+
+def _op_view(ctx: AppContext, prompter: Prompter, name: str) -> str | None:
+    """[1] 查看模组列表（每页 20 条，PRD §13.2 / R3-A04）。"""
+    console = ctx.console
+    profile = _load_profile(ctx, name)
+    if profile is None:
+        return None
+    if not profile.mods:
+        console.line(t("manage.one.empty"))
+        return None
+    page = 1
+    while True:
+        entries, pages = page_of(profile, page, size=PAGE_SIZE)
+        console.line(t("manage.view.title", name=profile.name, count=len(profile.mods),
+                       page=page, pages=pages))
+        console.line()
+        _print_table(console, _table_rows(entries, offset=(page - 1) * PAGE_SIZE))
+        console.line()
+        console.line(t("manage.view.hint"))
+        kind, value = read_line(prompter, t("menu.prompt"))
+        if kind == QUIT:
+            return QUIT
+        if kind == BACK:
+            return None
+        low = value.lower()
+        if low == "b":
+            return None
+        if low == "n":
+            if page >= pages:
+                console.line(t("manage.view.last_page"))
+            else:
+                page += 1
+        elif low == "p":
+            if page <= 1:
+                console.line(t("manage.view.first_page"))
+            else:
+                page -= 1
+        else:
+            console.line(t("menu.invalid_choice"))
+
+
+#: 按键 -> 处理函数（R3-A04~A09 逐条填进来）；返回 QUIT 表示直接回主菜单
+MANAGE_HANDLERS: dict[str, Callable[[AppContext, Prompter, str], str | None]] = {
+    "1": _op_view,
+}
 
 
 def _new_profile(ctx: AppContext, prompter: Prompter) -> None:

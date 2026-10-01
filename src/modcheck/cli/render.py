@@ -101,6 +101,19 @@ def render_version_cell(item: ReportItem) -> str:
     return current + " → " + latest
 
 
+def assemble_row(cells: Sequence[str], widths: Sequence[int]) -> str:
+    """按列宽拼一行（显示宽度对齐，列间 2 空格，行首 2 空格）。
+
+    表格类输出必须用**同一套 widths + pad()** 组装表头与数据行，否则永远对不齐（D32）；
+    序号列右对齐且不截断，其余列按显示宽度截断加 …。
+    """
+    first = pad(cells[0].rjust(widths[0]), widths[0])
+    parts = [first]
+    for cell, width in zip(cells[1:], widths[1:]):
+        parts.append(pad(truncate(cell, width), width))
+    return "  " + "  ".join(parts)
+
+
 def column_widths(items: Sequence[ReportItem]) -> tuple[int, int, int]:
     """全报告统一的列宽（取实际最大值，但不超过上限）。"""
     from modcheck.console import display_width
@@ -298,4 +311,4 @@ def render_summary(report: Report, console: Console) -> None:
 
 __all__ = ["render_report", "render_summary", "render_version_cell",
            "column_widths", "layout_widths", "ROW_PREFIX_WIDTH", "version_label", "short_date",
-           "name_cell", "modid_cell"]
+           "name_cell", "modid_cell", "assemble_row"]
