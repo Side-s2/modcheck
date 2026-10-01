@@ -225,10 +225,20 @@
   （exit 2 → 130、⚪ → 中断），其余 29 个逐字节一致；脚本 docstring 已标注这条预期差异。
 - 13 个 golden 用例不涉及交互路径，复跑仍逐字节一致。
 
-### 9.4 未改（请裁决）
+### 9.4 横幅文案（裁决：要区分，不能说假话）
 
-选 q 之后显示的仍是「已中断（按了 Ctrl+C）」（i18n `progress.interrupted`）。
-PRD 没有规定 q 之后的横幅文案，我没擅自改文案；要区分 Ctrl+C 与 q 的话是 i18n 一行的事。
+选 q 之后原来显示「已中断（按了 Ctrl+C）」—— 用户按的是 q，这是在说假话。
+主 Agent 裁决：**要区分**（"PRD 没规定"不等于"可以写错的"）。落地：
+
+| 中断原因 | 横幅（i18n） |
+|---|---|
+| 交互里选 q | `progress.interrupted_user`：「已按你的要求结束检查。本次检查了 {done}/{total} 个模组，结果不完整，只列已查出的问题项：」 |
+| Ctrl+C（或 `should_stop`） | `progress.interrupted`：原样保留「已中断（按了 Ctrl+C）…」 |
+
+实现上没有动 core/flow：`make_interactive_matcher` 在 q 分支写一个 `changed["cancelled"] = True` 标记，
+CLI 的中断分支据此选文案 —— 只有 CLI 自己知道"q 是它问出来的"。
+断言两条路径各有测试：`test_cli_interactive_quit_returns_130`（必须出现新文案、且不得出现「按了 Ctrl+C」）、
+`test_cli_keyboard_interrupt_keeps_ctrl_c_wording`（对照组）。
 
 
 

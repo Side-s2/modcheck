@@ -155,6 +155,7 @@ _MESSAGES: Final[dict[str, str]] = {
     "progress.simple": "正在检查…",
     "progress.percent": "已检查 {done}/{total}……",
     "progress.interrupted": "已中断（按了 Ctrl+C）。本次检查了 {done}/{total} 个模组，结果不完整，只列已查出的问题项：",
+    "progress.interrupted_user": "已按你的要求结束检查。本次检查了 {done}/{total} 个模组，结果不完整，只列已查出的问题项：",
     "progress.rate_limited": "ℹ 被 Modrinth 限流，正在放慢速度重试……",
     "progress.estimating": "正在准备检查……",
     # ---------------------------------------------------------------- 扫描

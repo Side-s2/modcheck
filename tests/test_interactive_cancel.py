@@ -143,7 +143,7 @@ def test_flow_returns_interrupted_outcome_not_unknown() -> None:
 
 # ---------------------------------------------------------------- CLI 层
 def test_cli_interactive_quit_returns_130(tmp_path: Path) -> None:
-    """端到端：交互里选 q -> 退出码 130 + 「已中断」，且不出现 ⚪ / 内部错误。"""
+    """端到端：交互里选 q -> 退出码 130，横幅说"按你的要求"，且不出现 ⚪ / 内部错误。"""
     console = Console(stream=io.StringIO(), color="never", width=100)
     prompter = Prompter(input_fn=lambda prompt: "q", out=console)
     ctx = make_ctx(tmp_path, make_provider(), prompter=prompter, interactive=True)
@@ -155,11 +155,34 @@ def test_cli_interactive_quit_returns_130(tmp_path: Path) -> None:
 
     assert code == 130
     assert out.count("结论：") == 1
-    assert "已中断" in out
+    assert "已按你的要求结束检查" in out       # 用户按的是 q，就照实说是他结束的
+    assert "按了 Ctrl+C" not in out           # 绝不能对用户说假话
     assert "⚪ 未判定（" not in out          # 不能把"用户取消"记成"这个模组查不到"
     assert "程序内部出错" not in out         # 更不能变成"本不应该发生"的内部错误
     saved = load_profile(path)               # 取消不做任何写盘：条目保持原样
     assert saved.mods[0].sources.get("modrinth") is None
+
+
+def test_cli_keyboard_interrupt_keeps_ctrl_c_wording(tmp_path: Path) -> None:
+    """对照组：真的按了 Ctrl+C 时，横幅仍然是"按了 Ctrl+C"（两种原因各说各的）。"""
+    class Interrupted(FakeProvider):
+        """查询时抛 KeyboardInterrupt（等价于用户按了 Ctrl+C）。"""
+
+        def releases_for_loader(self, project_id, loader, *, window=25, prerelease=False):
+            raise KeyboardInterrupt()
+
+    entry = ModEntry(key="x", display_name="X", mod_id="x", sources={"modrinth": "x"})
+    console = Console(stream=io.StringIO(), color="never", width=100)
+    ctx = make_ctx(tmp_path, Interrupted())
+    ctx.console = console  # type: ignore[assignment]
+    path = write_profile(tmp_path, [entry])
+
+    code = run_check(check_args(file=str(path)), ctx)
+    out = console.stream.getvalue()  # type: ignore[attr-defined]
+
+    assert code == 130
+    assert "按了 Ctrl+C" in out
+    assert "已按你的要求结束检查" not in out
 
 
 def test_cli_ordinary_failure_still_renders_unknown(tmp_path: Path) -> None:

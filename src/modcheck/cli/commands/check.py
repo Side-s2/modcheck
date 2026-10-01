@@ -125,6 +125,9 @@ def make_interactive_matcher(ctx: AppContext, changed: dict[str, bool],
                 console.line(t("match.ignored.hint", profile=profile_name))
                 return None
             elif raw == "q":
+                # 记下"是用户主动结束的"：中断横幅不能对用户说假话
+                # （按了 q 却显示"按了 Ctrl+C"）。Ctrl+C 不会走这里。
+                changed["cancelled"] = True
                 raise UserCancelled(t("menu.bye"))
             console.line(t("menu.invalid_choice"))
 
@@ -207,7 +210,8 @@ def run_check(args: argparse.Namespace, ctx: AppContext) -> int:
     console.clear_progress()
     if report.interrupted:
         # S12：中断后 1 秒内给结论，绝不打印 traceback（报告由 flow 标成 interrupted）
-        console.line(t("progress.interrupted", done=report.completed, total=len(entries)))
+        key = "progress.interrupted_user" if changed.get("cancelled") else "progress.interrupted"
+        console.line(t(key, done=report.completed, total=len(entries)))
         _save_if_changed(changed, entries, source.path, source.saved, ctx)
         render_report(report, console, quiet=quiet)
         return 130
