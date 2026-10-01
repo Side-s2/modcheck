@@ -132,12 +132,99 @@ def _menu_check(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -
     if selected in ("b", "q"):
         return
     args.profile = selected
-    if not getattr(args, "mc", None):
-        args.mc = ctx.settings.default_mc_version
-    if not _ask_target(args, ctx, prompter):
+    mod_count = next((s.mod_count for s in profiles if s.name == selected), 0)
+    if not _screen_version(args, ctx, prompter):        # 屏②：选目标版本
+        return
+    if not _screen_loader(args, ctx, prompter):          # 屏③：选加载器
+        return
+    if not _screen_confirm(args, ctx, prompter, mod_count):   # 屏④：确认页
+        console.line(t("menu.check.aborted"))
         return
     console.line()
     run_check(args, ctx)
+
+
+def _screen_version(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -> bool:
+    """屏②：列出最近 10 个官方正式版让人编号选择（PRD §5.6）。"""
+    if getattr(args, "mc", None):
+        return True
+    console = ctx.console
+    releases: list[str] = []
+    try:
+        from modcheck.providers.mojang import MojangVersions
+
+        releases = [item.version_id for item in MojangVersions(ctx.client).list_releases(limit=10)]
+    except ProviderError:
+        console.line(t("warn.mojang_unavailable"))
+    if not releases:
+        raw = prompter.ask(t("cli.check.mc") + " > ")
+        if raw in ("b", "q", ""):
+            return False
+        args.mc = raw
+        return True
+    while True:
+        console.line(t("menu.version.title"))
+        for index, version in enumerate(releases, start=1):
+            key = "menu.version.latest" if index == 1 else "menu.version.item"
+            console.line(t(key, index=index, version=version))
+        console.line(t("menu.version.manual"))
+        console.line(t("menu.back"))
+        raw = prompter.ask(t("menu.prompt"))
+        if raw == "b" or raw == "q":
+            return False
+        if raw == "m":
+            manual = prompter.ask(t("cli.check.mc") + " > ")
+            if manual and manual not in ("b", "q"):
+                args.mc = manual
+                return True
+            continue
+        if raw.isdigit() and 1 <= int(raw) <= len(releases):
+            args.mc = releases[int(raw) - 1]
+            return True
+        console.line(t("menu.invalid_choice"))
+
+
+def _screen_loader(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -> bool:
+    """屏③：选服务端加载器（PRD §5.6）。"""
+    console = ctx.console
+    loaders = (Loader.FABRIC, Loader.NEOFORGE, Loader.FORGE)
+    while True:
+        console.line(t("menu.loader.title"))
+        for index, loader in enumerate(loaders, start=1):
+            console.line(t("menu.loader.item", index=index, name=loader.display_name,
+                           value=loader.value))
+        console.line(t("menu.loader.default", name=ctx.settings.default_loader.display_name))
+        console.line(t("menu.back"))
+        raw = prompter.ask(t("menu.prompt")).lower()
+        if raw in ("b", "q"):
+            return False
+        if raw == "d" or raw == "":
+            args.loader = ctx.settings.default_loader.value
+            return True
+        if raw.isdigit() and 1 <= int(raw) <= len(loaders):
+            args.loader = loaders[int(raw) - 1].value
+            return True
+        console.line(t("menu.invalid_choice"))
+
+
+def _screen_confirm(args: argparse.Namespace, ctx: AppContext, prompter: Prompter,
+                    mod_count: int) -> bool:
+    """屏④：确认页 —— 真正发请求前的最后一道闸（PRD §5.6）。
+
+    告诉用户"将检查几个模组、大概发多少次请求、大约多久"，
+    这是用户判断"现在要不要跑"的唯一依据。估算按每模组 2 个请求、约 0.25~0.75 秒。
+    """
+    console = ctx.console
+    loader = Loader.parse(str(args.loader))
+    requests = max(2, mod_count * 2)
+    low = max(3, int(mod_count * 0.25))
+    high = max(8, int(mod_count * 0.75))
+    console.line(t("menu.confirm.title"))
+    console.line(t("menu.confirm.profile", name=args.profile, count=mod_count))
+    console.line(t("menu.confirm.target", mc=args.mc, loader=loader.display_name))
+    console.line(t("menu.confirm.sources"))
+    console.line(t("menu.confirm.cost", requests=requests, low=low, high=high))
+    return prompter.confirm(t("menu.confirm.ask"))
 
 
 def _menu_scan(ctx: AppContext, prompter: Prompter) -> None:
