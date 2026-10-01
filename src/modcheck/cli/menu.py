@@ -95,9 +95,7 @@ def run_menu(args: argparse.Namespace, *, input_fn: Callable[[str], str] | None 
             elif choice == "3":
                 _menu_profiles(ctx)
             elif choice == "4":
-                from modcheck.cli.commands.misc import run_config
-
-                run_config(argparse.Namespace(action="show", key=None, value=None), ctx)
+                _menu_settings(ctx)
             elif choice == "5":
                 from modcheck.cli.commands.misc import run_versions
 
@@ -155,8 +153,13 @@ def _menu_check(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -
     run_check(args, ctx)
 
 
-def _screen_version(args: argparse.Namespace, ctx: AppContext, prompter: Prompter) -> bool:
-    """屏②：列出最近 10 个官方正式版让人编号选择（PRD §5.6）。"""
+def _screen_version(args: argparse.Namespace, ctx: AppContext, prompter: Prompter, *,
+                    allow_clear: bool = False) -> bool:
+    """屏②：列出最近 10 个官方正式版让人编号选择（PRD §5.6）。
+
+    allow_clear=True 时多给一个 [c]「清除（不设默认）」（设置屏 [1] 复用这块屏）：
+    此时 args.mc 被设成空串，调用方据此清空默认版本。
+    """
     if getattr(args, "mc", None):
         return True
     console = ctx.console
@@ -168,7 +171,12 @@ def _screen_version(args: argparse.Namespace, ctx: AppContext, prompter: Prompte
     except ProviderError:
         console.line(t("warn.mojang_unavailable"))
     if not releases:
+        if allow_clear:
+            console.line(t("menu.version.clear"))
         raw = prompter.ask(t("cli.check.mc") + " > ")
+        if allow_clear and raw == "c":
+            args.mc = ""
+            return True
         if raw in ("b", "q", ""):
             return False
         args.mc = raw
@@ -179,10 +187,15 @@ def _screen_version(args: argparse.Namespace, ctx: AppContext, prompter: Prompte
             key = "menu.version.latest" if index == 1 else "menu.version.item"
             console.line(t(key, index=index, version=version))
         console.line(t("menu.version.manual"))
+        if allow_clear:
+            console.line(t("menu.version.clear"))
         console.line(t("menu.back"))
         raw = prompter.ask(t("menu.prompt"))
         if raw == "b" or raw == "q":
             return False
+        if allow_clear and raw == "c":
+            args.mc = ""
+            return True
         if raw == "m":
             manual = prompter.ask(t("cli.check.mc") + " > ")
             if manual and manual not in ("b", "q"):
@@ -236,6 +249,13 @@ def _screen_confirm(args: argparse.Namespace, ctx: AppContext, prompter: Prompte
     console.line(t("menu.confirm.sources"))
     console.line(t("menu.confirm.cost", requests=requests, low=low, high=high))
     return prompter.confirm(t("menu.confirm.ask"))
+
+
+def _menu_settings(ctx: AppContext) -> None:
+    """功能④：设置屏（R3-A11，PRD §13.3）。"""
+    from modcheck.cli.screens_settings import run_settings_screen
+
+    run_settings_screen(ctx)
 
 
 def _menu_scan(ctx: AppContext, prompter: Prompter) -> None:
