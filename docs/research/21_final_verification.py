@@ -66,11 +66,17 @@ def check_scripts() -> None:
         ("表格对齐（按显示宽度）", "docs/research/19_verify_table_alignment.py"),
         ("真实数据集成（Provider→classify）", "docs/research/17_live_integration.py"),
     ]:
+        # 这些脚本依赖真实网络。Modrinth 偶发 SSL/限流会让它们失败，
+        # 那不是回归 —— 失败时重跑一次，只有连续两次都失败才记为 FAIL。
         r = run([str(PY), str(ROOT / path)], timeout=1200)
         if r.returncode == 0:
             record("PASS", name)
+            continue
+        r2 = run([str(PY), str(ROOT / path)], timeout=1200)
+        if r2.returncode == 0:
+            record("PASS", name + "（首次失败，重跑通过 —— 网络偶发）")
         else:
-            record("FAIL", name, ((r.stdout or "") + (r.stderr or ""))[-200:])
+            record("FAIL", name, ((r2.stdout or "") + (r2.stderr or ""))[-200:])
 
 
 # ---------------------------------------------------------------- 3. 场景不变量
