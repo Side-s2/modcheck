@@ -90,7 +90,51 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(frame)
         return frame, lay
 
+    def _build_menu(self) -> None:
+        """菜单栏：清单管理、设置、帮助。二期把前两项接上。"""
+        bar = self.menuBar()
+        manage = bar.addMenu("清单(&P)")
+        manage.addAction("管理模组清单…", self._open_profiles)
+        manage.addAction("刷新清单列表", self._reload_profiles)
+        settings = bar.addMenu("设置(&S)")
+        settings.addAction("打开设置…", self._open_settings)
+        help_menu = bar.addMenu("帮助(&H)")
+        help_menu.addAction("关于", self._show_about)
+
+    def _open_profiles(self) -> None:
+        from modcheck.gui.profiles_dialog import ProfilesDialog
+
+        ProfilesDialog(self._service, self).exec()
+        self._reload_profiles()
+
+    def _open_settings(self) -> None:
+        from modcheck.gui.settings_dialog import SettingsDialog
+
+        SettingsDialog(self._service, self).exec()
+
+    def _show_about(self) -> None:
+        QMessageBox.about(self, "关于 modcheck",
+                          "Minecraft 模组兼容性检查<br><br>"
+                          "数据来自 Modrinth 与 Mojang 官方版本清单。<br>"
+                          "本程序以 GPL-3.0 发布，不重新分发任何模组文件。")
+
+    def _reload_profiles(self) -> None:
+        """重新读清单列表并保持当前选择。"""
+        current = self._profile_name()
+        items = [f"{n}（{c} 个模组）" for n, c in self._service.profiles()]
+        self.cb_profile.blockSignals(True)
+        self.cb_profile.clear()
+        self.cb_profile.addItems(items or ["（无）"])
+        self.cb_profile.blockSignals(False)
+        if current:
+            for i, text in enumerate(items):
+                if text.startswith(current):
+                    self.cb_profile.setCurrentIndex(i)
+                    break
+        self.btn_go.setEnabled(bool(items))
+
     def _build(self) -> None:
+        self._build_menu()
         root = QWidget()
         root.setObjectName("root")
         self.setCentralWidget(root)

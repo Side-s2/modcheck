@@ -18,7 +18,12 @@ from modcheck.flows import (default_filename, export_csv, export_json, export_ma
 from modcheck.flows.runtime import build_runtime
 from modcheck.gui.main_window import Row
 from modcheck.providers.mojang import MojangVersions
-from modcheck.storage.profiles import list_profiles
+from modcheck.core.profile_ops import add_mod, remove_mods, set_ignored, set_source
+from modcheck.core.profile_ops import rename as rename_profile_ops  # noqa: F401  (供未来使用)
+from modcheck.storage.profiles import (delete_profile, list_profiles, load_profile, new_profile,
+                                       profile_path, rename_profile, save_profile,
+                                       validate_profile_name)
+from modcheck.storage.settings import load_settings, save_settings
 
 #: 与 CLI 的 --window 默认值保持一致；**不得为了省流量调小**（会漏掉真正可用的版本）
 DEFAULT_WINDOW = 25
@@ -143,6 +148,67 @@ class CliBackend:
         else:
             export_csv(self.last_report, target)
         return target
+
+
+    # ---------------------------------------------------------------- 清单管理（二期）
+    # 所有"怎么改"的规则都在 core/profile_ops.py 里；这里只负责"读进来、改、写回去"。
+    def load_profile(self, name: str):
+        """读一份清单。"""
+        return load_profile(profile_path(self.runtime.profiles_dir, name))
+
+    def save_profile(self, profile) -> None:
+        """写回清单（原子写盘由 storage 负责，失败会抛领域异常）。"""
+        save_profile(profile, profile_path(self.runtime.profiles_dir, profile.name))
+
+    def create_profile(self, name: str):
+        """新建空清单（重名会抛错，由界面提示）。"""
+        validate_profile_name(name)
+        if profile_path(self.runtime.profiles_dir, name).exists():
+            raise ValueError(f"清单「{name}」已存在")
+        profile = new_profile(name)
+        self.save_profile(profile)
+        return profile
+
+    def rename_profile_file(self, old: str, new: str) -> None:
+        """重命名（同时改文件名与 profile.name，由 storage 保证一致）。"""
+        validate_profile_name(new)
+        source = profile_path(self.runtime.profiles_dir, old)
+        target = profile_path(self.runtime.profiles_dir, new)
+        if target.exists():
+            raise ValueError(f"清单「{new}」已存在")
+        rename_profile(source, target)
+
+    def delete_profile_file(self, name: str) -> None:
+        """删除清单 —— 唯一不可撤销的操作，界面必须二次确认。"""
+        delete_profile(profile_path(self.runtime.profiles_dir, name))
+
+    # 模组级操作：一律走 core/profile_ops，界面不自己判断"改哪个"
+    def remove_mods(self, profile, selectors):
+        return remove_mods(profile, list(selectors))
+
+    def set_source(self, profile, selector, *, provider, slug):
+        return set_source(profile, selector, provider=provider, slug=slug)
+
+    def set_ignored(self, profile, selector, ignored):
+        return set_ignored(profile, selector, ignored)
+
+    def add_mod(self, profile, **kwargs):
+        return add_mod(profile, **kwargs)
+
+    # ---------------------------------------------------------------- 设置（二期）
+    def load_settings(self):
+        """当前设置（GUI 直接改它的副本再存回）。"""
+        return load_settings(self.runtime.settings_path)
+
+    def save_settings(self, settings) -> None:
+        """写回设置。非法值由 core/settings_ops 的 setter 拦在前面，不该走到这里。"""
+        save_settings(settings, self.runtime.settings_path)
+
+    def settings_ops(self):
+        """把 core.settings_ops 整个暴露给设置对话框 —— 校验规则只有一份实现。"""
+        from modcheck.core import settings_ops
+
+        return settings_ops
 
 
 __all__ = ["CliBackend"]
