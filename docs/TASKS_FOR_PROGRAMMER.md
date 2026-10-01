@@ -1,6 +1,9 @@
 # 程序员任务书 —— Minecraft 模组版本检查工具（modcheck）
 
 > 依据：`docs/PROJECT_BRIEF.md` **v1.2**（唯一事实来源）+ `docs/PRD.md` **v1.1**（产品规格，界面文案以它为准）
+> **必读的第二份规范**：`docs/ENGINEERING_CONTRACT.md`（主 Agent 维护的**工程师常驻规范**，与 `PROJECT_BRIEF.md` 同等强制）。它包含：开发环境与沙箱环境变量（`PIP_CACHE_DIR` / `NUITKA_CACHE_DIR` / `TEMP` 必须指向工作区内，否则 pip 与 Nuitka 会失败）、10 条硬性规则、编码规范、测试规范、**Nuitka 打包的实测约束**（必须加 `--assume-yes-for-downloads`；系统 MinGW gcc 8.1.0 会被拒绝，Nuitka 会自动下载 winlibs-gcc 15.2.0 到 `NUITKA_CACHE_DIR`；`Cannot find Windows Runtime DLLs to include` 是无害警告）、以及完成定义（DoD）。
+>
+> **本任务书 §3 的任务编号是唯一权威**；§2 的里程碑表只表示**依赖顺序**，两者若不一致以 §3 为准。
 > 作者：Product Manager 子代理 ｜ 版本 v1.0
 > 读者：程序员子代理。**本文件是施工图，按任务号顺序执行。**
 
@@ -13,11 +16,11 @@
 | 工作目录 | `D:\Programme\python_prgram\mod-version-checker` | 已存在 `pyproject.toml` / `.gitignore` / `docs/` / `.toolchain/` |
 | Python 3.11 | `.toolchain\Python311\python.exe` = **3.11.9**，`tomllib`/`ssl`/`sqlite3`/`zipfile` 均可 import | ✅ 直接用它，不要动系统 Python |
 | pip | **已可用**：`python -m pip -V` → `pip 24.0` | ✅ |
-| pytest | ❌ **未安装**（无 `.toolchain\Python311\Scripts` 目录） | 先装 |
-| nuitka | ❌ **未安装** | 打包前装 |
+| pytest | ✅ **已安装**（9.1.1，主 Agent 已装好） | 直接用 |
+| nuitka | ✅ **已安装**（4.2.2，主 Agent 已装好） | 直接用 |
 | 源码目录 | `src/`、`tests/`、`build/` **都还不存在** | 需要创建 |
 
-**安装开发依赖（唯一允许的联网安装，仅开发期）**：
+**如果依赖缺失才需要安装**（主 Agent 已装好 pytest 9.1.1 与 Nuitka 4.2.2，正常情况**不需要**执行下面这段）：
 
 ```
 cd /d D:\Programme\python_prgram\mod-version-checker
@@ -73,15 +76,16 @@ set "PYTHONPATH=%ROOT%src"
 
 | 里程碑 | 内容 | 任务号 | 完成判据 |
 |---|---|---|---|
-| **M0 骨架** | 包结构、errors、i18n 空壳、console 最小版、main 骨架、modcheck.cmd | T-01 ~ T-03, T-17, T-19 | `modcheck.cmd --version` 与 `--help` 能跑 |
-| **M1 纯逻辑**（P0，先行） | models / mcversion / filename / jarmeta / matching / classify | T-04 ~ T-08 | core 单测全绿（含 brief §11.2、§17.3 的回归断言） |
-| **M2 取数** | http（限速/退避/缓存） / modrinth（limit 法 + version_files） / mojang / registry / cache | T-09 ~ T-12, T-16 | 假 HttpClient 单测全绿；`-m live` 能查到 carpet |
-| **M3 存储与扫描** | paths / settings / profiles / scan 命令 | T-13 ~ T-15, T-20 | `scan` 能对 fixture 目录生成清单 |
-| **M4 检查与报告**（P0 收口） | checker 编排 / report / 渲染 / check 命令 / 退出码 / 导出 | T-07b, T-18, T-21 | `check --profile demo ...` 输出与 PRD §5.3 一致 |
-| **M5 交互** | menu / prompts / 匹配交互 / profile、versions、config、cache 命令 | T-22, T-23 | 无参数启动可走完一条完整路径 |
-| **M6 打包与收尾** | Nuitka 打包、README、双平台脚本、覆盖率 | T-24 ~ T-26 | `dist/modcheck/modcheck.exe` 能跑；core 覆盖率 ≥ 80% |
+| **M0 骨架** | 包结构、errors、i18n 空壳、console、main 骨架、modcheck.cmd | **T-01, T-02, T-03, T-16, T-17** | `modcheck.cmd --version` 与 `--help` 能跑 |
+| **M1 纯逻辑**（P0，先行） | models / mcversion / filename / jarmeta+hashid / matching | **T-04, T-05, T-06, T-07, T-08** | 上述 core 单测全绿（含基线 §11.2 的 14 条文件名样例） |
+| **M2 判别核心** | `classify()` 纯函数 + 报告数据结构 | **T-09, T-10** | `classify` 六分支 + 基线 §17.3 的 5 条真实断言全绿 |
+| **M3 取数** | http（限速/退避/缓存） / modrinth（limit 法 + version_files） / mojang / curseforge 占位 / registry / cache | **T-11, T-12, T-13, T-14** | 假 HttpClient 单测全绿；`-m live` 能查到 carpet |
+| **M4 存储与扫描** | paths / settings / profiles / scan 命令 | **T-15, T-20, T-19（scan 部分）** | `scan` 能对 fixture 目录生成清单 |
+| **M5 检查与报告**（P0 收口） | checker 编排 / 渲染 / check 命令 / 退出码 / 导出 / 测试 | **T-18, T-19（check 部分）, T-23** | `check --profile demo ...` 输出与 PRD §5.3 一致 |
+| **M6 交互** | menu / prompts / 匹配交互全流程 | **T-21** | 无参数启动可走完一条完整路径 |
+| **M7 打包与收尾** | Nuitka 打包（standalone 默认）、README、覆盖率收尾 | **T-22, T-24, T-23（覆盖率）** | `dist/modcheck/modcheck.exe` 能跑；core 覆盖率 ≥ 80% |
 
-**M1 之前不要碰网络代码**：`classify` 的 6 个分支和 brief §17.3 的 5 条真实断言必须先绿。
+**M1/M2 之前不要碰网络代码**：`classify` 的 6 个分支和 brief §17.3 的 5 条真实断言必须先绿。
 
 ---
 
@@ -194,6 +198,7 @@ set "PYTHONPATH=%ROOT%src"
   class ReasonCode(str, Enum):
       OK="OK"; OLD_VERSION_ONLY="OLD_VERSION_ONLY"; PRERELEASE_ONLY="PRERELEASE_ONLY"
       NO_LOADER="NO_LOADER"; NO_MC_VERSION="NO_MC_VERSION"; NOT_FOUND="NOT_FOUND"
+      NO_FILES="NO_FILES"          # 项目存在但一个文件都没有（独立码，不复用 NO_LOADER）
       ERROR="ERROR"; UNMATCHED="UNMATCHED"; IGNORED="IGNORED"; MC_VERSION_FUZZY="MC_VERSION_FUZZY"
   class MatchStatus(str, Enum):
       EXACT="exact"; MANUAL="manual"; UNMATCHED="unmatched"; IGNORED="ignored"; GUESS="guess"
@@ -230,6 +235,7 @@ set "PYTHONPATH=%ROOT%src"
   class ProjectInfo:
       project_id: str; slug: str; title: str; description: str; project_type: str
       loaders: tuple[str, ...]; game_versions: tuple[str, ...]; downloads: int
+      version_count: int        # len(versions[])，**只用于区分 NO_FILES / NO_LOADER**，绝不用于判断最新版
 
   @dataclass(slots=True)
   class Detected:
@@ -439,6 +445,7 @@ set "PYTHONPATH=%ROOT%src"
 - **判定顺序（严格照抄 PRD §4.3）**：
   ```
   ① A 空 且 A2 空            → BLOCKED / NO_LOADER（available_loaders 由调用方补）
+  ①b A 空 且 A2 空 且 project.version_count == 0 → 🔴 NO_FILES（项目已没有任何文件，独立码）
   ② A 空 但 A2 非空          → 继续 ④⑤
   ③ B 非空 且 B[0].id == A[0].id → READY / OK
   ④ B 非空                   → DEGRADED / OLD_VERSION_ONLY（latest_compat = B[0]）
@@ -868,3 +875,127 @@ set "PYTHONPATH=%ROOT%src"
 - **core 层覆盖率 ≥ 80%**（`pytest --cov=modcheck.core`，若未装 `pytest-cov` 则用 `trace` 手工统计，**不要**为此引入新依赖）。
 - 假 Provider（`tests/conftest.py`）：
   ```python
+
+  ```python
+  class FakeProvider(BaseProvider):
+      """内存数据源：可注入 hits / projects / versions / 异常 / 延迟。"""
+      def __init__(self, *, hits: Sequence[ProjectHit] = (), projects: dict[str, ProjectInfo] | None = None,
+                   versions: dict[str, list[VersionInfo]] | None = None,
+                   hash_map: dict[str, VersionInfo] | None = None,
+                   raise_on: dict[str, Exception] | None = None, delay: float = 0.0) -> None: ...
+  ```
+- 假 HttpClient：注入假 `transport`（一个 `Callable[[Request], Response]`）与假 `sleep`/`clock`，**不产生真实等待**。
+- `tests/fixtures/` 全部是文本 JSON，**不含二进制**；jar 由 `tests/make_fixtures.py` 现场用 `zipfile` 生成。
+
+### 4.2 必含回归用例（**一条都不能少**）
+
+| # | 用例 | 断言 |
+|---|---|---|
+| 1 | `parse_jar_filename("fabric-carpet-26.1+v260402.jar")` | name=`carpet`, mc=`26.1`, mod_version=`v260402`, cn_name=None |
+| 2 | `parse_jar_filename("[地毯] fabric-carpet-26.1+v260402.jar")` | cn_name=`地毯` + 同上 |
+| 3 | `parse_jar_filename("fabric-api-0.92.2+1.20.1.jar")` | mc=`1.20.1`；`"fabric-api" in name_candidates` |
+| 4 | `parse_jar_filename("servercore-fabric-1.4.6+1.20.1.jar")` | mc=`1.20.1`（**不是** 1.4.6） |
+| 5 | `parse_jar_filename("lithium-fabric-0.12.1.jar")` | mc is None；`"lithium" in name_candidates` |
+| 6 | classify：carpet @ 26.1/fabric（A=26.3，B=26.1） | `DEGRADED / OLD_VERSION_ONLY` |
+| 7 | classify：carpet @ 26.3/fabric（A=B=同一条） | `READY / OK` |
+| 8 | classify：journeymap @ 26.3/fabric（4 条同版本号不同 loader、日期完全相同） | `READY / OK`（**防"全局最新"误判的核心回归**） |
+| 9 | classify：jei @ 26.3/fabric（B 空、B2 非空） | `DEGRADED / PRERELEASE_ONLY` |
+| 10 | classify：jei @ 26.1/fabric（B 非空、A[0]≠B[0]） | `DEGRADED / OLD_VERSION_ONLY` |
+| 11 | classify：create @ 26.3/fabric（A 空、A2 空、version_count>0） | `BLOCKED / NO_LOADER` |
+| 12 | classify：create-fabric @ 26.3/fabric | `BLOCKED / NO_MC_VERSION` 且 max_supported_mc 含 `1.20.1` |
+| 13 | classify：A 空、A2 空、`version_count == 0` | `BLOCKED / **NO_FILES**`（**不得**报成 NO_LOADER） |
+| 14 | 限流 / 超时 / 5xx | 该模组 `UNKNOWN / ERROR`，**绝不是 BLOCKED**；其余模组结论不受影响 |
+| 15 | 用 `project_carpet.json`（`versions[]` 乱序，前 6 条是 2022 年） | 判定结果与"用正确端点"完全一致；源码里不得出现对该字段的排序或取首（**只允许取 `len()`**） |
+| 16 | `read_jar_meta("broken.jar")` | 返回 `error != None`，不抛异常 |
+| 17 | `sha1_of_file` 两次调用 | 结果相同且等于 `hashlib.sha1` 的期望值 |
+| 18 | `normalize("ferrite-core") == normalize("ferritecore")` | True |
+| 19 | `match_exact` 在 `search_chunky.json` 上 | 认定 `chunky`（slug 唯一命中），忽略 title 命中的 `newbiichunkymod` |
+| 20 | `match_exact` 在 `search_carpet.json` 上（8 条） | 输入 `carpet` → 认定 `carpet`；输入 `Carpet TIS Addition` → `ambiguous=True`（不自动选） |
+| 21 | `display_width("[地毯] Carpet")` | 13 |
+| 22 | 渲染 golden（PRD §5.3 的 13 行样例） | 除时间戳与用时行外逐字节一致 |
+| 23 | `scan` 对 `tests/_fixtures/mods_demo/` | 识别出 carpet/lithium/fabric-api；跳过 `broken.jar`/`server-extra.jar`/`old-mod.jar.disabled`；打印重复告警 |
+| 24 | `load_profile` 对损坏 JSON | 抛 `ProfileError`，文案含 PRD E11 的关键句 |
+| 25 | `--mc 26.4-snapshot-2` | 退出码 3 + PRD E08 文案 |
+| 26 | `--mc abc` | 退出码 3 + PRD E07 文案 |
+| 27 | 输出重定向 | 无 ANSI 转义（`"\x1b[" not in output`） |
+| 28 | 缓存损坏 | `get` 返回 None、不抛、坏文件被删 |
+| 29 | `--quiet` 渲染 | 🔴/🟡 组仍逐条列出；🟢 组只有一行计数；JSON 导出内容与不加 `--quiet` 时**完全一致** |
+| 30 | 非交互模式未精确匹配 | 产出 ⚪ `UNMATCHED`，且 `on_unmatched` 回调**未被调用**（绝不猜） |
+
+### 4.3 Fixture 清单（`tests/fixtures/`，全部为文本 JSON）
+
+`search_carpet.json`（8 条真实命中）、`search_chunky.json`（含 `newbiichunkymod` 干扰项）、`project_carpet.json`（**保留乱序的 `versions[]` 字段**，用于用例 15）、`project_empty.json`（`versions[]` 为空，用于用例 13）、`versions_carpet_26.1_fabric.json`（1 条，文件名 `fabric-carpet-26.1+v260402.jar`）、`versions_carpet_26.3_fabric.json`、`versions_journeymap_26.3.json`（4 条同版本号不同 loader、时间完全相同）、`versions_jei_26.3_fabric.json`（release 空 + beta 有）、`versions_create.json`（无 fabric）、`versions_create_fabric.json`（最高 1.20.1）、`version_files_hit.json`、`version_files_empty.json`、`manifest_v2.json`（裁剪版，含 26.3/26.1 等）。
+
+> 这些 fixture 可直接按基线 §17 的实测结论手工构造；**不要**把真实响应整体粘进来（体积太大）。
+
+---
+
+## 5. 明确不要做的事（防止过度设计）
+
+1. ❌ 不要写 GUI / TUI 框架（`curses`、`textual` 都不要）。交互只要 `input()` + 编号菜单。
+2. ❌ 不要引入任何第三方库（含 `rich` / `click` / `requests` / `colorama` / `wcwidth` / `tqdm`）。
+3. ❌ 不要用 `asyncio`：`ThreadPoolExecutor` 足够。
+4. ❌ 不要做依赖递归解析（只对 `fabric.mod.json.depends` 做一层提示，且不得影响三态判定）。
+5. ❌ 不要用文件名解析结果做**任何**判定（基线 §11.2）。
+6. ❌ 不要用 `/project/{id}` 的 `versions[]` 判断最新版（基线 §17.8）；**只允许取它的长度**。
+7. ❌ 不要对 `/project/{id}/version` 的返回值重新排序（基线 §7：直接信任返回顺序）。
+8. ❌ 不要全量拉取版本列表（基线 §9.5.1）。
+9. ❌ 不要实现 CurseForge 的真实请求（占位 + 抛 `ProviderUnavailable`）。
+10. ❌ 不要写死 API Key；不要读取用户的 `.minecraft` 目录；不要修改用户的 mods 文件夹。
+11. ❌ 不要做"模糊匹配/相似度匹配"来自动认定项目（决策 A4 / PRD §1.4 的 C3 场景）。
+12. ❌ 不要为测试引入网络 mock 框架（自己写 40 行的假 transport）。
+13. ❌ 不要在 `core/` 里 `print`/`input`/`sys.exit`。
+14. ❌ 不要把 `pytest` 写进 `dependencies` 或打包产物。
+15. ❌ 不要为了"看起来更聪明"加自动修复、自动下载、自动禁用模组的功能。
+16. ❌ 不要把 onefile 作为默认分发形态（主 Agent 实测首次启动约 7 秒）。
+
+---
+
+## 6. 常见陷阱（**踩过的坑，别再踩一次**）
+
+| # | 陷阱 | 正确做法 |
+|---|---|---|
+| 1 | 拿 `date_published` 字符串排序 | 直接信任 API 顺序取首条；显示日期就原样显示 |
+| 2 | 取 `/project/{id}.versions[0]` 当最新版 | 用 `/project/{id}/version?limit=1`（基线 §17.8） |
+| 3 | `loaders` 参数手写成 `["fabric"]` | 用 `json.dumps` + `urlencode` |
+| 4 | 404 时直接 `json.loads(resp)` | 先判空体（Modrinth 的 404 体是空的） |
+| 5 | 文件名解析出的 MC 版本进判定 | 只作 `detected.mc_versions` 提示 |
+| 6 | 把 `0.92.2` 当 MC 版本 | 用官方清单锚点，或 `major ≥ 20` / `major==1 and minor≥7` |
+| 7 | 用全局最新版判定 | 一律 `latest_for_loader`（JourneyMap 案例） |
+| 8 | 网络错误标红 | 一律 ⚪ `UNKNOWN/ERROR` |
+| 9 | 单模组异常冒泡终止整个检查 | `check_mods` 里逐模组 `try/except` |
+| 10 | 大 jar 整包读进内存 | 只读需要的成员 + 单成员 2 MB 上限 + sha1 流式 |
+| 11 | Windows 中文乱码 | 启动时 `reconfigure(encoding="utf-8")` + `SetConsoleOutputCP(65001)` |
+| 12 | 用 `len(s)` 算列宽 | 用 `display_width`（CJK 算 2） |
+| 13 | 表格里用 emoji | 表格内只用 `✓ ! ✗ ? ·`（PRD §5.3） |
+| 14 | 进度条残留在报告里 | 渲染报告前 `clear_progress()` |
+| 15 | 缓存写一半断电 | 先写 `.tmp` 再 `os.replace` |
+| 16 | 对 200 个模组开 20 个线程 | 默认 6，硬上限 8，并加全局令牌桶 |
+| 17 | Nuitka 打包时交互式卡住 | 必须加 `--assume-yes-for-downloads`（见 ENGINEERING_CONTRACT §1.2） |
+| 18 | pip / Nuitka 写到用户目录被沙箱拒绝 | `PIP_CACHE_DIR` / `NUITKA_CACHE_DIR` / `TEMP` 指向工作区内（见 ENGINEERING_CONTRACT §1.1） |
+
+---
+
+## 7. 交付物定义（DoD）
+
+与 `docs/ENGINEERING_CONTRACT.md` §5 的 DoD **合并执行**，本项目的额外要求：
+
+1. `src/modcheck/` 完整实现，`modcheck.cmd` / `modcheck.sh` 可用。
+2. `pytest tests -m "not live"` **全绿**（用 `.toolchain\Python311\python.exe -m pytest`）；core 覆盖率 ≥ 80%。
+3. `dist/modcheck/modcheck.exe`（standalone）真实打包成功，能运行 `--version` 与一次 `check`；产物中文不乱码。
+4. `README.md` 中文，含四个典型命令、退出码表、**onefile 首次启动约 7 秒的说明**。
+5. `tests/make_fixtures.py` 可生成 PM 验收所需的演示环境。
+6. 全部用户可见文案来自 `i18n.py`，且与 PRD §5 逐字一致。
+7. 无第三方运行时依赖（`pyproject.toml` 的 `dependencies` 为空）。
+8. `docs/PM_REVIEW_CHECKLIST.md` 里 **A~H 组**能跑通（I/J 组依赖性能与打包，尽力而为）。
+
+---
+
+## 8. 遇到不确定时怎么办
+
+1. **文案**：以 `docs/PRD.md` §5 为唯一标准；PRD 没写的，用同风格补，并**在交付说明里列出**。
+2. **判定逻辑**：以基线 §7 + PRD §4.3 为准；两者冲突时**以基线为准**并回报。
+3. **API 行为**：以基线 §17 的实测证据为准；不确定就写离线 fixture + 一条 `live` 测试，不要凭猜。
+4. **编码/打包规范**：以 `docs/ENGINEERING_CONTRACT.md` 为准。
+5. **任何"要不要顺手加个功能"的念头**：先查 PRD §8「范围边界」与本文 §5「不要做的事」，大概率答案是不加。
+6. **需求本身有歧义**：不要猜，写进交付总结等主 Agent 确认。

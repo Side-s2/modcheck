@@ -1,6 +1,6 @@
 # PM 验收清单 —— Minecraft 模组版本检查工具（modcheck）
 
-> 依据：`docs/PROJECT_BRIEF.md` v1.2 + `docs/PRD.md` v1.1 + `docs/TASKS_FOR_PROGRAMMER.md`
+> 依据：`docs/PROJECT_BRIEF.md` v1.2 + `docs/PRD.md` v1.1 + `docs/TASKS_FOR_PROGRAMMER.md` + `docs/ENGINEERING_CONTRACT.md`
 > 作者：Product Manager 子代理 ｜ 版本 v1.0
 > **这份清单会被 PM 逐条真的跑一遍。每一条都是「操作步骤（确切命令）→ 期望结果」。**
 
@@ -109,7 +109,7 @@ rm -rf $MODCHECK_CONFIG_DIR
 
 ---
 
-## D. 文案准确性（12 条，逐字比对 PRD §5）
+## D. 文案准确性（13 条，逐字比对 PRD §5）
 
 - [ ] **D1** 任一次检查报告的第一行 → 是 `结论：…`，且与 PRD §5.4 对应分支**逐字一致**（含 emoji 与全角标点）
 - [ ] **D2** 各分组标题 → 与 PRD §5.4 的 5 条标题逐字一致（含组说明句）
@@ -122,7 +122,7 @@ rm -rf $MODCHECK_CONFIG_DIR
 - [ ] **D9** 运行 `modcheck.cmd check --profile demo --mc 26.3 --loader quilt` → PRD E10 文案逐字；退出码 3
 - [ ] **D10** 用一个 0 模组的清单跑检查 → PRD §5.4「空结果」文案逐字；退出码 0
 - [ ] **D11** 用 `findstr /i "NO_LOADER traceback"`（Linux：`grep -iE "NO_LOADER|Traceback"`）搜任意输出 → **零命中**；`--json` 里出现 reason code 属正常
-- [ ] **D12** 搜报告全文里的「最新版」字样 → 每处都能看出加载器语境（如「最新 Fabric 正式版」），不得出现光秃秃的「最新版」
+- [ ] **D13** `--quiet` 下的输出（主 Agent 批复）→ 🔴 与 🟡 组**仍然逐条完整列出**；🟢 组只有一行 `（N 个，已省略明细）`；报告头/汇总/结论/下一步**全部保留**；`--json` 导出内容与不加 `--quiet` 时**完全一致** 搜报告全文里的「最新版」字样 → 每处都能看出加载器语境（如「最新 Fabric 正式版」），不得出现光秃秃的「最新版」
 
 ---
 
@@ -217,13 +217,13 @@ rm -rf $MODCHECK_CONFIG_DIR
 
 ---
 
-## K. 文档与测试一致性（5 条）
+## K. 文档与测试一致性（6 条）
 
 - [ ] **K1** 抽查 10 条 PRD §5 的文案 → 与程序实际输出逐字一致
 - [ ] **K2** TASKS §4.2 的 28 条必含回归用例 → 在 `tests/` 里都能找到对应测试函数（`pytest --collect-only -q` 里能搜到）
 - [ ] **K3** 运行 `.toolchain\Python311\python.exe -m pytest tests -m "not live"` → **全绿**，且**全程不联网**（可断网执行验证）
 - [ ] **K4** core 层测试覆盖率 → **≥ 80%**
-- [ ] **K5** PRD §0.1 里标注「需主 Agent 确认」的 6 条决策（D2/D3/D8/D9/D11/D14）→ 程序员按 PRD 执行，未被擅自改动
+- [ ] **K6** 打开 `docs/ENGINEERING_CONTRACT.md` 与 `docs/TASKS_FOR_PROGRAMMER.md` → 任务书 §0 明确引用了工程师契约；§2 里程碑表的任务编号与 §3 任务清单**完全对齐**（T-01~T-24，无 T-07b / T-25 / T-26 这类不存在的编号） PRD §0.1 里标注「需主 Agent 确认」的 6 条决策（D2/D3/D8/D9/D11/D14）→ 程序员按 PRD 执行，未被擅自改动
 
 ---
 

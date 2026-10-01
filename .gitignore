@@ -22,6 +22,9 @@ build/out/
 *.onefile-build/
 *.exe
 
+# ---- 验收用真实模组样本（体积大，用脚本重新拉取）----
+.demo_mods/
+
 # ---- 运行时生成的本地配置与缓存（便携模式）----
 config/
 !docs/**
