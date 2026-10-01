@@ -150,7 +150,9 @@ def test_menu_matches_subcommand_conclusion(tmp_path: Path) -> None:
 
     # 菜单路径（同样的清单、同样的目标版本与加载器）
     ctx_b = make_ctx(tmp_path, FakeProvider(releases={"carpet": [version()]}))
-    inputs = feed(["1", "1", "26.3", "fabric", "0"])
+    # 菜单 [1] -> 选清单 1 -> 目标版本 26.3（离线时走手动输入）-> 加载器 1=Fabric
+    # -> 确认页回车继续 -> 检查跑完回到菜单 -> 0 退出（R2-11 新增了版本/加载器/确认三屏）
+    inputs = feed(["1", "1", "26.3", "1", "", "0"])
     run_menu(menu_args(tmp_path), input_fn=inputs, ctx=ctx_b)
     summary_b = [line for line in ctx_b.console.stream.getvalue().splitlines()
                  if line.startswith("汇总：")]
