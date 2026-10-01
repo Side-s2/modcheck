@@ -122,7 +122,8 @@ rm -rf $MODCHECK_CONFIG_DIR
 - [ ] **D9** 运行 `modcheck.cmd check --profile demo --mc 26.3 --loader quilt` → PRD E10 文案逐字；退出码 3
 - [ ] **D10** 用一个 0 模组的清单跑检查 → PRD §5.4「空结果」文案逐字；退出码 0
 - [ ] **D11** 用 `findstr /i "NO_LOADER traceback"`（Linux：`grep -iE "NO_LOADER|Traceback"`）搜任意输出 → **零命中**；`--json` 里出现 reason code 属正常
-- [ ] **D13** `--quiet` 下的输出（主 Agent 批复）→ 🔴 与 🟡 组**仍然逐条完整列出**；🟢 组只有一行 `（N 个，已省略明细）`；报告头/汇总/结论/下一步**全部保留**；`--json` 导出内容与不加 `--quiet` 时**完全一致** 搜报告全文里的「最新版」字样 → 每处都能看出加载器语境（如「最新 Fabric 正式版」），不得出现光秃秃的「最新版」
+- [ ] **D12** 搜报告全文里的「最新版」字样 → 每处都能看出加载器语境（如「最新 Fabric 正式版」），不得出现光秃秃的「最新版」
+- [ ] **D13** `--quiet` 下的输出（主 Agent 批复）→ 🔴 与 🟡 组**仍然逐条完整列出**；🟢 组只有一行 `（N 个，已省略明细）`；报告头 / 汇总 / 结论 / 下一步**全部保留**；`--json` 导出内容与不加 `--quiet` 时**完全一致**
 
 ---
 
@@ -220,10 +221,11 @@ rm -rf $MODCHECK_CONFIG_DIR
 ## K. 文档与测试一致性（6 条）
 
 - [ ] **K1** 抽查 10 条 PRD §5 的文案 → 与程序实际输出逐字一致
-- [ ] **K2** TASKS §4.2 的 28 条必含回归用例 → 在 `tests/` 里都能找到对应测试函数（`pytest --collect-only -q` 里能搜到）
+- [ ] **K2** TASKS §4.2 的 30 条必含回归用例 → 在 `tests/` 里都能找到对应测试函数（`pytest --collect-only -q` 里能搜到）
 - [ ] **K3** 运行 `.toolchain\Python311\python.exe -m pytest tests -m "not live"` → **全绿**，且**全程不联网**（可断网执行验证）
 - [ ] **K4** core 层测试覆盖率 → **≥ 80%**
-- [ ] **K6** 打开 `docs/ENGINEERING_CONTRACT.md` 与 `docs/TASKS_FOR_PROGRAMMER.md` → 任务书 §0 明确引用了工程师契约；§2 里程碑表的任务编号与 §3 任务清单**完全对齐**（T-01~T-24，无 T-07b / T-25 / T-26 这类不存在的编号） PRD §0.1 里标注「需主 Agent 确认」的 6 条决策（D2/D3/D8/D9/D11/D14）→ 程序员按 PRD 执行，未被擅自改动
+- [ ] **K5** PRD §0.1 标注「需主 Agent 确认」的决策（D2/D3/D8/D9/D11/D14）→ 主 Agent 已全部批复，且程序员的实现与批复后的 PRD 一致（尤其 D8 用的是独立 reason_code **NO_FILES**，不是 NO_LOADER）
+- [ ] **K6** 打开 `docs/ENGINEERING_CONTRACT.md` 与 `docs/TASKS_FOR_PROGRAMMER.md` → 任务书 §0 明确引用了工程师契约；§2 里程碑表的任务编号与 §3 任务清单**完全对齐**（T-01~T-24，无 T-07b / T-25 / T-26 这类不存在的编号）
 
 ---
 

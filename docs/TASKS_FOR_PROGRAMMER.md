@@ -875,8 +875,6 @@ set "PYTHONPATH=%ROOT%src"
 - **core 层覆盖率 ≥ 80%**（`pytest --cov=modcheck.core`，若未装 `pytest-cov` 则用 `trace` 手工统计，**不要**为此引入新依赖）。
 - 假 Provider（`tests/conftest.py`）：
   ```python
-
-  ```python
   class FakeProvider(BaseProvider):
       """内存数据源：可注入 hits / projects / versions / 异常 / 延迟。"""
       def __init__(self, *, hits: Sequence[ProjectHit] = (), projects: dict[str, ProjectInfo] | None = None,
