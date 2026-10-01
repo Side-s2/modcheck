@@ -208,6 +208,105 @@ def check_menu_path() -> None:
     import shutil; shutil.rmtree(work, ignore_errors=True)
 
 
+# ---------------------------------------------------------------- R2 出口标准
+FORBIDDEN_OUTPUT = ["«", "»", "missing i18n", "slug:modrinth", "slug:", "sha1:",
+                    "invalid choice", "usage:", "Traceback", "Expecting property name",
+                    "[WinError", "unrecognized arguments", "AttributeError"]
+
+
+def _hygiene(stdout: str, stderr: str) -> list[str]:
+    blob = (stdout or "") + "\n" + (stderr or "")
+    return [p for p in FORBIDDEN_OUTPUT if p in blob]
+
+
+def check_x2_output_hygiene() -> None:
+    """X2：用户可见输出里不得出现内部标识、英文异常、argparse 原文。"""
+    section("8. X2 输出净化")
+    work = Path(tempfile.mkdtemp(prefix="fin-hyg-"))
+    _scan(work, str(SAMPLE), "--profile", "demo", "--yes")
+    cases = [
+        ("报告（管道）", ["check", "--profile", "demo", "--mc", "26.3", "--loader", "fabric", "--no-color"]),
+        ("清单列表", ["profile", "list"]),
+        ("清单详情", ["profile", "show", "demo"]),
+        ("版本列表", ["versions", "--limit", "5"]),
+        ("设置查看", ["config", "show"]),
+        ("缓存信息", ["cache", "info"]),
+        ("非法 loader", ["check", "--loader", "quilt"]),
+        ("非法子命令", ["frobnicate"]),
+        ("未知参数", ["--bogus"]),
+    ]
+    for label, args in cases:
+        r = run([str(PY), "-m", "modcheck", "--config-dir", str(work), *args], timeout=600)
+        leaks = _hygiene(r.stdout, r.stderr)
+        if leaks:
+            record("FAIL", f"X2 {label} 输出不干净", f"命中 {leaks}")
+        else:
+            record("PASS", f"X2 {label} 输出干净")
+    import shutil; shutil.rmtree(work, ignore_errors=True)
+
+
+def check_x4_reproducible() -> None:
+    """X4：同一清单连跑两次，逐条状态必须一致。"""
+    section("9. X4 结论可复现")
+    work = Path(tempfile.mkdtemp(prefix="fin-rep-"))
+    _scan(work, str(SAMPLE), "--profile", "s", "--yes")
+    digests = []
+    for i in (1, 2):
+        out = work / f"r{i}.json"
+        run([str(PY), "-m", "modcheck", "--config-dir", str(work), "check", "--profile", "s",
+             "--mc", "26.3", "--loader", "fabric", "--no-color", "--refresh", "--json", str(out)],
+            timeout=900)
+        if not out.exists():
+            record("FAIL", f"X4 第{i}次未产出 JSON"); digests.append(None); continue
+        data = json.loads(out.read_text(encoding="utf-8"))
+        items = []
+        for grp, lst in (data.get("groups") or {}).items():
+            for it in (lst or []):
+                mod = it.get("mod") or {}
+                items.append((mod.get("file_name") or mod.get("key"), grp))
+        digests.append(sorted(items))
+        print(f"    第{i}次：{len(items)} 条，分组计数 "
+              + str({g: sum(1 for _, gg in items if gg == g) for g in sorted({gg for _, gg in items})}), flush=True)
+    if digests[0] is None or digests[1] is None:
+        record("FAIL", "X4 无法比对")
+    elif digests[0] == digests[1]:
+        record("PASS", "X4 两次运行逐条状态完全一致")
+    else:
+        diff = [a for a in digests[0] if a not in digests[1]][:3]
+        record("FAIL", "X4 两次运行结论不一致", f"示例差异 {diff}")
+    import shutil; shutil.rmtree(work, ignore_errors=True)
+
+
+def check_d43_yellow_split() -> None:
+    """D43：🟡 必须区分『无需处理』与『需要动作』，且下一步计数只含后者。"""
+    section("10. D43 🟡 组区分无需处理 / 需要动作")
+    work = Path(tempfile.mkdtemp(prefix="fin-d43-"))
+    _scan(work, str(SAMPLE), "--profile", "s", "--yes")
+    # 目标取用户当前版本 26.1：此时大量条目属于「本地已是最新兼容版」
+    r = run([str(PY), "-m", "modcheck", "--config-dir", str(work), "check", "--profile", "s",
+             "--mc", "26.1", "--loader", "fabric", "--no-color"], timeout=900)
+    out = r.stdout or ""
+    has_noop = "无需处理" in out
+    # 下一步里的黄色计数
+    import re as _re
+    m = _re.search(r"拍板\s*🟡\s*的\s*(\d+)\s*个", out) or _re.search(r"🟡\s*的\s*(\d+)\s*个", out)
+    counted = int(m.group(1)) if m else None
+    total = None
+    mm = _re.search(r"🟡 需降级（(\d+) 个）", out)
+    if mm:
+        total = int(mm.group(1))
+    print(f"    🟡 组总数={total}  下一步里的计数={counted}  出现『无需处理』={has_noop}", flush=True)
+    if not has_noop:
+        record("FAIL", "D43 未见『无需处理』文案")
+    elif counted is None or total is None:
+        record("WARN", "D43 无法解析计数", "先确认文案格式")
+    elif counted < total:
+        record("PASS", f"D43 下一步计数({counted}) < 🟡 总数({total})，已排除无需处理项")
+    else:
+        record("FAIL", f"D43 下一步计数({counted}) 未排除无需处理项（🟡 总数 {total}）")
+    import shutil; shutil.rmtree(work, ignore_errors=True)
+
+
 # ---------------------------------------------------------------- 7. 打包
 def check_packaging() -> None:
     section("7. Nuitka 打包产物（若已构建）")
@@ -236,6 +335,9 @@ def main() -> int:
     check_d35_unidentified_jars_listed()
     check_d38_identifier_consistency()
     check_menu_path()
+    check_x2_output_hygiene()
+    check_d43_yellow_split()
+    check_x4_reproducible()
     check_scripts()
     check_packaging()
     section("汇总")
