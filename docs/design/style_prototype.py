@@ -6,7 +6,7 @@ import os, sys
 os.environ.setdefault("QT_QPA_PLATFORM", "windows")
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
-from PyQt6.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout, QLabel,
+from PyQt6.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QTabBar,
                              QProgressBar, QPushButton, QTabWidget, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView)
 
@@ -43,6 +43,22 @@ QHeaderView::section {{ background: {CARD}; border: none; border-bottom: 1px sol
                         text-align: left; }}
 QTableWidget {{ selection-background-color: #EAF0FE; }}
 """
+
+def _tab_widget(name, color):
+    """页签内容：可选的状态色圆点 + 名称。点是独立控件，所以选中态也保持自己的颜色。"""
+    w = QWidget()
+    lay = QHBoxLayout(w)
+    lay.setContentsMargins(4, 2, 4, 2)
+    lay.setSpacing(6)
+    if color:
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color:{color}; font-size:15px; background:transparent;")
+        lay.addWidget(dot)
+    label = QLabel(name)
+    label.setStyleSheet("background:transparent;")
+    lay.addWidget(label)
+    return w
+
 
 def chip(text, color):
     lb = QLabel(text)
@@ -104,12 +120,13 @@ ROWS = {
                 ("ScalableLux", ORANGE, "仅存测试版", "0.2.0 → 0.2.1", "2026-06-12"),
                 ("MagicLib", YELLOW, "需注意", "v0.8.838 → v0.8.882", "2026-09-27"),
                 ("ImmediatelyFast", GREEN, "就绪", "1.15.2 → 1.17.1", "2026-09-17")],
-    "● 阻塞 2": [], "● 仅存测试版 4": [], "● 需注意 3": [], "● 未判定 0": [], "● 就绪 21": [],
+    "阻塞 2": [], "仅存测试版 4": [], "需注意 3": [], "未判定 0": [], "就绪 21": [],
 }
 # 页签带状态名：只有色点+数字时，用户不点进去就不知道是什么状态
-order = ["全部 30", "● 阻塞 2", "● 仅存测试版 4", "● 需注意 3", "● 未判定 0", "● 就绪 21"]
-TAB_COLOR = {"● 阻塞 2": RED, "● 仅存测试版 4": ORANGE, "● 需注意 3": YELLOW,
-             "● 未判定 0": GRAY, "● 就绪 21": GREEN}
+# ⚠️ 名字里**不要再写 "●"**：圆点由 _tab_widget 画，写进去会变成两个点（实测踩过）
+order = ["全部 30", "阻塞 2", "仅存测试版 4", "需注意 3", "未判定 0", "就绪 21"]
+TAB_COLOR = {"阻塞 2": RED, "仅存测试版 4": ORANGE, "需注意 3": YELLOW,
+             "未判定 0": GRAY, "就绪 21": GREEN}
 for name in order:
     page = QWidget(); pl2 = QVBoxLayout(page); pl2.setContentsMargins(0, 8, 0, 0)
     tbl = QTableWidget(len(ROWS[name]), 4)
@@ -118,14 +135,18 @@ for name in order:
     tbl.setShowGrid(False)
     tbl.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-    # 列宽：名称列 Stretch，其余按内容自适应（上一版把它们也设成 Stretch，列间空隙更大）
+    # 列宽（用户反馈调整）：
+    #   模组列**收窄**并把富余空间让给版本列；状态列加宽到能完整放下「仅存测试版」。
+    #   之前让名称列 Stretch，结果状态列被挤到放不下四个字。
     hh = tbl.horizontalHeader()
     hh.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-    hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-    for c in (1, 2, 3):
-        hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
-    # 状态列的手动留白，避免 chip 紧贴名称列
-    tbl.setColumnWidth(1, max(tbl.columnWidth(1), 120))
+    hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)   # 模组
+    hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)         # 状态
+    hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)       # 版本（吃掉富余空间）
+    hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)         # 发布日期
+    tbl.setColumnWidth(0, 300)
+    tbl.setColumnWidth(1, 180)     # 「● 仅存测试版」实测需要约 160px
+    tbl.setColumnWidth(3, 130)
     for r, (nm, col, st, ver, dt) in enumerate(ROWS[name]):
         tbl.setItem(r, 0, QTableWidgetItem(nm))
         tbl.setCellWidget(r, 1, chip("● " + st, col))
@@ -133,10 +154,12 @@ for name in order:
         tbl.setItem(r, 3, QTableWidgetItem(dt))
         tbl.setRowHeight(r, 40)
     pl2.addWidget(tbl)
-    idx = tabs.addTab(page, name)
-    if name in TAB_COLOR:
-        # ⚠️ setTabText 不解析 HTML（会原样显示 <span>），必须用 setTabTextColor
-        tabs.tabBar().setTabTextColor(idx, QColor(TAB_COLOR[name]))
+    # 页签用**自定义控件**：点与文字分开着色。
+    # ⚠️ 不能用 setTabTextColor —— 它给整条标签上色，且**选中态会被 QSS 覆盖**，
+    #    结果一选中状态色就丢了（用户反馈：点的颜色要常驻）。
+    idx = tabs.addTab(page, "")
+    tabs.tabBar().setTabButton(idx, QTabBar.ButtonPosition.LeftSide,
+                               _tab_widget(name, TAB_COLOR.get(name)))
 bl.addWidget(tabs)
 outer.addWidget(body, 1)
 
