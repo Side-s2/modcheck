@@ -280,10 +280,18 @@ def render_summary(report: Report, console: Console) -> None:
 
 
 def render_next_steps(report: Report, console: Console) -> None:
-    """渲染「下一步」（没有问题项时整段替换）。"""
-    summary = report.summary
-    if summary["total_checked"] == 0:
-        console.line(t("verdict.empty", name=report.profile_name))
+    """渲染「下一步」（没有问题项时整段替换）。
+
+    ⚠️ 两个判据都不能用 "total_checked == 0"：
+      * 被 Ctrl+C 中断时 completed=0，若走空清单分支会打印**第二条错误结论**
+        （"清单里没有任何模组"），还会建议用户去重扫 mods 文件夹 ——
+        那可能覆盖用户手工编辑过的清单，是会诱导破坏性操作的错误（实测）。
+      * 真正的"空清单"判据是**清单里一条记录都没有**，即 report.total == 0。
+    另外结论行已经由 verdict_line 打过一次，这里不再重复打（D-22）。
+    """
+    if report.interrupted:
+        return                       # 中断路径只输出中断摘要
+    if report.total == 0:
         console.line()
         console.line(t("report.next.title"))
         console.line(t("report.empty.next1"))
