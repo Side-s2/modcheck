@@ -84,6 +84,9 @@ _MESSAGES: Final[dict[str, str]] = {
     # ---------------------------------------------------------------- 原因 / 建议
     "reason.ok": "{loader} 最新版 {version} 已经支持 MC {mc}",
     "advice.ok": "无需处理",
+    "reason.ok_same_version": "{loader} 最新版 {version} 就是支持 MC {mc} 的那个版本（版本号相同）",
+    "advice.degraded.no_action": "无需处理：你本地就是当前可用的最新版本",
+    "advice.degraded.replace": "把 {current} 换成 {target}",
     "reason.old_version_only": "{loader} 最新版 {version} 不支持 MC {mc}",
     "advice.old_version_only": "想换最新版请自行确认是否真的兼容；也可以先用可用的那个版本",
     "advice.old_version_only_wait": "等待作者更新；或在升级前先把这个模组移除",

@@ -113,8 +113,12 @@ def test_render_report_layout_rules() -> None:
                     available_loaders=("forge", "neoforge")))
     render_report(report, console)
     text = stream.getvalue()
-    assert "═" * 100 in text
-    assert "─" * 100 in text
+    # D44：分隔线宽度 = 表格实际宽度（不再是与内容无关的终端宽度）
+    rules = {display_width(line) for line in text.splitlines() if line and set(line) == {"═"}}
+    assert rules and len(rules) == 1, rules
+    group_rules = {display_width(line) for line in text.splitlines()
+                   if line and set(line) == {"─"}}
+    assert group_rules == rules
     assert "🔴 阻塞（1 个）" in text
     assert "🟢 就绪（1 个）" in text
     assert "🟡 需降级（" not in text        # 空组不打印（汇总行里的计数不算）

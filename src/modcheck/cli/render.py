@@ -113,6 +113,12 @@ def column_widths(items: Sequence[ReportItem]) -> tuple[int, int, int]:
 ROW_PREFIX_WIDTH = 8
 
 
+def table_width(widths: tuple[int, int, int], show_date: bool) -> int:
+    """表格实际占用的显示宽度（行首 + 三列 + 列间距 + 日期列）。"""
+    return (ROW_PREFIX_WIDTH + widths[0] + 2 + widths[1] + 2 + widths[2]
+            + ((2 + DATE_WIDTH) if show_date else 0))
+
+
 def layout_widths(items: Sequence[ReportItem], terminal: int) -> tuple[tuple[int, int, int], bool]:
     """按终端宽度决定列宽与是否显示日期列（窄终端必须真的变窄）。
 
@@ -174,8 +180,17 @@ def _row(item: ReportItem, index: int, widths: tuple[int, int, int],
 def render_report(report: Report, console: Console, *, quiet: bool = False) -> None:
     """渲染整份报告（PRD §5.3 的排版合同）。"""
     console.clear_progress()
+    items = list(report.iter_items())
+    # 重定向/管道时不能因为"终端宽度"丢信息：文件里没有折行问题。
+    # 实测过报告整列丢发布日期 —— "少信息"比排版难看严重得多。
+    layout_terminal = console.width if console.is_tty else max(console.width, 200)
+    widths, show_date = layout_widths(items, layout_terminal)
+    # D44：分隔线宽度必须等于**表格实际占用的宽度**。
+    # 之前非 TTY 下布局宽度被抬到 200、分隔线也按 200 画，而列宽按内容最多只有 116，
+    # 于是"线比内容长 84 列"，重定向到文件后 cat 出来是断的。
+    rule = max(ROW_PREFIX_WIDTH, table_width(widths, show_date)) if items else console.width
     header = t("report.header.title")
-    console.line("═" * console.width)
+    console.line("═" * rule)
     console.line(header)
     if report.profile_saved:
         console.line(t("report.header.profile", name=report.profile_name,
@@ -191,23 +206,18 @@ def render_report(report: Report, console: Console, *, quiet: bool = False) -> N
     console.line(t("report.header.time", time=report.generated_at,
                    elapsed=f"{report.elapsed:.0f}", requests=report.requests_made,
                    cache_hits=report.cache_hits))
-    console.line("═" * console.width)
+    console.line("═" * rule)
     console.prose(verdict_line(report))
     if report.verdict().value == "all_blocked":
         console.prose(t("verdict.all_blocked.hint"))
     console.line()
 
-    items = list(report.iter_items())
-    # 重定向/管道时不能因为"终端宽度"丢信息：文件里没有折行问题。
-    # 实测过报告整列丢发布日期 —— "少信息"比排版难看严重得多。
-    layout_terminal = console.width if console.is_tty else max(console.width, 200)
-    widths, show_date = layout_widths(items, layout_terminal)
     for status in GROUP_ORDER:
         group = report.groups.get(status, [])
         if not group:
             continue  # 空组不打印标题
         console.prose(_group_title(status, group, report))
-        console.rule("─")
+        console.line("─" * rule)
         if status is Status.READY and quiet:
             console.line(t("group.ready.quiet", count=len(group)))
             console.line()
@@ -222,7 +232,7 @@ def render_report(report: Report, console: Console, *, quiet: bool = False) -> N
         console.prose(t("report.origin.guess_note"))
         console.line()
     console.prose(summary_line(report))
-    console.line("═" * console.width)
+    console.line("═" * rule)
     console.line()
     render_next_steps(report, console)
 

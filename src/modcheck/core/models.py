@@ -71,6 +71,8 @@ class ReasonCode(str, Enum):
     """判定原因码；取值必须与基线 §7 的表格逐字一致。"""
 
     OK = "OK"
+    #: 最新版与"目标 MC 上能用的那个版本"版本号相同（D40）
+    OK_SAME_VERSION_NUMBER = "OK_SAME_VERSION_NUMBER"
     OLD_VERSION_ONLY = "OLD_VERSION_ONLY"
     PRERELEASE_ONLY = "PRERELEASE_ONLY"
     NO_LOADER = "NO_LOADER"

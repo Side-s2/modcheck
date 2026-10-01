@@ -236,8 +236,38 @@ def rerun_command(report: Report) -> str:
         + " --loader " + report.loader.value + " --refresh"
 
 
+def needs_action(item: ReportItem) -> bool:
+    """该问题项是否**需要用户动手**（裁决 D43）。
+
+    🟡 组里相当一部分其实是"你本地就是当前可用的最新版"，用户什么都不用做；
+    把它们也算进待办，"下一步"就会写出"先拍板 🟡 的 24 个"，制造 24 件待办的错觉。
+    """
+    if item.status is Status.DEGRADED:
+        current = item.current_version
+        if not current:
+            return True                       # 不知道本地版本 -> 需要人工确认
+        if item.reason is ReasonCode.OLD_VERSION_ONLY and item.latest_compat is not None:
+            return current != item.latest_compat.version_number
+        if item.reason is ReasonCode.PRERELEASE_ONLY and item.latest_for_loader is not None:
+            return current != item.latest_for_loader.version_number
+        return True
+    return item.status in (Status.BLOCKED, Status.UNKNOWN)
+
+
+def actionable_degraded(report: Report) -> int:
+    """「下一步」里要统计的 🟡 数量：只算真正需要动作的。"""
+    return sum(1 for item in report.groups.get(Status.DEGRADED, []) if needs_action(item))
+
+
 def advice_text(item: ReportItem, report: Report) -> str:
     """详情行「建议」的正文。"""
+    if item.status is Status.DEGRADED:
+        if not needs_action(item):
+            return t("advice.degraded.no_action")
+        if item.reason is ReasonCode.OLD_VERSION_ONLY and item.latest_compat is not None \
+                and item.current_version:
+            return t("advice.degraded.replace", current=item.current_version,
+                     target=item.latest_compat.version_number)
     key = item.hint_key
     loader = report.loader.display_name
     if key == "advice.error":
@@ -303,14 +333,14 @@ def build_action_hints(report: Report) -> list[str]:
     """报告末尾的「下一步」文本行（按实际存在的组动态生成）。"""
     data = report.summary
     lines: list[str] = []
-    if data["blocked"] == 0 and data["degraded"] == 0 and data["unknown"] == 0:
+    if data["blocked"] == 0 and actionable_degraded(report) == 0 and data["unknown"] == 0:
         lines.append(t("report.next.none"))
         return lines
     lines.append(t("report.next.title"))
     if data["blocked"] > 0:
         lines.append(t("report.next.step1", blocked=data["blocked"]))
     if data["degraded"] > 0:
-        lines.append(t("report.next.step2", degraded=data["degraded"]))
+        lines.append(t("report.next.step2", degraded=actionable_degraded(report)))
     if data["unknown"] > 0:
         lines.append(t("report.next.step3", unknown=data["unknown"]))
         lines.append(t("report.next.command", profile=report.profile_name,
@@ -320,6 +350,7 @@ def build_action_hints(report: Report) -> list[str]:
 
 __all__ = [
     "GROUP_ORDER", "CHECKED_STATUSES", "Verdict", "ReportItem", "Report",
+    "needs_action", "actionable_degraded",
     "reason_text", "advice_text", "verdict_line", "summary_line", "origin_line",
     "build_action_hints", "loader_display_list", "rerun_command",
 ]
