@@ -36,4 +36,7 @@ config/
 .vscode/
 *.swp
 Thumbs.db
-desktop.initests/_fixtures/
+desktop.ini
+
+# ---- 现场生成的演示环境（tests/make_fixtures.py，二进制不入库）----
+tests/_fixtures/
