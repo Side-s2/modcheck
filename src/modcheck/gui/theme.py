@@ -68,6 +68,58 @@ QTableWidget::item {{ padding: 10px 8px; border-bottom: 1px solid #F0F2F5; }}
 QTableWidget::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
 QHeaderView::section {{ background: {CARD}; border: none; border-bottom: 1px solid {BORDER};
                         padding: 10px 8px; color: {MUTED}; font-weight: 600; text-align: left; }}
+
+/* ---------- 输入控件 ---------- */
+QLineEdit, QSpinBox, QDoubleSpinBox {{
+    background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; padding: 7px 10px;
+    selection-background-color: {ACCENT_SOFT}; selection-color: {TEXT};
+}}
+QLineEdit:hover, QSpinBox:hover {{ border-color: #C7CCD4; }}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border: 1px solid {ACCENT}; }}
+QSpinBox::up-button, QSpinBox::down-button {{ width: 18px; border: none; background: transparent; }}
+QCheckBox {{ spacing: 7px; }}
+
+/* ---------- 列表 ---------- */
+QListWidget {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px; }}
+QListWidget::item {{ padding: 7px 8px; border-radius: 6px; }}
+QListWidget::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
+QListWidget::item:hover {{ background: #F5F7FA; }}
+
+/* ---------- 下拉框的弹出列表 ----------
+   QComboBox 的下拉是**独立的顶层视图**，不写这条它就用系统默认灰白样式，
+   跟整体主题明显不搭（视觉评审发现）。 */
+QComboBox QAbstractItemView {{
+    background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px;
+    outline: none; selection-background-color: {ACCENT_SOFT}; selection-color: {TEXT};
+}}
+QComboBox::down-arrow {{
+    image: none; width: 0; height: 0; margin-right: 10px;
+    border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-top: 5px solid {MUTED};
+}}
+QComboBox::down-arrow:on {{ border-top: 5px solid {ACCENT}; }}
+
+/* ---------- 滚动条 ----------
+   默认滚动条是 Windows 原生样式（有箭头按钮、直角、灰蓝），与整体不搭。 */
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 0; }}
+QScrollBar::handle:vertical {{ background: #C9CFDA; border-radius: 5px; min-height: 32px; }}
+QScrollBar::handle:vertical:hover {{ background: #AEB6C4; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0; }}
+QScrollBar::handle:horizontal {{ background: #C9CFDA; border-radius: 5px; min-width: 32px; }}
+QScrollBar::handle:horizontal:hover {{ background: #AEB6C4; }}
+/* 去掉两端的箭头按钮与空白页 */
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; border: none; background: none; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
+
+/* ---------- 焦点提示 ----------
+   默认的**虚线焦点框**（点列表/表格时文字周围那圈点线）与主题不符。
+   注意：不能简单地 outline:none 了事 —— 那会让键盘用户完全看不到焦点在哪。
+   这里改成"选中用底色、键盘焦点用一条主题色细边"，既好看又不丢可访问性。 */
+QTableWidget::item:focus, QListWidget::item:focus, QTabBar::tab:focus {{ outline: none; }}
+QTableWidget {{ outline: none; }}
+QListWidget {{ outline: none; }}
+QPushButton:focus {{ border: 1px solid {ACCENT}; }}
+QPushButton#primary:focus {{ border: 1px solid {ACCENT_DARK}; }}
 """
 
 

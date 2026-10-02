@@ -210,12 +210,18 @@ class DownloadDialog(QDialog):
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
         self._worker.finished.connect(self._on_finished)
-        self.bar.setRange(0, 0)
+        # ⚠️ 用**有界**进度条（0..文件总数）而不是循环条：
+        # 循环条给不出"还剩多少"的信息，而下载恰恰是用户最想知道进度的时候。
+        # 下载是按文件并发的，回调给的就是 (已完成, 总数, 文件名)，直接对应。
+        total = len(self._prep.plan.items) if self._prep else 0
+        self.bar.setRange(0, max(total, 1))
+        self.bar.setValue(0)
         self.btn_go.setText("取消")
-        self.lb_progress.setText("正在下载……")
+        self.lb_progress.setText(f"正在下载 0/{total}……")
         self._worker.start()
 
     def _on_progress(self, done: int, total: int, name: str) -> None:
+        """逐个文件推进（与检查界面同一套观感）。"""
         if self.bar.maximum() != total:
             self.bar.setRange(0, total)
         self.bar.setValue(done)
