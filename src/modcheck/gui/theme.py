@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QWidget)
 
 # ---------------------------------------------------------------- 颜色
 BG = "#F4F5F7"          # 窗口底
@@ -127,6 +127,40 @@ QPushButton#primary:focus {{ border: 1px solid {ACCENT_DARK}; }}
 """
 
 
+class _PopupItemDelegate(QStyledItemDelegate):
+    """下拉弹层的条目自绘。
+
+    为什么需要它：Fusion 样式会给「当前项」画一个**直角焦点框**，
+    而且那个框**样式表管不到** —— 试过 ::item 的 border / outline、
+    控件级样式、去掉视图焦点、NoFrame + lineWidth(0)，方框依旧在
+    （用户看到的就是"右侧和下侧两条线特别明显"）。
+
+    与其继续和样式引擎较劲，不如自己画：**只画圆角底色和文字，不画任何边框**。
+    """
+
+    def paint(self, painter, option, index) -> None:
+        from PyQt6.QtCore import QRectF
+        from PyQt6.QtGui import QPalette
+
+        painter.save()
+        rect = QRectF(option.rect).adjusted(2, 2, -2, -2)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        if selected:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(ACCENT_SOFT))
+            painter.drawRoundedRect(rect, 6, 6)
+        painter.setPen(QColor(TEXT if selected else TEXT))
+        painter.drawText(option.rect.adjusted(10, 0, -8, 0),
+                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                         str(index.data() or ""))
+        painter.restore()
+
+    def sizeHint(self, option, index):                 # noqa: D102
+        size = super().sizeHint(option, index)
+        size.setHeight(max(size.height(), 28))
+        return size
+
+
 def style_combo_popup(combo) -> None:
     """给下拉框的弹层容器套上主题圆角边框。
 
@@ -141,17 +175,19 @@ def style_combo_popup(combo) -> None:
     if isinstance(container, QFrame):
         # frameShape=NoFrame 还不够：容器仍然保留 1px 的 frameWidth，
         # 画出来就是「圆角框里再套一个直角实线框」（实测 frameWidth 仍是 1）。
+        # 做减法：**不给容器画边框**。
+        # 之前我给它加了 1px 边框想"盖住"原生框，结果右/下两条线反而更明显
+        # （用户原话是"越描越黑"）—— 原生框本来就在，再加一层只会叠加。
+        # 现在只保留背景与圆角，视觉上干净且不会出现多余线条。
         container.setFrameShape(QFrame.Shape.NoFrame)
         container.setLineWidth(0)
         container.setMidLineWidth(0)
         container.setStyleSheet(
-            f"QFrame {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; }}")
-    # 列表视图与条目用控件级样式（优先级高于应用级 QSS），
-    # 否则 Fusion 会给当前条目画一个直角选中框。
+            f"QFrame {{ background: {CARD}; border: none; border-radius: 8px; }}")
+    # 自绘条目：不再依赖样式表去"盖住"那个焦点框（盖不住，实测过四种写法）
+    combo.view().setItemDelegate(_PopupItemDelegate(combo.view()))
     combo.view().setStyleSheet(
-        f"QListView {{ background: transparent; border: none; outline: none; }}"
-        f"QListView::item {{ padding: 6px 10px; border: none; border-radius: 6px; }}"
-        f"QListView::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}")
+        f"QListView {{ background: transparent; border: none; outline: none; }}")
 
 
 def status_chip(status: str) -> QLabel:

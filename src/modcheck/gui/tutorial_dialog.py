@@ -39,8 +39,10 @@ class TutorialDialog(QDialog):
         body.setSpacing(12)
         self.list = QListWidget()
         self.list.setFixedWidth(240)
-        for i, (heading, _) in enumerate(self._sections, start=1):
-            self.list.addItem(f"{i}. {heading}")
+        # ⚠️ 章节标题**自带序号**（"1. 这个工具做什么…"），
+        # 这里再加一次就会显示成「1. 1. …」（实测被用户看到）。
+        for heading, _ in self._sections:
+            self.list.addItem(heading)
         self.list.currentRowChanged.connect(self._show)
         body.addWidget(self.list)
 

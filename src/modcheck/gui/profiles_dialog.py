@@ -6,13 +6,15 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QInputDialog,
-                             QLabel, QListWidget, QMessageBox, QPushButton, QTableWidget,
-                             QTableWidgetItem, QVBoxLayout, QWidget)
+from pathlib import Path
+
+from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog, QHBoxLayout, QHeaderView,
+                             QInputDialog, QLabel, QListWidget, QMessageBox, QPushButton,
+                             QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from modcheck.core.models import MatchStatus
 from modcheck.gui import theme
-from modcheck.gui.dialogs import describe, show_warning
+from modcheck.gui.dialogs import describe, show_info, show_warning
 
 
 class ProfilesDialog(QDialog):
@@ -50,7 +52,7 @@ class ProfilesDialog(QDialog):
         self.list.currentTextChanged.connect(self._on_pick_profile)
         left.addWidget(self.list, 1)
         for text, slot in (("新建空清单", self._on_new), ("重命名清单", self._on_rename),
-                           ("删除清单", self._on_delete)):
+                           ("导出清单…", self._on_export), ("删除清单", self._on_delete)):
             btn = QPushButton(text)
             btn.clicked.connect(slot)
             left.addWidget(btn)
@@ -239,6 +241,34 @@ class ProfilesDialog(QDialog):
             return
         self._profile = None
         self._reload_profiles()
+
+    def _on_export(self) -> None:
+        """导出模组清单（给别的服主看）。
+
+        从**磁盘上的清单**导出，而不是界面上这份 —— 保证导出的就是真实内容，
+        不会把还没保存的中间状态带出去。
+        """
+        name = self._current_name()
+        if not name:
+            return
+        from modcheck.flows.export import export_modlist, modlist_filename
+
+        path, chosen = QFileDialog.getSaveFileName(
+            self, "导出模组清单", modlist_filename(name, "md"),
+            "Markdown（便于交流） (*.md);;JSON（可导回本工具） (*.json)")
+        if not path:
+            return
+        fmt = "json" if path.lower().endswith(".json") or "JSON" in chosen else "md"
+        try:
+            export_modlist(self._backend.load_profile(name), Path(path), fmt=fmt)
+        except Exception as exc:
+            show_warning(self, "导出失败",
+                         "清单没有写出去。请换一个位置，或确认目标文件没有被其它程序打开。",
+                         detail=describe(exc))
+            return
+        show_info(self, "已导出",
+                  f"清单「{name}」已导出。\n\n"
+                  "Markdown 那份适合直接发给别人看；JSON 那份可以导回本工具。")
 
     def _on_toggle_ignore(self) -> None:
         selector = self._selected_mod()

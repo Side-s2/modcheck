@@ -45,20 +45,29 @@ class DownloadWorker(QThread):
         #   TypeError: progressed[int, int, str].emit(): argument 3 has unexpected type 'int'
         # 异常发生在回调里 -> 该文件被判为失败 -> 已下好的文件被清理。
         # 用户看到的就是「文件一闪而过 + 24 个全失败」，而其实是**全部下成功了**。
-        total = len(self._prep.plan.items) if self._prep else 0
-        state = {"done": 0}
+        total = max(len(self._prep.plan.items) if self._prep else 0, 1)
+        state = {"done": 0, "name": ""}
+
+        def on_item(item, ok: bool) -> None:
+            """**每个文件真正结束**时才计数 —— 这才是"已完成 N 个"的正确来源。
+
+            ⚠️ 原先我用 on_progress 里"条目变了就 +1"，但下载是**并发 3 个**的：
+            三个文件的进度回调交替触发，计数飞快跑到 24/24，
+            而此时其实还有文件在传 —— 用户看到的就是「进度条满了但文件夹还在跳」。
+            """
+            state["done"] = min(state["done"] + 1, total)
+            state["name"] = item.target.name
+            self.progressed.emit(state["done"], total, state["name"])
 
         def on_progress(item, done_bytes: int, total_bytes: int) -> None:
-            # 每个文件开始时把"已完成数"推进一位
-            if item is not state.get("last"):
-                state["last"] = item
-                state["done"] = min(state["done"] + 1, max(total, 1))
-            self.progressed.emit(state["done"], max(total, 1), item.target.name)
+            # 字节级回调只用来更新"当前文件名"，不参与计数（并发下会重复/乱序）
+            state["name"] = item.target.name
 
         try:
             outcome = self._backend.run_download(
                 self._prep, overwrite=self._overwrite,
-                on_progress=on_progress, should_stop=lambda: self._stop)
+                on_progress=on_progress, on_item=on_item,
+                should_stop=lambda: self._stop)
             self.done.emit(outcome)
         except Exception as exc:
             self.failed.emit(f"{type(exc).__name__}: {exc}")
