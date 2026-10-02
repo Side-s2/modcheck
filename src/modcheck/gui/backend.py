@@ -95,10 +95,16 @@ class CliBackend:
 
     # ---------------------------------------------------------------- 版本
     def versions(self) -> Sequence[str]:
-        """官方正式版列表（最近的在前）。取不到就给空 —— 界面会显示（无），不阻塞使用。"""
+        """**全部**官方正式版（最近的在前）。
+
+        ⚠️ 以前只取最近 10 个，于是"往更早的版本回退"这件事在界面上根本做不到。
+        现在取全量：下拉里只显示前几个（够用且不刷屏），但**校验自定义输入时用全量**，
+        这样用户填 1.21.4 这种旧版本也能被正确接受。
+        取不到就给空 —— 界面显示（无），不阻塞其它功能。
+        """
         if self._versions is None:
             try:
-                releases = MojangVersions(self.runtime.client).list_releases(limit=10)
+                releases = MojangVersions(self.runtime.client).list_releases()
                 self._versions = [r.version_id for r in releases]
             except ProviderError:
                 self._versions = []

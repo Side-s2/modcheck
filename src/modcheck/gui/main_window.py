@@ -15,12 +15,16 @@ from typing import Callable, Protocol, Sequence
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout,
-                             QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar,
+                             QHeaderView, QInputDialog, QLabel, QMainWindow, QMessageBox,
+                             QProgressBar,
                              QPushButton, QTabBar, QTableWidget, QTableWidgetItem,
                              QVBoxLayout, QWidget)
 
 from modcheck.gui import theme
 from modcheck.gui.dialogs import describe, show_warning
+
+#: 目标版本下拉里的「自定义…」条目 —— 选它才弹窗手输
+CUSTOM_MC = "自定义…"
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +83,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._service = service
         self._worker: CheckWorker | None = None
+        #: 上一次有效的目标版本下标 —— 用户取消「自定义」时要回到这里
+        self._last_mc_index: int = 0
         self._rows: list[Row] = []
         self.setWindowTitle("Minecraft 模组兼容性检查")
         self.resize(1180, 900)
@@ -178,7 +184,12 @@ class MainWindow(QMainWindow):
         row.setSpacing(10)
         self.cb_profile = self._combo(row, "模组清单",
                                       [f"{n}（{c} 个模组）" for n, c in self._service.profiles()])
-        self.cb_mc = self._combo(row, "目标版本", list(self._service.versions()), editable=True)
+        # 目标版本：**常用的是从列表里选**（作者反馈：只让手输反而奇怪）。
+        # 所以列最近 9 个 + 一个「自定义…」——选它才弹窗输入，并按官方全量清单校验。
+        known = list(self._service.versions())
+        self._known_mc = known
+        self.cb_mc = self._combo(row, "目标版本", known[:9] + [CUSTOM_MC])
+        self.cb_mc.activated.connect(self._on_mc_activated)
         self.cb_loader = self._combo(row, "服务端加载器", ["Fabric", "NeoForge", "Forge"])
         row.addStretch(1)
         self.btn_go = QPushButton("开始检查")
@@ -348,6 +359,37 @@ class MainWindow(QMainWindow):
 
     def _profile_name(self) -> str:
         return self.cb_profile.currentText().split("（")[0]
+
+    def _on_mc_activated(self, index: int) -> None:
+        """选中「自定义…」时弹窗输入版本号，并按**官方全量清单**校验。
+
+        校验用全量、显示只用前 9 个：这样既能保持下拉简洁，
+        又能填 1.21.4 这类较早的版本（以前下拉只有 10 个且不可编辑，根本填不进去）。
+        """
+        if self.cb_mc.itemText(index) != CUSTOM_MC:
+            self._last_mc_index = index
+            return
+        text, ok = QInputDialog.getText(
+            self, "自定义游戏版本",
+            "请输入官方正式版版本号（例如 1.21.4）：",
+            text=self.cb_mc.itemText(self._last_mc_index) if self._last_mc_index >= 0 else "")
+        value = (text or "").strip()
+        if not ok or not value:
+            self.cb_mc.setCurrentIndex(max(self._last_mc_index, 0))   # 取消：回到原来那个
+            return
+        if value not in self._known_mc:
+            # 版本号必须真实存在 —— 否则检查时会得到"查不到"，用户却以为是模组的问题
+            QMessageBox.warning(
+                self, "没有该版本",
+                f"官方正式版列表里没有「{value}」。\n\n"
+                "请检查版本号是否写错；也可以先运行 modcheck versions 查看全部正式版。")
+            self.cb_mc.setCurrentIndex(max(self._last_mc_index, 0))
+            return
+        # 填进下拉并选中它（放在最前面，下次还能直接选到）
+        if value not in [self.cb_mc.itemText(i) for i in range(self.cb_mc.count())]:
+            self.cb_mc.insertItem(0, value)
+        self.cb_mc.setCurrentIndex(self.cb_mc.findText(value))
+        self._last_mc_index = self.cb_mc.currentIndex()
 
     def _mc_name(self) -> str:
         """目标版本：**剥掉可能的中文后缀**，并去掉空格。

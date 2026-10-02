@@ -154,8 +154,17 @@ class _PopupItemDelegate(QStyledItemDelegate):
                          str(index.data() or ""))
         painter.restore()
 
-    # ⚠️ 不要覆写 sizeHint：自绘 + 自定义高度会让文字纵向挤在一起（实测被用户看到）。
-    # 高度交给样式表（QComboBox QAbstractItemView::item 的 padding）控制。
+    def sizeHint(self, option, index):                 # noqa: D102
+        """行高必须按**字体真实高度**算。
+
+        ⚠️ 两个极端都错过一次：
+          · 硬编码 28 像素 -> 不同 DPI/字号下会**纵向重叠**，文字糊成一团；
+          · 干脆不覆写 -> 自绘时行高不够，同样重叠（用户两次都看到了）。
+        正确做法是取 option.fontMetrics.height() 再加上下留白。
+        """
+        size = super().sizeHint(option, index)
+        size.setHeight(max(size.height(), option.fontMetrics.height() + 12))
+        return size
 
 
 def style_combo_popup(combo) -> None:
