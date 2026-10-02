@@ -205,7 +205,9 @@ class CliBackend:
 
     def save_settings(self, settings) -> None:
         """写回设置。非法值由 core/settings_ops 的 setter 拦在前面，不该走到这里。"""
-        save_settings(settings, self.runtime.settings_path)
+        # ⚠️ 参数顺序是 (path, settings)，不是 (settings, path) ——
+        # 写反了会报 "TypeError: expected str, bytes or os.PathLike object, not Settings"
+        save_settings(self.runtime.settings_path, settings)
 
     def settings_ops(self):
         """把 core.settings_ops 整个暴露给设置对话框 —— 校验规则只有一份实现。"""

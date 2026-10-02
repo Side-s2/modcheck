@@ -186,14 +186,18 @@ class DownloadDialog(QDialog):
 
     # ---------------------------------------------------------------- 下载
     def _overwrite_map(self) -> dict:
-        """冲突文件 → 是否覆盖。未勾选的走"跳过"，不是"报错"。"""
+        """冲突文件 → 是否覆盖。未勾选的走「跳过」，不是「报错」。
+
+        ⚠️ 键必须是**目标文件名**（core 的 overwrite_key 就是这么定的），
+        写成完整路径键就对不上，用户勾的「不覆盖」会被静默忽略（实测踩过）。
+        """
         prep, out = self._prep, {}
         conflicts = {id(c) for c in prep.conflicts}
         for i, item in enumerate(prep.plan.items):
             if id(item) not in conflicts:
                 continue
             widget = self.table.cellWidget(i, 4)
-            out[str(item.target)] = bool(widget and widget.isChecked())
+            out[item.target.name] = bool(widget and widget.isChecked())
         return out
 
     def _on_go(self) -> None:
@@ -235,10 +239,21 @@ class DownloadDialog(QDialog):
         # 只列**真正的下载失败**（failure_rows 是 3 元组，行数与 failed 相等）——
         # 用 failed_items 会把计划期跳过的条目也算进来，数字就对不上了
         if s.failure_rows:
-            names = "、".join(str(row[1]) for row in s.failure_rows[:8])
+            # ⚠️ 必须连**原因**一起给。只列文件名的话用户既不知道怎么办，
+            # 也没法向我们反馈到底出了什么事（收到过"24 个失败"却无从下手）。
+            from modcheck.i18n import t
+
+            lines = []
+            for name, key, detail in s.failure_rows[:10]:
+                try:
+                    why = t(key, detail=detail)
+                except Exception:
+                    why = str(detail or key)
+                lines.append(f"    · {name}\n        {why}")
+            more = "" if len(s.failure_rows) <= 10 else f"\n    …… 还有 {len(s.failure_rows) - 10} 个"
             QMessageBox.warning(self, "有文件没下成功",
-                                f"以下 {s.failed} 个文件下载失败：\n{names}\n\n"
-                                "可以稍后重试（已成功的不会重复下载）。")
+                                f"以下 {s.failed} 个文件下载失败：\n\n" + "\n".join(lines) + more +
+                                "\n\n可以稍后重试（已成功的不会重复下载）。")
 
     def _on_failed(self, message: str) -> None:
         self.lb_progress.setText("下载失败")
