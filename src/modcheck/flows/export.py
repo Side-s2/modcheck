@@ -114,4 +114,46 @@ def export_csv(report: Report, path: Path) -> None:
     _atomic_write(path, "\ufeff" + buffer.getvalue())
 
 
-__all__ = ["default_filename", "export_json", "export_markdown", "export_csv", "CSV_HEADER"]
+#: 模组清单交流用的默认文件名前缀
+MODLIST_PREFIX = "modlist_"
+
+
+def modlist_filename(profile_name: str, ext: str) -> str:
+    """导出模组清单的默认文件名（与报告导出同一套命名习惯）。"""
+    safe = "".join(ch for ch in profile_name if ch not in '\\/:*?"<>|').strip() or "profile"
+    return MODLIST_PREFIX + safe + "." + ext
+
+
+def export_modlist(profile, path: Path, *, fmt: str = "md") -> None:
+    """导出**模组清单**（供服主之间交流）。
+
+    与报告导出（export_markdown 等）**不是一回事**：
+      · 报告是一次检查的结果，带状态与建议；
+      · 清单只是「我这个包里有哪些模组」，与查没查过无关。
+    所以这里**不下任何结论**，只列事实，外加一个能点开的链接 ——
+    对方拿到后可以照着装，也可以把 JSON 那份导回自己的工具里。
+    """
+    target = Path(path)
+    mods = list(profile.mods)
+    if fmt == "json":
+        _atomic_write(target, json.dumps(profile.to_dict(), ensure_ascii=False, indent=2) + "\n")
+        return
+
+    lines = [f"# 模组清单：{profile.name}", ""]
+    if getattr(profile, "description", ""):
+        lines += [profile.description, ""]
+    ignored = sum(1 for e in mods if str(getattr(e, "match_status", "")) == "MatchStatus.IGNORED")
+    lines.append(f"共 {len(mods)} 个模组。" + (f"其中 {ignored} 个已标记为忽略。" if ignored else ""))
+    lines += ["", "| # | 模组 | 平台项目 | 文件名 |", "|---|------|---------|--------|"]
+    for i, entry in enumerate(mods, start=1):
+        name = (getattr(entry, "display_name", "") or getattr(entry, "cn_name", "")
+                or getattr(entry, "file_name", "") or getattr(entry, "key", ""))
+        slug = (getattr(entry, "sources", None) or {}).get("modrinth") or ""
+        link = f"[{slug}](https://modrinth.com/mod/{slug})" if slug else "（未识别）"
+        lines.append(f"| {i} | {name} | {link} | {getattr(entry, 'file_name', '') or ''} |")
+    lines += ["", "> 本清单由 modcheck 导出，不含任何检查结论。", ""]
+    _atomic_write(target, "\n".join(lines))
+
+
+__all__ = ["default_filename", "export_json", "export_markdown", "export_csv", "CSV_HEADER",
+           "export_modlist", "modlist_filename"]
