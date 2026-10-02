@@ -14,6 +14,14 @@
   · 下载页新增"是否同时下载 🟠 仅存测试版"询问（默认否，显式开关，作者要求）：
     **本套快照不含菜单 [5] 的下载询问**（只覆盖 --help/--version/profile/config/cache、
     参数错误与非 TTY 菜单），所以重新生成后 13 个用例逐字节一致，没有预期差异。
+  · 新增「导入清单文件」（flows/export.py 的 read_modlist / import_modlist + 菜单 [3] 的 [i]）：
+    本套 13 个用例同样**逐字节一致**，没有预期差异。原因：非 TTY 菜单那条用例
+    （menu_non_tty）在进菜单**之前**就以"当前不是交互式终端"退出了（cli/main.py），
+    根本不打印菜单项 —— 所以"菜单 [3] 里多一项"不会出现在本套快照里；它出现在
+    tests/test_r3_a16_screens.py 的列表屏黄金块里，那里已同步补上 [i] 那一行。
+    复核方式：重新生成后 git diff -- docs/research/golden，只应看到
+    config_show / profile_list / cache_info 三个含临时配置目录名的文件
+    （按上面的约定，复核完已 git checkout 还原）。
 """
 import json, os, subprocess, sys, tempfile
 from pathlib import Path

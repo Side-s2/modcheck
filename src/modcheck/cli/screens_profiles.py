@@ -3,12 +3,19 @@
 分层：屏幕与编排只在这里；所有业务规则在 core/profile_ops.py，写盘在 storage/profiles.py。
 三条硬约束（R3 任务书 §0）：Prompter 可注入；非 TTY 不提问（prompts.Prompter 已兜住）；
 只有打包产物才调 pause_before_exit（本模块不调）。
+
+[i]「导入清单文件」（作者要求：直接读别人导出的 JSON 清单）也在这块屏上：
+读取与校验在 flows/export.read_modlist，合并与写盘在 flows/export.import_modlist ——
+本模块只负责**问**（选文件、问合并进哪份清单）与**画**（回执与错误说明）。
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable, Final
 
 from modcheck.cli.context import AppContext
+from modcheck.cli.folderpicker import (FOLDER_CANCELLED, FOLDER_OK, FOLDER_UNAVAILABLE,
+                                       pick_file_ex)
 from modcheck.cli.prompts import (KIND_BACK, KIND_OK, KIND_QUIT, MAX_INVALID_TRIES, Prompter,
                                   read_line)
 from modcheck.cli.render import assemble_row
@@ -19,6 +26,7 @@ from modcheck.core.profile_ops import (INVALID_NAME_CHARS, PAGE_SIZE, display_na
                                        resolve_selector, set_ignored, set_source,
                                        validate_profile_name)
 from modcheck.errors import ConfigError, ModcheckError, ProviderError
+from modcheck.flows.export import import_modlist, read_modlist
 from modcheck.i18n import t
 from modcheck.storage.profiles import (ProfileSummary, delete_profile, list_profiles,
                                        load_profile, new_profile, profile_path, save_profile)
@@ -28,6 +36,10 @@ QUIT: Final[str] = KIND_QUIT
 BACK: Final[str] = KIND_BACK
 OPEN: Final[str] = "open"
 NEW: Final[str] = "new"
+IMPORT: Final[str] = "import"
+
+#: 路径两端可能被包上的引号（资源管理器"复制为路径"、拖拽进终端都会带）
+_PATH_QUOTES: Final[tuple[str, ...]] = ('"', "'")
 
 #: 管理屏的操作表：(按键, 文案 key, 处理函数名)
 #: 逐条长出来（R3-A04 查看 / A05 删除 / A06 指定 / A07 忽略 / A08 重命名 / A09 删除清单），
@@ -51,8 +63,12 @@ MATCH_STATUS_KEYS: Final[dict[str, str]] = {
 }
 
 
-def run_profiles_screen(ctx: AppContext) -> str:
-    """菜单 [3] 的入口：清单列表屏循环。返回 quit 表示回主菜单。"""
+def run_profiles_screen(ctx: AppContext, *,
+                        picker: Callable[[str], tuple[str, str | None]] | None = None) -> str:
+    """菜单 [3] 的入口：清单列表屏循环。返回 quit 表示回主菜单。
+
+    picker: 注入的"选择文件"对话框（测试用）；默认弹系统对话框，没有对话框则手输路径。
+    """
     while True:
         summaries = list_profiles(ctx.profiles_dir)
         action, value = _list_screen(ctx, ctx.prompter, summaries)
@@ -62,6 +78,8 @@ def run_profiles_screen(ctx: AppContext) -> str:
             return QUIT
         if action == NEW:
             _new_profile(ctx, ctx.prompter)
+        if action == IMPORT and _import_profile(ctx, ctx.prompter, picker=picker) == QUIT:
+            return QUIT
 
 
 def summary_line(summary: ProfileSummary, index: int) -> str:
@@ -91,12 +109,13 @@ def print_list_screen(ctx: AppContext, summaries: list[ProfileSummary]) -> None:
     if summaries:
         console.line(t("manage.hint.open"))
     console.line(t("manage.hint.new"))
+    console.line(t("manage.hint.import"))
     console.line(t("manage.hint.quit"))
 
 
 def _list_screen(ctx: AppContext, prompter: Prompter,
                  summaries: list[ProfileSummary]) -> tuple[str, str]:
-    """列表屏循环；返回 (OPEN, 清单名) / (NEW, "") / (QUIT, "")。"""
+    """列表屏循环；返回 (OPEN, 清单名) / (NEW, "") / (IMPORT, "") / (QUIT, "")。"""
     console = ctx.console
     while True:                                   # 重新画屏（[m] 输错后要回到这里）
         print_list_screen(ctx, summaries)
@@ -113,6 +132,8 @@ def _list_screen(ctx: AppContext, prompter: Prompter,
                     return OPEN, picked
                 if value.lower() == "n":
                     return NEW, ""
+                if value.lower() == "i":
+                    return IMPORT, ""
                 if value.lower() == "m" and summaries:
                     chosen = _ask_profile_name(ctx, prompter, summaries)
                     if chosen is not None:
@@ -584,10 +605,126 @@ def _new_profile(ctx: AppContext, prompter: Prompter) -> None:
         return
 
 
+# ---------------------------------------------------------------- 导入清单文件
+def _strip_quotes(text: str) -> str:
+    """去掉路径两端的包裹引号（"复制为路径"与拖拽进终端都会带上引号）。"""
+    value = text.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in _PATH_QUOTES:
+        return value[1:-1].strip()
+    return value
+
+
+def _choose_modlist_file(ctx: AppContext, prompter: Prompter,
+                         picker: Callable[[str], tuple[str, str | None]] | None) -> Path | None:
+    """选要导入的 .json 文件；返回 None 表示不导入（不是错误）。
+
+    两种"没有对话框"的处理与下载页选文件夹完全一致：用户按取消 = 不做这件事，
+    这台机器没有对话框（非 Windows / COM 不可用）= 回退手输路径。
+
+    picker 默认 None 时在**运行时**取模块里的 pick_file_ex —— 写成默认参数会在
+    import 时绑定，测试就没法替换它（会真的弹窗）。
+    """
+    console = ctx.console
+    chooser = picker or pick_file_ex
+    status, raw = chooser(t("manage.import.file_dialog"))
+    if status == FOLDER_OK and raw:
+        return Path(raw)
+    if status == FOLDER_CANCELLED:
+        console.line(t("manage.import.cancelled"))
+        return None
+    if status != FOLDER_UNAVAILABLE:              # 防御：未知状态也当"没有对话框"
+        console.line(t("menu.invalid_choice"))
+    console.line(t("manage.import.file_hint"))
+    tries = 0
+    while True:
+        kind, value = read_line(prompter, t("manage.import.file_prompt"))
+        if kind != KIND_OK:
+            return None
+        if not value:
+            continue
+        candidate = Path(_strip_quotes(value)).expanduser()
+        if candidate.is_file():
+            return candidate
+        # 路径打错很常见：这里重问，而不是把用户直接踢回列表屏
+        console.line(t("err.import.missing", path=candidate))
+        tries += 1
+        if tries >= MAX_INVALID_TRIES:
+            console.line(t("screen.too_many_invalid"))
+            return None
+
+
+def _ask_import_target(ctx: AppContext, prompter: Prompter,
+                       default_name: str) -> tuple[str, str | None]:
+    """问"合并进哪份清单"；直接回车就用清单自己的名字（同名清单会被合并）。
+
+    返回 (KIND_OK, 名称) / (KIND_BACK, None) / (KIND_QUIT, None)。
+    名称非法（含 \\ / : * ? " < > |）时重问，规则与"新建清单"共用一份校验。
+    """
+    console = ctx.console
+    tries = 0
+    while True:
+        kind, value = read_line(prompter, t("manage.import.target_prompt", name=default_name))
+        if kind != KIND_OK:
+            return kind, None
+        name = (value or default_name).strip()
+        try:
+            profile_path(ctx.profiles_dir, name)
+        except ConfigError as exc:
+            console.line(exc.message)
+            tries += 1
+            if tries >= MAX_INVALID_TRIES:
+                console.line(t("screen.too_many_invalid"))
+                return KIND_BACK, None
+            continue
+        return KIND_OK, name
+
+
+def _import_profile(ctx: AppContext, prompter: Prompter, *,
+                    picker: Callable[[str], tuple[str, str | None]] | None = None) -> str | None:
+    """[i] 导入清单文件：选文件 -> 读取并校验 -> 问合并进哪份清单 -> 合并写盘。
+
+    返回 QUIT 表示用户要求回主菜单；None 表示留在列表屏（含取消与"文件不对"）。
+    文件不对时只打印一条中文说明、**不写盘** —— 用户可以在列表屏上重来一次。
+    """
+    console = ctx.console
+    source = _choose_modlist_file(ctx, prompter, picker)
+    if source is None:
+        return None
+    console.line(t("manage.import.header", path=source))
+    try:
+        imported = read_modlist(source)
+    except ModcheckError as exc:
+        # 不是本工具的清单 / 结构不对 / 格式版本不支持：一律给中文说明，不把异常抛给用户
+        console.line(exc.message)
+        return None
+    default_name = (imported.name or source.stem).strip()
+    console.line(t("manage.import.summary", count=len(imported.mods), name=default_name))
+    kind, profile_name = _ask_import_target(ctx, prompter, default_name)
+    if kind == QUIT:
+        return QUIT
+    if profile_name is None:
+        return None
+    try:
+        outcome = import_modlist(
+            imported, profiles_dir=ctx.profiles_dir, profile_name=profile_name,
+            on_notice=lambda key, **kw: console.line(t(key, **kw)))
+    except ModcheckError as exc:
+        console.line(exc.message)
+        return None
+    for warning in outcome.stats.warnings:
+        console.line(warning)          # 同一 modid 多文件会让服务器起不来，必须显式告警
+    key = "manage.import.done.created" if outcome.created else "manage.import.done"
+    console.line(t(key, name=profile_name, count=outcome.imported,
+                   added=outcome.stats.added, merged=outcome.stats.merged,
+                   total=len(outcome.merged)))
+    console.line(t("manage.import.file", path=outcome.path))
+    return None
+
+
 def invalid_chars_text() -> str:
     """非法字符的展示文本（只此一份，避免文案与校验规则走样）。"""
     return " ".join(INVALID_NAME_CHARS)
 
 
 __all__ = ["run_profiles_screen", "MANAGE_ITEMS", "MANAGE_HANDLERS", "print_list_screen",
-           "summary_line", "invalid_chars_text", "QUIT", "BACK", "OPEN", "NEW"]
+           "summary_line", "invalid_chars_text", "QUIT", "BACK", "OPEN", "NEW", "IMPORT"]

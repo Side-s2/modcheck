@@ -47,6 +47,27 @@ exit=130 +「已按你的要求结束检查。本次检查了 0/1 个模组…�
 这恰好是"默认行为未变（默认仍然只下 🟢/🟡）"的证据，不是"忘了重新生成"。
 以后若给本脚本补一条 [5] 场景：它会比改动前多出上面那句询问，答 y 时还会多下 🟠 的
 latest_any（目标 MC + 加载器下放宽通道的最新版，不是 latest_for_loader）—— 那是预期，不是回归。
+
+⚠️ 一条**已核实为"无差异"**的记录（新增「导入清单文件」，复核记录）：
+该功能只动了 flows/export.py（新增 read_modlist / import_modlist）、i18n.py（新增文案）、
+cli/screens_profiles.py（菜单 [3] 的 [i]）与 cli/folderpicker.py（选文件对话框），
+没有一处落在 scan / check 两条流水线上。复核用的是本文档开头那套"改动前的代码"：
+    git worktree add --detach .toolchain\tmp\pre-import HEAD
+    $env:PYTHONPATH='src;tests'; $env:PYTHONIOENCODING='utf-8'
+    $env:CAPTURE_SRC="$pwd\.toolchain\tmp\pre-import\src"
+    & $py docs\research\40_flow_output_baseline.py capture .toolchain\tmp\pre.json
+    $env:CAPTURE_SRC="$pwd\src"
+    & $py docs\research\40_flow_output_baseline.py capture .toolchain\tmp\after.json
+    & $py docs\research\40_flow_output_baseline.py compare .toolchain\tmp\pre.json .toolchain\tmp\after.json
+结果 cases: 30  differ: 0，改动前后逐字节一致。复核完记得把临时工作树 remove 掉。
+
+⚠️ 另有一条**时间相关**的已知噪声（scan_two_dirs，与上面那次改动无关）：该场景每次都会
+重新生成 mods-extra 文件夹，而 zipfile 会把**当前时间**写进 jar 的时间戳，于是"两个文件夹里
+同名、又没有元数据的 jar"（server-extra.jar）算出的 sha1 有时相同、有时不同；这类条目没有
+modid，key 只能退到 sha1，合并后的条目数就在 4 与 5 之间摆动（输出里表现为
+"新增 4 个 / 新增 5 个"）。实测：两次都跑**改动前**的同一份代码也会出现这个差异
+（differ: 1），所以见到它不等于回归。要根治得让 mods-extra 也"只生成一次"——
+本脚本未改：那会连路径一起改掉既有基线的语义。
 """
 
 from __future__ import annotations

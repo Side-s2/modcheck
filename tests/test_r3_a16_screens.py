@@ -84,7 +84,11 @@ def write_profile(tmp_path: Path, name: str = "服务器A", count: int = 4) -> P
 
 # ---------------------------------------------------------------- 黄金块
 def test_list_screen_golden_block(tmp_path: Path) -> None:
-    """列表屏整体排版与 PRD §13.2 逐字一致。"""
+    """列表屏整体排版与 PRD §13.2 逐字一致。
+
+    [i]「导入清单文件」是 PRD §13.2 之后新增的入口（作者要求：读取别人导出的 JSON
+    清单），排在 [n] 之后、[q] 之前 —— 两个"造清单"的动作放在一起。这里随之补上。
+    """
     write_profile(tmp_path, "服务器A", 120)
     ctx = make_ctx(tmp_path, ["q"])
     run_profiles_screen(ctx)
@@ -97,7 +101,8 @@ def test_list_screen_golden_block(tmp_path: Path) -> None:
     assert lines[4] == ""
     assert lines[5] == "  [1-9] 打开某个清单进行管理"
     assert lines[6] == "  [n]   新建空清单"
-    assert lines[7] == "  [q]   返回主菜单"
+    assert lines[7] == "  [i]   导入清单文件（读取别人导出的 JSON 清单）"
+    assert lines[8] == "  [q]   返回主菜单"
 
 
 def test_manage_screen_golden_block(tmp_path: Path) -> None:
