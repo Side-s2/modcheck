@@ -36,7 +36,6 @@ PRD、项目简述、工程契约、各期任务书、PM 验收/终审报告、�
 ## 3. 构建产物
 
 ```bash
-python build/nuitka_build.py --onefile --output-dir dist        # 命令行单文件
 python build/nuitka_build.py --output-dir dist-standalone      # 命令行免安装目录
 python build/nuitka_build.py --gui --output-dir dist-gui       # 图形界面
 ```
@@ -47,7 +46,7 @@ python build/nuitka_build.py --gui --output-dir dist-gui       # 图形界面
 
 - [ ] 命令行版跑一次真实检查，结论与源码版**逐字一致**（含退出码）
 - [ ] 图形界面版能启动并显示窗口
-- [ ] 单文件版双击能起来（若失败，见下方「已知坑」）
+
 
 参考脚本：`docs/research/44_verify_packages.py`
 
@@ -56,7 +55,6 @@ python build/nuitka_build.py --gui --output-dir dist-gui       # 图形界面
 | 附件 | 说明 |
 |---|---|
 | modcheck-<版本>-cli-standalone.zip | 由 `dist-standalone/` 打包 |
-| modcheck-<版本>-cli-onefile.exe | 由 `dist/` 取 |
 | modcheck-<版本>-gui.zip | 由 `dist-gui/` 打包 |
 
 **源码不用传** —— GitHub 会为每个 Release 自动附上 `Source code (zip)` 与 `Source code (tar.gz)`，
@@ -73,8 +71,12 @@ python build/nuitka_build.py --gui --output-dir dist-gui       # 图形界面
 
 ## 已知坑（都实际踩过）
 
-1. **单文件版解包目录**：默认解到 `%TEMP%`，而从临时目录解包并执行正是杀毒软件最常拦的行为 ——
-   用户表现为「双击一闪而过、以管理员身份运行却正常」。构建脚本已改成解到用户缓存目录并启用 cached 模式。
+1. **我们有意不发布单文件版 —— 请不要把它加回来。**
+   Nuitka 的单文件版默认解包到 `%TEMP%`，而「从临时目录解包并执行」正是杀毒软件最常拦的行为。
+   用户遇到的是「**双击一闪而过、没有任何提示**」（以管理员身份运行反而正常）。
+   对新手来说这是**最糟糕的失败模式**：他不会想到是杀毒软件，只会认为"这软件是坏的"。
+   所以只发布**免安装目录版** —— 解压即用、启动还更快，代价只是多几个文件。
+   （构建脚本里仍保留 `--onefile` 供开发者自用，但它不是对外产物。）
 2. **启动脚本要纯 ASCII**：cmd.exe 用 OEM 代码页，脚本里的中文注释会变成乱码。
 3. **构建会清空输出目录**：所以启动脚本必须由构建脚本生成，手工放进去的每次都会丢。
 4. **二进制产物不进版本库**（见 `.gitignore`）：它们该作为 Release 附件分发，

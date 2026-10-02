@@ -30,7 +30,7 @@ modcheck 把这件事提前：它读你的 mods 文件夹，逐个去 Modrinth �
 | | 命令行版 | 图形界面版 |
 |---|---|---|
 | 适合 | 熟悉命令行、想写脚本、在意体积 | 想点几下就用、看表格更直观 |
-| 体积 | 约 18 MB（单文件） | 约 70 MB（含 Qt） |
+| 下载体积 | 约 24 MB（免安装压缩包） | 约 28 MB（含 Qt） |
 | 依赖 | **零第三方依赖**，只用标准库 | 需要 PyQt6（已打包进产物） |
 
 **两者读同一份配置与清单**，随时可以换着用，数据互通。
@@ -122,7 +122,6 @@ gui/      Qt 控件 → 调 flow → 更新界面
 
 ```bash
 python build/nuitka_build.py                 # 命令行版（免安装目录）
-python build/nuitka_build.py --onefile       # 命令行版单文件
 python build/nuitka_build.py --gui           # 图形界面版（需先安装 PyQt6）
 ```
 
