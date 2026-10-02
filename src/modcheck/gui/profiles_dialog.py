@@ -51,8 +51,9 @@ class ProfilesDialog(QDialog):
         self.list = QListWidget()
         self.list.currentTextChanged.connect(self._on_pick_profile)
         left.addWidget(self.list, 1)
-        for text, slot in (("新建空清单", self._on_new), ("重命名清单", self._on_rename),
-                           ("导出清单…", self._on_export), ("删除清单", self._on_delete)):
+        for text, slot in (("新建空清单", self._on_new), ("导入清单文件…", self._on_import),
+                           ("重命名清单", self._on_rename), ("导出清单…", self._on_export),
+                           ("删除清单", self._on_delete)):
             btn = QPushButton(text)
             btn.clicked.connect(slot)
             left.addWidget(btn)
@@ -241,6 +242,28 @@ class ProfilesDialog(QDialog):
             return
         self._profile = None
         self._reload_profiles()
+
+    def _on_import(self) -> None:
+        """导入别人导出的 JSON 清单（同名清单会自动合并）。"""
+        path, _ = QFileDialog.getOpenFileName(self, "导入模组清单", "",
+                                              "modcheck 清单 (*.json);;所有文件 (*)")
+        if not path:
+            return
+        try:
+            outcome = self._backend.import_modlist_file(path)
+        except Exception as exc:
+            # read_modlist 给的是**给人看的中文句子**（缺字段/类型不对等），直接显示
+            show_warning(self, "导入失败",
+                         str(exc) or "这个文件不是本工具导出的清单。",
+                         detail=describe(exc))
+            return
+        name = getattr(outcome, "path", None)
+        target = name.stem if name is not None else "清单"
+        show_info(self, "已导入",
+                  f"已导入 {getattr(outcome, 'imported', '?')} 个模组"
+                  f"（合并后共 {len(getattr(outcome, 'merged', []) or [])} 个）"
+                  + ("，并新建了清单。" if getattr(outcome, "created", False) else "。"))
+        self._reload_profiles(target)
 
     def _on_export(self) -> None:
         """导出模组清单（给别的服主看）。

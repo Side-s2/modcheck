@@ -17,6 +17,7 @@ from modcheck.flows import (default_filename, export_csv, export_json, export_ma
                             load_profile_entries, looks_like_mods_dir, prepare_download,
                             run_check_flow, run_download_flow, scan_dirs)
 # 直接从子模块导入：flows/__init__ 的导出清单仍在变动，走包级导入容易被子代理的在途改动卡住
+from modcheck.flows.export import import_modlist, read_modlist
 from modcheck.flows.scan_flow import save_scan_result
 from modcheck.flows.runtime import build_runtime
 from modcheck.gui.main_window import Row
@@ -215,6 +216,19 @@ class CliBackend:
 
         return settings_ops
 
+
+    # ---------------------------------------------------------------- 导入清单
+    def import_modlist_file(self, path) -> object:
+        """导入别人导出的 JSON 清单。
+
+        先 read_modlist **严格校验**（缺字段/类型不对/版本不符都会给出中文说明），
+        校验通过再交给 import_modlist 合并 —— 合并逻辑与扫描落盘**是同一段代码**，
+        不存在"导入一套规则、扫描另一套规则"的漂移。
+        目标清单名取 JSON 里的 name（与 CLI 语义一致：同名即合并）。
+        """
+        profile = read_modlist(Path(path))
+        return import_modlist(profile, profiles_dir=self.runtime.profiles_dir,
+                              profile_name=profile.name)
 
     # ---------------------------------------------------------------- 扫描（三期）
     def scan(self, folders, on_progress=None, should_stop=None):
