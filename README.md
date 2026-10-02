@@ -49,8 +49,8 @@ modcheck 把这件事提前：它读你的 mods 文件夹，逐个去 Modrinth �
 
 | 文件名 | 说明 |
 |---|---|
-| `modcheck-*-cli-standalone.zip` | **命令行版（推荐）**：解压即用，启动快 |
-| `modcheck-*-gui.zip` | 图形界面版：解压即用 |
+| `modcheck-*-cli-standalone.zip` | **命令行版**：解压即用，启动快，体积小 |
+| `modcheck-*-gui.zip` | **图形界面版**：解压即用，点几下就能用 |
 | `Source code` | 源码（GitHub 自动附上；自己构建请看下方「给开发者」） |
 
 
