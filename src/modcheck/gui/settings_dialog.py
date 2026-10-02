@@ -47,6 +47,7 @@ class SettingsDialog(QDialog):
 
         self.cb_loader = QComboBox()
         self.cb_loader.addItems(["（每次询问）", "Fabric", "NeoForge", "Forge"])
+        theme.style_combo_popup(self.cb_loader)
         form.addRow("默认加载器", self.cb_loader)
 
         self.ed_proxy = QLineEdit()
@@ -55,6 +56,7 @@ class SettingsDialog(QDialog):
 
         self.cb_color = QComboBox()
         self.cb_color.addItems(["auto", "always", "never"])
+        theme.style_combo_popup(self.cb_color)
         form.addRow("彩色输出", self.cb_color)
 
         self.sp_jobs = QSpinBox()

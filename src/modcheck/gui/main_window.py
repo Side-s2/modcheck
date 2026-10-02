@@ -274,6 +274,7 @@ class MainWindow(QMainWindow):
         cap.setObjectName("sub")
         cb = QComboBox()
         cb.addItems(list(items) or ["（无）"])
+        theme.style_combo_popup(cb)          # 弹层边框交给容器，否则会多一层直角框
         box.addWidget(cap)
         box.addWidget(cb)
         row.addLayout(box)

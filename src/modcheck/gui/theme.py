@@ -88,10 +88,14 @@ QListWidget::item:hover {{ background: #F5F7FA; }}
 /* ---------- 下拉框的弹出列表 ----------
    QComboBox 的下拉是**独立的顶层视图**，不写这条它就用系统默认灰白样式，
    跟整体主题明显不搭（视觉评审发现）。 */
+/* 弹出列表本身**不画边框** —— 边框交给外层容器（见 style_combo_popup），
+   否则会出现「圆角框外面又套一个直角实线框」（视觉评审发现）。 */
 QComboBox QAbstractItemView {{
-    background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px;
+    background: {CARD}; border: none; padding: 4px;
     outline: none; selection-background-color: {ACCENT_SOFT}; selection-color: {TEXT};
 }}
+QComboBox QAbstractItemView::item {{ padding: 6px 8px; border: none; border-radius: 6px; }}
+QComboBox QAbstractItemView::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
 QComboBox::down-arrow {{
     image: none; width: 0; height: 0; margin-right: 10px;
     border-left: 4px solid transparent; border-right: 4px solid transparent;
@@ -121,6 +125,33 @@ QListWidget {{ outline: none; }}
 QPushButton:focus {{ border: 1px solid {ACCENT}; }}
 QPushButton#primary:focus {{ border: 1px solid {ACCENT_DARK}; }}
 """
+
+
+def style_combo_popup(combo) -> None:
+    """给下拉框的弹层容器套上主题圆角边框。
+
+    ⚠️ 必须用代码设置，QSS 够不着：弹层是一个**独立的顶层 QFrame**
+    （combo.view().window()），QComboBox QAbstractItemView 只作用于里面的列表视图。
+    不处理的话，列表视图的圆角边框外面会再套一层原生直角实线框 ——
+    看起来就像「框外面莫名其妙多了一个方框」。
+    """
+    from PyQt6.QtWidgets import QFrame
+
+    container = combo.view().window()
+    if isinstance(container, QFrame):
+        # frameShape=NoFrame 还不够：容器仍然保留 1px 的 frameWidth，
+        # 画出来就是「圆角框里再套一个直角实线框」（实测 frameWidth 仍是 1）。
+        container.setFrameShape(QFrame.Shape.NoFrame)
+        container.setLineWidth(0)
+        container.setMidLineWidth(0)
+        container.setStyleSheet(
+            f"QFrame {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; }}")
+    # 列表视图与条目用控件级样式（优先级高于应用级 QSS），
+    # 否则 Fusion 会给当前条目画一个直角选中框。
+    combo.view().setStyleSheet(
+        f"QListView {{ background: transparent; border: none; outline: none; }}"
+        f"QListView::item {{ padding: 6px 10px; border: none; border-radius: 6px; }}"
+        f"QListView::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}")
 
 
 def status_chip(status: str) -> QLabel:
@@ -155,4 +186,4 @@ def tab_widget(text: str, status: str | None = None) -> QWidget:
 
 
 __all__ = ["BG", "CARD", "BORDER", "TEXT", "MUTED", "ACCENT", "ACCENT_SOFT", "QSS",
-           "STATUS_COLOR", "STATUS_LABEL", "status_chip", "tab_widget"]
+           "STATUS_COLOR", "STATUS_LABEL", "status_chip", "tab_widget", "style_combo_popup"]
