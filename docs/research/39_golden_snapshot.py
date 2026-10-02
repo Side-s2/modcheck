@@ -10,7 +10,10 @@
     差异只应出现在描述性文字上；退出码、命令、分组、列序、列宽与缩进结构均不应变化。
     复核时请用 git diff -- docs/research/golden 逐条确认改动仅为措辞。
   · 其中 config_show / profile_list / cache_info 三个 stdout 含临时配置目录名，
-    它们的差异天然不可复现，属正常噪声。
+    它们的差异天然不可复现，属正常噪声（重新生成后请 git checkout 还原这三个文件）。
+  · 下载页新增"是否同时下载 🟠 仅存测试版"询问（默认否，显式开关，作者要求）：
+    **本套快照不含菜单 [5] 的下载询问**（只覆盖 --help/--version/profile/config/cache、
+    参数错误与非 TTY 菜单），所以重新生成后 13 个用例逐字节一致，没有预期差异。
 """
 import json, os, subprocess, sys, tempfile
 from pathlib import Path

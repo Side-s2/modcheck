@@ -74,6 +74,16 @@ def ask_download(ctx: AppContext) -> bool:
     return ctx.prompter.confirm(t("download.ask.prompt"), default=False)
 
 
+def ask_prerelease(ctx: AppContext) -> bool:
+    """问"要不要连 🟠 仅存测试版一起下"（默认 N：测试版可能崩档，不能替用户决定）。
+
+    单独一问、而不是并进 ask_download：默认范围（🟢/🟡）要能用一句话说清，
+    而这个开关一旦打开，下载内容里会多出**可能不稳定**的测试版，必须单独拍板。
+    """
+    ctx.console.line(t("download.prerelease.note"))
+    return ctx.prompter.confirm(t("download.prerelease.prompt"), default=False)
+
+
 def choose_target_dir(ctx: AppContext, prep: DownloadPrep, *,
                       picker: Callable[[str], tuple[str, str | None]] | None = None,
                       ) -> Path | None:
@@ -246,7 +256,9 @@ def render_result(ctx: AppContext, outcome: DownloadOutcome) -> None:
 def post_check_download(ctx: AppContext, report: Report) -> DownloadOutcome | None:
     """检查之后的整条下载路径（菜单 [5] 用它）；返回 None 表示用户取消。
 
-    顺序完全按 PRD §14.4：询问 -> 选文件夹 -> 同名冲突 -> 开跑确认 -> 进度 -> 汇总。
+    顺序完全按 PRD §14.4：询问 -> 选文件夹 -> 同名冲突 -> 开跑确认 -> 进度 -> 汇总；
+    唯一的插入是"要不要连 🟠 仅存测试版一起下"（作者要求，默认否），它排在同名冲突之前，
+    因为选品口径必须先于"有没有东西可下 / 同名冲突"确定。
     任何一个环节回退（b / q / 取消对话框）都只是"不做这件事"，不是错误。
     """
     console = ctx.console
@@ -256,7 +268,12 @@ def post_check_download(ctx: AppContext, report: Report) -> DownloadOutcome | No
         return None                                # 非交互：不提问（PRD §14.4 的非 TTY 行为）
     if not ask_download(ctx):
         return None
-    prep = prepare_download(report, Path("."))     # 只为了先看"有没有东西可下"
+    # 下载口径在这里**一次定死**：下面的"有没有东西可下"、总大小、同名冲突全都由同一个
+    # 计划算出。若等选完文件夹再问，🟠 只有测试版的清单会先被判成"没有东西可下"而直接返回，
+    # 用户永远看不到这个开关。
+    include_prerelease = ask_prerelease(ctx)
+    prep = prepare_download(report, Path("."),
+                            include_prerelease=include_prerelease)   # 先看"有没有东西可下"
     if not prep.has_work:
         for line in nothing_lines(report, prep):
             console.line(line)
@@ -264,7 +281,8 @@ def post_check_download(ctx: AppContext, report: Report) -> DownloadOutcome | No
     target = choose_target_dir(ctx, prep)
     if target is None:
         return None
-    prep = prepare_download(report, target)        # 目录定了以后重算路径与同名冲突
+    prep = prepare_download(report, target,
+                            include_prerelease=include_prerelease)   # 重算路径与同名冲突
     decisions = ask_overwrite(ctx, prep)
     if decisions is None:
         return None
@@ -378,5 +396,6 @@ def _confirm_target(ctx: AppContext, target: Path, prep: DownloadPrep, check=Non
 
 
 __all__ = ["BAR_WIDTH", "PROGRESS_INTERVAL", "ask_download", "ask_overwrite",
-           "choose_target_dir", "confirm_start", "download_nothing_line", "format_mb",
-           "nothing_lines", "post_check_download", "render_result", "run_with_progress"]
+           "ask_prerelease", "choose_target_dir", "confirm_start", "download_nothing_line",
+           "format_mb", "nothing_lines", "post_check_download", "render_result",
+           "run_with_progress"]

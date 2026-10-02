@@ -6,10 +6,11 @@ import threading
 import time
 from pathlib import Path
 
-from modcheck.core.downloader import (DOWNLOADABLE, MAX_FILENAME, DownloadItem, DownloadPlan,
-                                      conflicts, download_all, extra_files_count,
-                                      fallback_filename, overwrite_key, part_path, pick_file,
-                                      pick_version, plan_for, safe_filename)
+from modcheck.core.downloader import (DOWNLOADABLE, MAX_FILENAME, SKIP_NO_VERSION,
+                                      DownloadItem, DownloadPlan, conflicts, download_all,
+                                      extra_files_count, fallback_filename, overwrite_key,
+                                      part_path, pick_file, pick_version, plan_for,
+                                      safe_filename)
 from modcheck.core.models import FileInfo, Loader, ModEntry, ReasonCode, Status, VersionInfo
 from modcheck.core.report import Report, ReportItem
 from modcheck.errors import ProviderRateLimited, ProviderVerifyError
@@ -41,10 +42,12 @@ def entry(key: str = "carpet", *, name: str = "", slug: str | None = None) -> Mo
 
 
 def report_item(mod: ModEntry, status: Status, *, latest: VersionInfo | None = None,
-                compat: VersionInfo | None = None) -> ReportItem:
-    """造一条报告条目。"""
+                compat: VersionInfo | None = None,
+                any_version: VersionInfo | None = None) -> ReportItem:
+    """造一条报告条目（any_version -> latest_any：目标 MC + 加载器下放宽通道的最新版）。"""
     return ReportItem(mod=mod, status=status, reason=ReasonCode.OK, reason_key="reason.ok",
-                      hint_key="advice.ok", latest_for_loader=latest, latest_compat=compat)
+                      hint_key="advice.ok", latest_for_loader=latest, latest_compat=compat,
+                      latest_any=any_version)
 
 
 def make_report(*items: ReportItem) -> Report:
@@ -150,6 +153,63 @@ def test_pick_version_other_statuses() -> None:
     """非 🟢/🟡 的组没有可下载版本。"""
     item = report_item(entry("a"), Status.PRERELEASE, latest=version("1.0"))
     assert pick_version(item) is None
+
+
+# ------------------------------------------------ 🟠 仅存测试版：显式开关（作者要求）
+def prerelease_item(key: str = "jei") -> ReportItem:
+    """造一条 🟠：该加载器的最新**正式版**装不上，能用的只有测试版。
+
+    真实判定（core/checker.py 分支⑤）就是这个形状：
+    latest_for_loader = 26.0（不支持目标 MC 26.3），latest_any = 26.4-beta.1（支持 26.3）。
+    """
+    release = version("26.0", files=(file_info(key + "-26.0.jar", primary=True),))
+    beta = version("26.4-beta.1", files=(file_info(key + "-26.4-beta.1.jar", primary=True),),
+                   channel="beta")
+    return report_item(entry(key, slug=key), Status.PRERELEASE, latest=release, any_version=beta)
+
+
+def test_plan_skips_prerelease_by_default(tmp_path: Path) -> None:
+    """默认（不显式要求）不下 🟠：计划里没有它，跳过原因写明是按组跳过。"""
+    item = prerelease_item("jei")
+    plan = plan_for(make_report(item), tmp_path)
+    assert plan.items == ()
+    assert list(plan.skipped) == [(item.mod, "download.skip.status.prerelease")]
+    # 显式写 False 与默认行为必须完全一致（默认值就是 False，不是"另一个开关"）
+    assert plan_for(make_report(item), tmp_path, include_prerelease=False) == plan
+
+
+def test_plan_includes_prerelease_only_when_asked(tmp_path: Path) -> None:
+    """显式要求时才下 🟠，且取的是**支持目标 MC 的测试版**（latest_any）。"""
+    item = prerelease_item("jei")
+    plan = plan_for(make_report(item), tmp_path, include_prerelease=True)
+    assert plan.skipped == ()
+    assert [entry.key for entry, _reason in plan.skipped] == []
+    assert len(plan.items) == 1
+    chosen = plan.items[0]
+    assert chosen.version is item.latest_any
+    # 选 latest_for_loader（最新正式版）就会下到装不上的版本 —— 这条断言守住它
+    assert chosen.version is not item.latest_for_loader
+    assert chosen.version.version_number == "26.4-beta.1"
+    assert chosen.version.is_release is False
+    assert chosen.target.name == "jei-26.4-beta.1.jar"
+
+
+def test_pick_version_prerelease_needs_explicit_flag() -> None:
+    """pick_version：🟠 默认不给版本；显式要求才给 latest_any；🟢/🟡 不受开关影响。"""
+    item = prerelease_item("jei")
+    assert pick_version(item) is None
+    assert pick_version(item, include_prerelease=True) is item.latest_any
+    ready = report_item(entry("a"), Status.READY, latest=version("26.3"),
+                        compat=version("26.1"))
+    assert pick_version(ready, include_prerelease=True) is ready.latest_for_loader
+
+
+def test_prerelease_without_latest_any_is_skipped(tmp_path: Path) -> None:
+    """🟠 但没有"能用的版本"数据时只能跳过，绝不能退回最新正式版。"""
+    item = report_item(entry("jei"), Status.PRERELEASE, latest=version("26.0"))
+    plan = plan_for(make_report(item), tmp_path, include_prerelease=True)
+    assert plan.items == ()
+    assert plan.skipped[0][1] == SKIP_NO_VERSION
 
 
 def test_filename_fallback_uses_slug_and_version() -> None:

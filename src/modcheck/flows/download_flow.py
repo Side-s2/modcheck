@@ -211,17 +211,21 @@ def _entry_name(entry: ModEntry) -> str:
     return entry.file_name or entry.best_name or entry.key
 
 
-def prepare_download(report: Report, target_dir: Path) -> DownloadPrep:
+def prepare_download(report: Report, target_dir: Path, *,
+                     include_prerelease: bool = False) -> DownloadPrep:
     """选品 + 找同名冲突（PRD §14.1 / §14.2）。**不写盘、不询问、不创建目录**。
 
     参数：
         report: 一次检查的报告（🟢 取最新版、🟡 取「可用」的旧稳定版）。
         target_dir: 下载目标目录（只用来拼路径）。
+        include_prerelease: 是否把 🟠 仅存测试版也纳入下载范围（**默认 False**）。
+            默认只下 🟢/🟡；测试版必须由调用方显式要求（CLI 的询问 / GUI 的勾选），
+            且同样只取"支持目标 MC"的那个测试版（见 core.downloader.pick_version）。
     返回：
         DownloadPrep；要问用户的东西（conflicts）都在里面。
     """
     root = Path(target_dir)
-    plan = plan_for(report, root)
+    plan = plan_for(report, root, include_prerelease=include_prerelease)
     return DownloadPrep(plan=plan, target_dir=root, conflicts=conflicts(plan),
                         extra_files=extra_files_count(plan),
                         no_jar=plan_skips(plan, SKIP_NO_JAR),

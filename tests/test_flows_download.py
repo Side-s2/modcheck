@@ -34,11 +34,12 @@ def file_info(name: str, *, primary: bool = False, size: int = 100,
                     size=size, hashes={"sha1": sha1})
 
 
-def version(number: str = "1.0", *, files: tuple[FileInfo, ...] = ()) -> VersionInfo:
+def version(number: str = "1.0", *, files: tuple[FileInfo, ...] = (),
+            channel: str = "release") -> VersionInfo:
     """造一个版本条目。"""
     return VersionInfo(version_id="V-" + number, version_number=number, name=number,
                        project_id="proj", date_published="2026-09-18T00:00:00Z",
-                       version_type="release", game_versions=("26.3",), loaders=("fabric",),
+                       version_type=channel, game_versions=("26.3",), loaders=("fabric",),
                        files=files)
 
 
@@ -49,10 +50,12 @@ def entry(key: str, *, name: str = "") -> ModEntry:
 
 
 def report_item(mod: ModEntry, status: Status, *, latest: VersionInfo | None = None,
-                compat: VersionInfo | None = None) -> ReportItem:
-    """造一条报告条目。"""
+                compat: VersionInfo | None = None,
+                any_version: VersionInfo | None = None) -> ReportItem:
+    """造一条报告条目（any_version -> latest_any：目标 MC + 加载器下放宽通道的最新版）。"""
     return ReportItem(mod=mod, status=status, reason=ReasonCode.OK, reason_key="reason.ok",
-                      hint_key="advice.ok", latest_for_loader=latest, latest_compat=compat)
+                      hint_key="advice.ok", latest_for_loader=latest, latest_compat=compat,
+                      latest_any=any_version)
 
 
 def make_report(*items: ReportItem) -> Report:
@@ -160,6 +163,26 @@ def test_prepare_takes_only_downloadable_and_builds_targets(tmp_path: Path) -> N
     assert by_key["lithium"].version.version_number == "26.1"      # 🟡 取「可用」的旧稳定版
     assert prep.total == 2 and prep.has_work is True
     assert prep.extra_files == 0
+
+
+def test_prepare_include_prerelease_is_explicit(tmp_path: Path) -> None:
+    """🟠 默认不进计划；显式 include_prerelease 才进，且取的是能装上的那个测试版。"""
+    release = version("26.0", files=(file_info("jei-26.0.jar", primary=True),))
+    beta = version("26.4-beta.1", files=(file_info("jei-26.4-beta.1.jar", primary=True),),
+                   channel="beta")
+    report = make_report(report_item(entry("jei"), Status.PRERELEASE, latest=release,
+                                     any_version=beta))
+
+    default = prepare_download(report, tmp_path)
+    assert default.has_work is False
+    assert [entry.key for entry, _reason in default.plan.skipped] == ["jei"]
+    assert [key for _entry, key in default.plan.skipped] == ["download.skip.status.prerelease"]
+
+    prep = prepare_download(report, tmp_path, include_prerelease=True)
+    assert prep.has_work is True
+    assert [item.target.name for item in prep.items] == ["jei-26.4-beta.1.jar"]
+    assert prep.items[0].version is beta          # 不是 26.0 那个装不上的正式版
+    assert prep.items[0].version.is_release is False
 
 
 def test_prepare_classifies_skips_by_reason(tmp_path: Path) -> None:

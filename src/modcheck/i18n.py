@@ -503,6 +503,9 @@ _MESSAGES: Final[dict[str, str]] = {
     "download.ask.note2": "    · 🔴 阻塞、🟠 仅存测试版、⚪ 未判定、⚫ 已忽略 一律跳过。",
     "download.ask.note3": "    · 不会改动你当前的 mods 文件夹，只会向你选择的文件夹写入文件。",
     "download.ask.prompt": "是否下载可用的版本？(y/N) > ",
+    # 测试性模组开关（作者要求：下载页可选把 🟠 仅存测试版一起下；默认否）
+    "download.prerelease.note": "    · 🟠 仅存测试版只有测试版（beta/alpha）可用，稳定性没有保证；确认后才会一并下载，请先备份存档。",
+    "download.prerelease.prompt": "是否同时下载 🟠 仅存测试版的模组？(y/N) > ",
     "download.nothing": "没有需要下载的模组：这次检查里没有 🟢 就绪 或 🟡 需注意 的条目（🔴 {blocked} ｜ 🟠 {prerelease} ｜ 🟡 0 ｜ ⚪ {unknown} ｜ 🟢 0）。",
     # 有 🟢/🟡、但它们的版本里没有可下载的主文件时改用下面两句：
     # 上面那句写死了「🟢 0 / 🟡 0」，此时说它就是假话（用户会以为程序没认出他的模组）

@@ -95,10 +95,11 @@ def file_info(name: str, size: int = 100) -> FileInfo:
                     size=size, hashes={})
 
 
-def version(name: str, files: tuple[FileInfo, ...]) -> VersionInfo:
+def version(name: str, files: tuple[FileInfo, ...],
+            channel: str = "release") -> VersionInfo:
     """造一个版本条目。"""
     return VersionInfo(version_id="V1", version_number=name, name=name, project_id="p",
-                       date_published="2026-09-18T00:00:00Z", version_type="release",
+                       date_published="2026-09-18T00:00:00Z", version_type=channel,
                        game_versions=("26.3",), loaders=("fabric",), files=files)
 
 
@@ -113,6 +114,28 @@ def downloadable_report(*names: str) -> Report:
                               reason_key="reason.ok", hint_key="advice.ok",
                               latest_for_loader=version("26.3", (file_info(name + ".jar"),))))
     return report
+
+
+def prerelease_item(name: str) -> ReportItem:
+    """一条 🟠：该加载器的最新**正式版**（26.0）装不上，能用的只有测试版 26.4-beta.1。"""
+    entry = ModEntry(key=name, display_name=name.title(), mod_id=name,
+                     sources={"modrinth": name})
+    return ReportItem(mod=entry, status=Status.PRERELEASE, reason=ReasonCode.PRERELEASE_ONLY,
+                      reason_key="reason.prerelease_only", hint_key="advice.prerelease_only",
+                      latest_for_loader=version("26.0", (file_info(name + "-26.0.jar"),)),
+                      latest_any=version("26.4-beta.1",
+                                         (file_info(name + "-26.4-beta.1.jar"),),
+                                         channel="beta"))
+
+
+def prerelease_report(*names: str) -> Report:
+    """造一份全是 🟠 的报告。"""
+    report = Report(mc_version="26.3", loader=Loader.FABRIC, profile_name="demo",
+                    generated_at="2026-10-01T00:00:00+08:00")
+    for name in names:
+        report.add(prerelease_item(name))
+    return report
+
 # ---------------------------------------------------------------- 问：要不要下载
 def test_ask_download_defaults_to_no_and_prints_notes(tmp_path: Path) -> None:
     """回车 = 不下载（默认 N），三条说明逐字出现在询问之前。"""
@@ -128,6 +151,20 @@ def test_ask_download_defaults_to_no_and_prints_notes(tmp_path: Path) -> None:
 def test_ask_download_yes(tmp_path: Path) -> None:
     """答 y 才继续。"""
     assert screen.ask_download(make_ctx(tmp_path, ["y"])) is True
+
+
+def test_ask_prerelease_defaults_to_no(tmp_path: Path) -> None:
+    """测试性模组询问：回车 = 不下载（默认 N），询问前写明后果与备份提醒。"""
+    ctx = make_ctx(tmp_path, [""])
+    assert screen.ask_prerelease(ctx) is False
+    text = out(ctx)
+    assert "    · 🟠 仅存测试版只有测试版（beta/alpha）可用，稳定性没有保证；确认后才会一并下载，请先备份存档。" in text
+    assert "是否同时下载 🟠 仅存测试版的模组？(y/N) > " in text
+
+
+def test_ask_prerelease_yes(tmp_path: Path) -> None:
+    """答 y 才算显式要求。"""
+    assert screen.ask_prerelease(make_ctx(tmp_path, ["y"])) is True
 
 
 def test_download_nothing_line_uses_group_counts(tmp_path: Path) -> None:
@@ -355,7 +392,8 @@ def test_post_check_download_full_path(tmp_path: Path, monkeypatch) -> None:
     target.mkdir()
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
     client = FakeClient(payload=b"y" * 2048)
-    ctx = make_ctx(tmp_path, ["y", "y"], client=client, tty=False)
+    # y=要下载, 回车=不含测试性模组（默认）, y=开跑
+    ctx = make_ctx(tmp_path, ["y", "", "y"], client=client, tty=False)
     outcome = screen.post_check_download(ctx, downloadable_report("carpet", "lithium"))
     assert outcome is not None and outcome.summary.ok == 2
     assert (target / "carpet.jar").read_bytes() == b"y" * 2048
@@ -371,6 +409,43 @@ def test_post_check_download_full_path(tmp_path: Path, monkeypatch) -> None:
     assert "提示：将下载好的 .jar 复制到服务端的 mods 文件夹，然后重启服务器。" in text
 
 
+def test_post_check_download_prerelease_is_off_by_default(tmp_path: Path,
+                                                          monkeypatch) -> None:
+    """默认（回车）：同一份报告里只下 🟢，🟠 一个文件都不下。"""
+    target = tmp_path / "dl"
+    target.mkdir()
+    monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
+    report = downloadable_report("carpet")
+    report.add(prerelease_item("jei"))
+    client = FakeClient()
+    ctx = make_ctx(tmp_path, ["y", "", "y"], client=client, tty=False)
+    outcome = screen.post_check_download(ctx, report)
+    assert outcome is not None and outcome.summary.ok == 1
+    assert client.calls == ["carpet.jar"]
+    assert [path.name for path in target.iterdir()] == ["carpet.jar"]
+    assert "下载完成：1 个文件里 1 个成功、0 个跳过、0 个失败。" in out(ctx)
+
+
+def test_post_check_download_prerelease_opt_in_downloads_beta(tmp_path: Path,
+                                                              monkeypatch) -> None:
+    """答 y：🟠 的测试版一起下，且取的是能装上的那个测试版（不是装不上的正式版）。"""
+    target = tmp_path / "dl"
+    target.mkdir()
+    monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
+    report = downloadable_report("carpet")
+    report.add(prerelease_item("jei"))
+    client = FakeClient()
+    ctx = make_ctx(tmp_path, ["y", "y", "y"], client=client, tty=False)
+    outcome = screen.post_check_download(ctx, report)
+    assert outcome is not None and outcome.summary.ok == 2
+    assert sorted(client.calls) == ["carpet.jar", "jei-26.4-beta.1.jar"]
+    assert (target / "jei-26.4-beta.1.jar").exists()
+    assert not (target / "jei-26.0.jar").exists()        # 装不上的正式版绝不能下
+    text = out(ctx)
+    assert "是否同时下载 🟠 仅存测试版的模组？(y/N) > " in text
+    assert "下载完成：2 个文件里 2 个成功、0 个跳过、0 个失败。" in text
+
+
 def test_progress_lines_follow_completion_order(tmp_path: Path, monkeypatch) -> None:
     """回归（"单独跑绿、一起跑红"）：非 TTY 的每文件行按**完成顺序**打。
 
@@ -381,7 +456,8 @@ def test_progress_lines_follow_completion_order(tmp_path: Path, monkeypatch) -> 
     target = tmp_path / "dl"
     target.mkdir()
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
-    ctx = make_ctx(tmp_path, ["y", "y"], client=SlowFirstClient(("carpet.jar",)), tty=False)
+    ctx = make_ctx(tmp_path, ["y", "", "y"],
+                   client=SlowFirstClient(("carpet.jar",)), tty=False)
     outcome = screen.post_check_download(ctx, downloadable_report("carpet", "lithium"))
     assert outcome is not None and outcome.summary.ok == 2
     assert progress_rows(out(ctx)) == [("1", "2", "lithium.jar"), ("2", "2", "carpet.jar")]
@@ -393,7 +469,7 @@ def test_post_check_download_ttyshows_single_progress_line(tmp_path: Path,
     target = tmp_path / "dl"
     target.mkdir()
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
-    ctx = make_ctx(tmp_path, ["y", "y"], client=FakeClient(), tty=True)
+    ctx = make_ctx(tmp_path, ["y", "", "y"], client=FakeClient(), tty=True)
     screen.post_check_download(ctx, downloadable_report("carpet"))
     text = out(ctx)
     assert "正在下载 1 个文件……" in text
@@ -406,7 +482,7 @@ def test_post_check_download_summary_of_failure(tmp_path: Path, monkeypatch) -> 
     target = tmp_path / "dl"
     target.mkdir()
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
-    ctx = make_ctx(tmp_path, ["y", "y"], client=FakeClient(fail_names=("carpet.jar",)),
+    ctx = make_ctx(tmp_path, ["y", "", "y"], client=FakeClient(fail_names=("carpet.jar",)),
                    tty=False)
     outcome = screen.post_check_download(ctx, downloadable_report("carpet", "lithium"))
     assert outcome is not None and outcome.summary.failed == 1
@@ -424,7 +500,7 @@ def test_post_check_download_skipped_files_are_listed(tmp_path: Path, monkeypatc
     (target / "carpet.jar").write_bytes(b"old")
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
     client = FakeClient()
-    ctx = make_ctx(tmp_path, ["y", "s", "y"], client=client, tty=False)
+    ctx = make_ctx(tmp_path, ["y", "", "s", "y"], client=client, tty=False)
     outcome = screen.post_check_download(ctx, downloadable_report("carpet"))
     assert outcome is not None and outcome.summary.skipped == 1
     assert client.calls == []                     # 一个请求都没发
@@ -442,7 +518,7 @@ def test_post_check_download_user_declines(tmp_path: Path) -> None:
 
 def test_post_check_download_nothing_to_download(tmp_path: Path) -> None:
     """没有可下载的条目：直接给结论，不弹文件夹选择（PRD §14.5 第 12 条）。"""
-    ctx = make_ctx(tmp_path, ["y"])
+    ctx = make_ctx(tmp_path, ["y", ""])
     assert screen.post_check_download(ctx, downloadable_report()) is None
     assert "没有需要下载的模组" in out(ctx)
     assert "下载目标" not in out(ctx)
@@ -464,7 +540,7 @@ def test_post_check_download_conflict_quit_cancels(tmp_path: Path, monkeypatch) 
     (target / "carpet.jar").write_bytes(b"old")
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
     client = FakeClient()
-    ctx = make_ctx(tmp_path, ["y", "q"], client=client, tty=False)
+    ctx = make_ctx(tmp_path, ["y", "", "q"], client=client, tty=False)
     assert screen.post_check_download(ctx, downloadable_report("carpet")) is None
     assert client.calls == []
     assert (target / "carpet.jar").read_bytes() == b"old"
@@ -584,7 +660,7 @@ def test_nothing_lines_list_reasons_when_mods_exist(tmp_path: Path) -> None:
 
 def test_post_check_download_nothing_screen_is_honest(tmp_path: Path) -> None:
     """菜单路径：这个场景打印的是原因清单，不是那句"没有 🟢 就绪"的话。"""
-    ctx = make_ctx(tmp_path, ["y"])
+    ctx = make_ctx(tmp_path, ["y", ""])
     assert screen.post_check_download(ctx, sources_only_report("jei")) is None
     text = out(ctx)
     assert "  Jei：这个版本没有可下载的 .jar 文件" in text
@@ -598,8 +674,8 @@ def test_summary_numbers_add_up_on_screen(tmp_path: Path, monkeypatch) -> None:
     (target / "carpet.jar").write_bytes(b"old")
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
     client = FakeClient(fail_names=("sodium.jar",))
-    # y=要下载, s=跳过同名文件, y=开跑
-    ctx = make_ctx(tmp_path, ["y", "s", "y"], client=client, tty=False)
+    # y=要下载, 回车=不含测试性模组（默认）, s=跳过同名文件, y=开跑
+    ctx = make_ctx(tmp_path, ["y", "", "s", "y"], client=client, tty=False)
     outcome = screen.post_check_download(ctx, downloadable_report("carpet", "sodium", "lithium"))
     assert outcome is not None
     summary = outcome.summary

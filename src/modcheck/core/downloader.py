@@ -8,7 +8,10 @@
 下载范围（PRD §14.1，裁决 D49）：
   🟢 就绪   -> latest_for_loader（目标加载器的最新正式版）
   🟡 需注意 -> latest_compat（「可用：」那一行的旧稳定版）
-  🔴 / 🟠 / ⚪ / ⚫ 一律跳过；只下 primary 主文件。
+  🟠 仅存测试版 -> **默认跳过**；只有调用方显式要求（include_prerelease=True，
+     菜单 [5] 的询问 / GUI 的勾选）时才取 latest_any（目标加载器 + 目标 MC 的版本，
+     允许 beta/alpha）。默认值绝不能改：把测试版下给用户是在替他做危险决定。
+  🔴 / ⚪ / ⚫ 一律跳过；只下 primary 主文件。
 """
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ from modcheck.core.report import Report, ReportItem
 from modcheck.errors import (ModcheckError, ProviderError, ProviderRateLimited,
                              ProviderVerifyError)
 
-#: 允许下载的两组（PRD §14.1）
+#: **默认**允许下载的两组（PRD §14.1）；🟠 只能由调用方显式要求，不进这个常量
 DOWNLOADABLE: Final[tuple[Status, ...]] = (Status.READY, Status.DEGRADED)
 
 #: Windows 文件名非法字符（chr(34)=双引号、chr(92)=反斜杠）
@@ -86,12 +89,25 @@ class DownloadReport:
     cancelled: bool
 
 
-def pick_version(item: ReportItem) -> VersionInfo | None:
-    """按组挑要下载的版本：🟢 取最新版，🟡 取「可用」的那个旧稳定版。"""
+def pick_version(item: ReportItem, *,
+                 include_prerelease: bool = False) -> VersionInfo | None:
+    """按组挑要下载的版本：🟢 取最新版，🟡 取「可用」的那个旧稳定版。
+
+    🟠 仅存测试版默认不给版本（返回 None）：只有调用方显式要求时才取 latest_any。
+
+    ⚠️ 为什么 🟠 取 latest_any 而不是 latest_for_loader：
+      · latest_for_loader 是"该加载器的最新**正式版**"，而 🟠 的定义恰恰是"它不支持
+        目标 MC"（支持的话早就判成 🟢/🟡 了）—— 取它等于下一个装不上的版本，比不下更糟；
+      · latest_any 是请求 B2 的第一条，即"**目标加载器 + 目标 MC**"这个组合下的最新版本
+        （放宽到 beta/alpha），也就是这个模组在目标版本上真正能用的那个测试版；
+      · latest_compat 只认正式版通道，🟠 条目上必然为空。
+    """
     if item.status is Status.READY:
         return item.latest_for_loader
     if item.status is Status.DEGRADED:
         return item.latest_compat
+    if include_prerelease and item.status is Status.PRERELEASE:
+        return item.latest_any
     return None
 
 
@@ -166,12 +182,16 @@ def safe_filename(name: str, *, fallback: str) -> str:
     return cleaned[:MAX_FILENAME]
 
 
-def plan_for(report: Report, target_dir: Path) -> DownloadPlan:
+def plan_for(report: Report, target_dir: Path, *,
+             include_prerelease: bool = False) -> DownloadPlan:
     """按报告生成下载计划（PRD §14.2）。
 
     参数：
         report: 一次检查的报告。
         target_dir: 下载目标目录（这里只用来拼路径，不创建、不写盘）。
+        include_prerelease: 是否把 🟠 仅存测试版也算进下载范围（**默认 False**）。
+            默认只下 🟢/🟡；测试版必须由调用方（CLI 的询问 / GUI 的勾选）显式要求，
+            取哪个版本见 pick_version。
     返回：
         DownloadPlan；不能下的条目连同原因进 skipped。
     """
@@ -180,10 +200,12 @@ def plan_for(report: Report, target_dir: Path) -> DownloadPlan:
     skipped: list[tuple[ModEntry, str]] = []
     for report_item in report.iter_items():
         entry = report_item.mod
-        if report_item.status not in DOWNLOADABLE:
-            skipped.append((entry, "download.skip.status." + report_item.status.value))
+        status = report_item.status
+        if status not in DOWNLOADABLE and not (include_prerelease
+                                               and status is Status.PRERELEASE):
+            skipped.append((entry, "download.skip.status." + status.value))
             continue
-        version = pick_version(report_item)
+        version = pick_version(report_item, include_prerelease=include_prerelease)
         if version is None:
             skipped.append((entry, SKIP_NO_VERSION))
             continue
