@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFileDialog,
                              QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from modcheck.gui import theme
+from modcheck.gui.dialogs import describe, show_warning
 
 
 def _size_mb(n: int) -> str:
@@ -148,7 +149,9 @@ class DownloadDialog(QDialog):
         try:
             self._prep = self._backend.prepare_download(self._report, target)
         except Exception as exc:
-            QMessageBox.warning(self, "准备失败", f"{type(exc).__name__}: {exc}")
+            show_warning(self, "准备失败",
+                         "没能生成下载清单。请确认所选文件夹存在且可写。",
+                         detail=describe(exc))
             return
         self._fill()
 
@@ -262,18 +265,23 @@ class DownloadDialog(QDialog):
             # 下载走 cdn.modrinth.com，是**两个不同的域名**，后者经常连不上。
             # 只说「下载失败」用户无从下手，等于把问题丢回给他。
             net_only = all(row[1] == "download.error.net" for row in s.failure_rows)
-            tip = ("\n\n排查建议：\n"
-                   "  · 如果「检查」能正常出结果、只有下载失败，通常是下载服务器\n"
-                   "    （cdn.modrinth.com，与检查用的接口不是同一个域名）连不上。\n"
-                   "  · 可在「设置 → 代理」里填一个可用代理后重试。\n"
-                   "  · 也可以按上面的文件名自行到 Modrinth 页面手动下载。") if net_only else ""
-            QMessageBox.warning(self, "有文件没下成功",
-                                f"以下 {s.failed} 个文件下载失败：\n\n" + "\n".join(lines) + more +
-                                tip + "\n\n可以稍后重试（已成功的不会重复下载）。")
+            # 主文案只留"发生了什么 + 怎么办"两句话；逐条原因与排查建议进「详细信息」。
+            # 之前把这一切塞进主文案，弹出来占满整屏，用户根本读不完。
+            head = (f"{s.failed} 个文件没能下载。\n\n"
+                    + ("这些文件所在的下载服务器连不上（它与检查用的接口不是同一个域名），"
+                       "所以检查正常、下载却全部失败。\n"
+                       "可尝试：在「设置 → 代理」里填一个可用代理后重试。"
+                       if net_only else
+                       "可以稍后重试；已成功的文件不会重复下载。"))
+            detail = "\n".join(lines) + more
+            show_warning(self, "有文件没下成功", head, detail=detail)
 
     def _on_failed(self, message: str) -> None:
         self.lb_progress.setText("下载失败")
-        QMessageBox.warning(self, "下载失败", message)
+        show_warning(self, "下载失败",
+                     "下载没能开始或中途中断，**没有**文件被写入。\n"
+                     "可以稍后重试；若反复失败，请检查网络或设置里的代理。",
+                     detail=message)
 
     def _on_finished(self) -> None:
         self._worker = None

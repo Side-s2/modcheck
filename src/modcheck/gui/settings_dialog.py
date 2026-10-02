@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabe
                              QMessageBox, QPushButton, QSpinBox, QVBoxLayout, QWidget)
 
 from modcheck.gui import theme
+from modcheck.gui.dialogs import describe, show_warning
 
 
 class SettingsDialog(QDialog):
@@ -136,13 +137,15 @@ class SettingsDialog(QDialog):
     def _on_save(self) -> None:
         try:
             settings = self._collect()
-        except Exception as exc:                 # 校验失败：说清哪一项不对
-            QMessageBox.warning(self, "这项填得不对", str(exc))
+        except Exception as exc:                 # 校验失败：core 给的就是给人看的句子
+            show_warning(self, "这项填得不对", str(exc))
             return
         try:
             self._backend.save_settings(settings)
         except Exception as exc:
-            QMessageBox.warning(self, "保存失败", f"{type(exc).__name__}: {exc}\n设置没有写入。")
+            show_warning(self, "保存失败",
+                         "设置没有写入。请确认配置目录可写（磁盘空间、文件占用）。",
+                         detail=describe(exc))
             return
         self.accept()
 

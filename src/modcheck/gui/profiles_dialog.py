@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QHBoxLayout, QHeaderVie
 
 from modcheck.core.models import MatchStatus
 from modcheck.gui import theme
+from modcheck.gui.dialogs import describe, show_warning
 
 
 class ProfilesDialog(QDialog):
@@ -137,7 +138,9 @@ class ProfilesDialog(QDialog):
         try:
             self._profile = self._backend.load_profile(name)
         except Exception as exc:
-            QMessageBox.warning(self, "读不到清单", f"{type(exc).__name__}: {exc}")
+            show_warning(self, "读不到清单",
+                         "这个清单文件读不出来，可能已损坏或被其它程序占用。",
+                         detail=describe(exc))
             return
         self.lb_profile.setText(f"{name}　·　共 {len(self._profile.mods)} 个模组")
         self._fill_table()
@@ -189,7 +192,8 @@ class ProfilesDialog(QDialog):
         try:
             self._backend.save_profile(self._profile)
         except Exception as exc:
-            QMessageBox.warning(self, "写盘失败", f"{type(exc).__name__}: {exc}\n本次改动没有保存。")
+            show_warning(self, "写盘失败", "本次改动**没有**保存。请确认配置目录可写。",
+                         detail=describe(exc))
             return
         self._reload_profiles(self._profile.name)
 

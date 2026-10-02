@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog, QHBoxLayou
                              QVBoxLayout, QWidget)
 
 from modcheck.gui import theme
+from modcheck.gui.dialogs import describe, show_info, show_warning
 
 
 class ScanWorker(QThread):
@@ -181,7 +182,10 @@ class ScanDialog(QDialog):
 
     def _on_failed(self, message: str) -> None:
         self.lb_progress.setText("扫描失败")
-        QMessageBox.warning(self, "扫描失败", message)
+        show_warning(self, "扫描失败",
+                     "扫描没能完成，**没有**写入任何清单。\n"
+                     "请确认所选文件夹存在且可读，然后重试。",
+                     detail=message)
 
     def _on_finished(self) -> None:
         self._worker = None
@@ -198,14 +202,27 @@ class ScanDialog(QDialog):
         try:
             outcome = self._backend.save_scan(self._report, name)
         except Exception as exc:
-            QMessageBox.warning(self, "保存失败", f"{type(exc).__name__}: {exc}")
+            show_warning(self, "保存失败",
+                         "清单没能保存，扫描结果**没有**写入。\n"
+                         "常见原因：磁盘空间不足，或清单文件被其它程序占用。",
+                         detail=describe(exc))
             return
-        added = getattr(outcome, "added", "?")
-        merged = getattr(outcome, "merged", "?")
-        total = getattr(outcome, "total", "?")
-        QMessageBox.information(self, "已保存",
-                                f"清单「{name}」已更新：\n"
-                                f"新增 {added} 个，合并 {merged} 个，共 {total} 个模组")
+        # ⚠️ outcome.merged 是 **list[ModEntry]**，不是数字！
+        # 之前写 f"合并 {merged} 个" 会把整个对象列表的 repr 打出来 ——
+        # 用户看到的是一屏 ModEntry(key=..., display_name=...)，这就是"巨长且全是编程语言"的来源。
+        total = len(getattr(outcome, "merged", []) or [])
+        stats = getattr(outcome, "stats", None)
+        added = getattr(stats, "added", None)
+        merged_n = getattr(stats, "merged", None)
+        bits = []
+        if added is not None:
+            bits.append(f"新增 {added} 个")
+        if merged_n is not None:
+            bits.append(f"合并 {merged_n} 个")
+        bits.append(f"清单现有 {total} 个模组")
+        created = getattr(outcome, "created", False)
+        head = f"已新建清单「{name}」。" if created else f"清单「{name}」已更新。"
+        show_info(self, "已保存", head + "\n" + "，".join(bits) + "\n\n可以回主窗口点「开始检查」了。")
         self.accept()
 
 

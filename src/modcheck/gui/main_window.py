@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame, QHBox
                              QVBoxLayout, QWidget)
 
 from modcheck.gui import theme
+from modcheck.gui.dialogs import describe, show_warning
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,7 +327,9 @@ class MainWindow(QMainWindow):
             exporter(path, fmt)
             self.lb_status.setText("已导出：" + path)
         except Exception as exc:                      # 磁盘满/无权限：要让用户看见
-            QMessageBox.warning(self, "导出失败", f"{type(exc).__name__}: {exc}")
+            show_warning(self, "导出失败",
+                         "报告没有写出去。请换一个位置，或确认目标文件没有被其它程序打开。",
+                         detail=describe(exc))
 
     def _on_copy_command(self) -> None:
         """把等价的重跑命令复制到剪贴板 —— 让用户能在终端里复现同一次检查。"""
