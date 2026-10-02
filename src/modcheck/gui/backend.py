@@ -229,9 +229,14 @@ class CliBackend:
                                 profile_name=profile_name, new=new)
 
     # ---------------------------------------------------------------- 下载（三期）
-    def prepare_download(self, report, target_dir):
-        """只做选品与同名冲突检测，**不写盘、不建目录** —— 先让用户看清楚要下什么。"""
-        return prepare_download(report, Path(target_dir))
+    def prepare_download(self, report, target_dir, *, include_prerelease: bool = False):
+        """只做选品与同名冲突检测，**不写盘、不建目录** —— 先让用户看清楚要下什么。
+
+        include_prerelease=True 时把 🟠 仅存测试版也纳入计划（默认 False：
+        默认把测试版下给用户等于替他做危险决定）。
+        """
+        return prepare_download(report, Path(target_dir),
+                                include_prerelease=bool(include_prerelease))
 
     def looks_like_mods_dir(self, target_dir) -> bool:
         """目标目录看起来是"正在用的 mods 文件夹"吗（要额外提醒一次）。"""

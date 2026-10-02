@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFileDialog, QHBoxLayout,
+from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QFileDialog, QHBoxLayout,  # noqa: F401
                              QHeaderView, QLabel, QMessageBox, QProgressBar, QPushButton,
                              QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -81,6 +81,7 @@ class DownloadDialog(QDialog):
         self._backend = backend
         self._report = report            # 来自一次检查的 Report
         self._prep = None
+        self._dir: Path | None = None
         self._worker: DownloadWorker | None = None
         self.setWindowTitle("下载建议的模组版本")
         self.resize(940, 620)
@@ -113,6 +114,14 @@ class DownloadDialog(QDialog):
         pick.clicked.connect(self._on_pick)
         row.addWidget(pick)
         outer.addLayout(row)
+
+        self.ck_prerelease = QCheckBox("同时下载测试性模组（🟠 仅存测试版）")
+        self.ck_prerelease.setToolTip(
+            "🟠 的模组只有测试版（beta / alpha）支持目标版本，稳定性没有保证。\n"
+            "默认不下载；勾选后会一并下载，但请自行评估风险并先备份存档。")
+        self.ck_prerelease.setEnabled(False)          # 选了文件夹才算得出有没有可下的
+        self.ck_prerelease.toggled.connect(self._on_toggle_prerelease)
+        outer.addWidget(self.ck_prerelease)
 
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["模组", "版本", "文件名", "大小", "覆盖"])
@@ -170,8 +179,21 @@ class DownloadDialog(QDialog):
                     ) != QMessageBox.StandardButton.Yes:
                 return
         self.ed_dir.setText(str(target))
+        self._dir = target
+        self.ck_prerelease.setEnabled(True)
+        self._reprepare()
+
+    def _on_toggle_prerelease(self, _checked: bool) -> None:
+        """切换「同时下载测试性模组」—— 计划要按新口径**重算**，不能只改显示。"""
+        self._reprepare()
+
+    def _reprepare(self) -> None:
+        if self._dir is None:
+            return
         try:
-            self._prep = self._backend.prepare_download(self._report, target)
+            self._prep = self._backend.prepare_download(
+                self._report, self._dir,
+                include_prerelease=self.ck_prerelease.isChecked())
         except Exception as exc:
             show_warning(self, "准备失败",
                          "没能生成下载清单。请确认所选文件夹存在且可写。",
