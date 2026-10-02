@@ -322,7 +322,7 @@ def test_run_download_flow_skips_user_choice(tmp_path: Path) -> None:
 def test_run_download_flow_disk_write_failure_is_isolated(tmp_path: Path) -> None:
     """磁盘满 / 没有权限：该文件失败、其余照下，已下好的不删（§14.5 第 6 条）。"""
     prep = prepare_download(sample_report(), tmp_path)
-    # 只有 carpet 写不进去（模拟磁盘满 / 没有权限），lithium 必须照下不误
+    # 只有 carpet 无法写入（模拟磁盘空间不足 / 没有权限），lithium 必须照下不误
     fetcher = FakeFetcher(error=OSError(28, "disk full"), fail_names=("carpet-26.3.jar",))
     outcome = run_download_flow(prep, fetcher, sleep=no_sleep)
     assert (outcome.summary.ok, outcome.summary.failed) == (1, 1)
@@ -509,7 +509,7 @@ def test_check_target_dir_missing_and_is_file(tmp_path: Path) -> None:
 
 
 def test_check_target_dir_not_writable(tmp_path: Path, monkeypatch) -> None:
-    """写不进去 -> not_writable（✗ 请换一个文件夹）。"""
+    """无法写入 -> not_writable（✗ 请更换文件夹）。"""
     import tempfile as tempfile_module
 
     def refuse(*args, **kwargs):

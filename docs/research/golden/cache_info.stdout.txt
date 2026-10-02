@@ -1,3 +1,3 @@
-缓存目录：C:\Users\Side_\AppData\Local\Temp\dsh-uwJpC7\golden-09jhbymd\cache
+缓存目录：C:\Users\Side_\AppData\Local\Temp\dsh-Oy1JkV\golden-tzjk_15y\cache
   http      0 个文件
 清理：modcheck cache clear [--older-than 7d]

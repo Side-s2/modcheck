@@ -121,7 +121,7 @@ def test_load_corrupt_profile_raises_e11(tmp_path: Path) -> None:
     path.write_text('{"mods": [', encoding="utf-8")
     with pytest.raises(ProfileError) as exc:
         load_profile(path)
-    assert "清单文件读不了" in str(exc.value)
+    assert "清单文件无法读取" in str(exc.value)
     assert "不是合法的 JSON" in str(exc.value) or "Expecting" in str(exc.value)
 
 
@@ -131,7 +131,7 @@ def test_load_profile_without_mods_raises_e12(tmp_path: Path) -> None:
     path.write_text(json.dumps({"name": "x"}), encoding="utf-8")
     with pytest.raises(ProfileError) as exc:
         load_profile(path)
-    assert "没有找到「mods」字段" in str(exc.value)
+    assert "未找到「mods」字段" in str(exc.value)
 
 
 def test_list_profiles_skips_broken(tmp_path: Path) -> None:

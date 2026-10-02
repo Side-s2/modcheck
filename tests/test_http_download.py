@@ -326,7 +326,7 @@ def test_download_transport_open_error_leaves_no_part(tmp_path: Path) -> None:
 
 
 def test_download_write_failure_leaves_no_part(tmp_path: Path, monkeypatch) -> None:
-    """磁盘满 / 没有权限：OSError 冒泡（由 download_all 记成"写不进去"），不留 .part。"""
+    """磁盘满 / 没有权限：OSError 冒泡（由 download_all 记成"无法写入"），不留 .part。"""
     def explode(self, *args, **kwargs):
         if args and args[0] == "wb":
             raise OSError(28, "No space left on device")

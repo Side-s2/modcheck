@@ -62,5 +62,5 @@ def test_validate_errors() -> None:
 
     with pytest.raises(ConfigError) as exc3:
         validate_target_version("26.9", {"26.3", "26.2", "26.1.2"})
-    assert "官方版本列表里没有「26.9」" in str(exc3.value)
+    assert "官方版本列表中不存在「26.9」" in str(exc3.value)
     assert "26.3、26.2、26.1.2" in str(exc3.value)

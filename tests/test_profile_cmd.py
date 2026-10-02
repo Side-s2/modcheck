@@ -114,13 +114,13 @@ def test_profile_remove_by_modid(tmp_path) -> None:
 
 
 def test_profile_remove_miss_suggests(tmp_path) -> None:
-    """没命中时提示"你是想找…"。"""
+    """没命中时提示"是否想找…"。"""
     seed(tmp_path)
     ctx = make_ctx(tmp_path)
     try:
         run_profile(FakeArgs(action="remove", name="demo", target="carp",
                              json_out=False), ctx)  # type: ignore[arg-type]
     except Exception as exc:  # ConfigError
-        assert "你是想找" in str(exc)
+        assert "是否想找" in str(exc)
     else:
         raise AssertionError("应当抛出 ConfigError")

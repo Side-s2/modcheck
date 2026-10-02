@@ -84,7 +84,7 @@ def test_config_show_and_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]
 
 def test_config_unknown_key_exit_three(tmp_path: Path,
                                        capsys: pytest.CaptureFixture[str]) -> None:
-    """不认识的设置项 -> 3。"""
+    """未知的设置项 -> 3。"""
     assert run(["config", "set", "no.such.key", "1"], tmp_path) == EXIT_USAGE
     capsys.readouterr()
 

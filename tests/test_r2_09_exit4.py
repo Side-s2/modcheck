@@ -56,7 +56,7 @@ def test_unavailable_source_returns_4(tmp_path: Path) -> None:
     code = run_check(args, ctx)
     out = ctx.console.stream.getvalue()  # type: ignore[attr-defined]
     assert code == EXIT_NO_SOURCE, out[-400:]
-    assert "连不上 Modrinth" in out
+    assert "无法连接 Modrinth" in out
     assert "config set proxy" in out
 
 

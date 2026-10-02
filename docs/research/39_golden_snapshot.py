@@ -1,5 +1,17 @@
 # -*- coding: utf-8 -*-
-"""重构前的 CLI 输出快照：重构后必须逐字一致（离网可复现的那部分）。"""
+"""CLI 输出快照（离网可复现的那部分）。
+
+用法：直接运行本脚本即可**重新生成** docs/research/golden/ 下的全部快照文件
+（脚本没有 compare 模式，比较用 git diff）。
+
+基线更新记录：
+  · 文案规范化：全部面向用户的文案由口语化改写为书面表达（src/modcheck/i18n.py 共 150 条），
+    本次快照**整体重新生成**。与上一版逐字不一致属于**预期**，不是回归：
+    差异只应出现在描述性文字上；退出码、命令、分组、列序、列宽与缩进结构均不应变化。
+    复核时请用 git diff -- docs/research/golden 逐条确认改动仅为措辞。
+  · 其中 config_show / profile_list / cache_info 三个 stdout 含临时配置目录名，
+    它们的差异天然不可复现，属正常噪声。
+"""
 import json, os, subprocess, sys, tempfile
 from pathlib import Path
 

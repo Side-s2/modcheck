@@ -1,6 +1,6 @@
 """中断路径回归（主 Agent 实测：中断后会打印错误的第二结论）。
 
-症状：Ctrl+C 后除了「检查被中断」还多打一条「清单里没有任何模组」，
+症状：Ctrl+C 后除了「检查被中断」还多打一条「清单中没有任何模组」，
 并建议用户去重扫 mods 文件夹 —— 可能覆盖手工编辑过的清单。
 """
 from __future__ import annotations
@@ -72,7 +72,7 @@ def test_interrupt_prints_exactly_one_verdict(tmp_path: Path) -> None:
     _, out = run(tmp_path, provider)
     assert out.count("结论：") == 1, out[-600:]
     assert "没有任何模组" not in out
-    assert "扫描你的 mods 文件夹" not in out
+    assert "扫描 mods 文件夹" not in out
 
 
 def test_interrupt_summary_mentions_incomplete(tmp_path: Path) -> None:

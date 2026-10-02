@@ -119,10 +119,10 @@ def test_ask_download_defaults_to_no_and_prints_notes(tmp_path: Path) -> None:
     ctx = make_ctx(tmp_path, [""])
     assert screen.ask_download(ctx) is False
     text = out(ctx)
-    assert "要不要把可用的版本下载下来？(y/N) > " in text
+    assert "是否下载可用的版本？(y/N) > " in text
     assert "    · 只会下载 🟢 就绪（最新版）和 🟡 需注意（可用的旧稳定版）的模组。" in text
     assert "    · 🔴 阻塞、🟠 仅存测试版、⚪ 未判定、⚫ 已忽略 一律跳过。" in text
-    assert "    · 不会动你现在的 mods 文件夹，只会往你选的文件夹里写文件。" in text
+    assert "    · 不会改动你当前的 mods 文件夹，只会向你选择的文件夹写入文件。" in text
 
 
 def test_ask_download_yes(tmp_path: Path) -> None:
@@ -182,8 +182,8 @@ def test_choose_target_dir_falls_back_to_manual_input(tmp_path: Path, monkeypatc
     assert target.is_dir()
     text = out(ctx)
     assert "请选择下载到哪个文件夹。" in text
-    assert "建议新建一个空文件夹，不要直接选你正在用的 mods 文件夹。" in text
-    assert "这个文件夹不存在。要现在创建吗？(Y/n) > " in text
+    assert "建议新建一个空文件夹，不要直接选择正在使用的 mods 文件夹。" in text
+    assert "该文件夹不存在。是否现在创建？(Y/n) > " in text
 
 
 def test_manual_missing_dir_declined_then_back(tmp_path: Path, monkeypatch) -> None:
@@ -208,7 +208,7 @@ def test_manual_path_is_a_file(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_manual_path_not_writable(tmp_path: Path, monkeypatch) -> None:
-    """写不进去：✗ 文案，让用户换一个。"""
+    """无法写入：✗ 文案，让用户换一个。"""
     import tempfile as tempfile_module
 
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_UNAVAILABLE, None))
@@ -219,7 +219,7 @@ def test_manual_path_not_writable(tmp_path: Path, monkeypatch) -> None:
     ctx = make_ctx(tmp_path, [str(target), "b"])
     prep = prepare_download(downloadable_report("carpet"), tmp_path)
     assert screen.choose_target_dir(ctx, prep) is None
-    assert "✗ 这个文件夹写不进去（没有权限）。请换一个文件夹。" in out(ctx)
+    assert "✗ 该文件夹无法写入（没有权限）。请更换文件夹。" in out(ctx)
 
 
 def test_manual_mods_folder_asks_once(tmp_path: Path, monkeypatch) -> None:
@@ -250,7 +250,7 @@ def test_ask_overwrite_enter_means_skip(tmp_path: Path) -> None:
     assert screen.ask_overwrite(ctx, prep) == {"a.jar": False, "b.jar": False}
     text = out(ctx)
     assert "开始前先确认：目标文件夹里已经有 2 个同名文件。" in text
-    assert "ℹ 默认是「跳过」，不会覆盖你已经有的文件。" in text
+    assert "ℹ 默认为「跳过」，不会覆盖已有的文件。" in text
     assert "   [o] 覆盖它  [s] 跳过这个  [a] 后面的全部覆盖  [k] 后面的全部跳过  [q] 取消下载" in text
 
 
@@ -368,7 +368,7 @@ def test_post_check_download_full_path(tmp_path: Path, monkeypatch) -> None:
     assert all("（0.0 MB）" in line for line in text.splitlines() if line.startswith("已下载 "))
     assert "下载完成：2 个文件里 2 个成功、0 个跳过、0 个失败。" in text
     assert "  ✓ 成功 2 个 → " + str(target) in text
-    assert "提示：把下好的 .jar 复制到服务端的 mods 文件夹，然后重启服务器。" in text
+    assert "提示：将下载好的 .jar 复制到服务端的 mods 文件夹，然后重启服务器。" in text
 
 
 def test_progress_lines_follow_completion_order(tmp_path: Path, monkeypatch) -> None:
@@ -402,7 +402,7 @@ def test_post_check_download_ttyshows_single_progress_line(tmp_path: Path,
 
 
 def test_post_check_download_summary_of_failure(tmp_path: Path, monkeypatch) -> None:
-    """失败清单写明原因；"写不进去"不说"已重试 N 次"（PRD 的两条示例）。"""
+    """失败清单写明原因；"无法写入"不说"已重试 N 次"（PRD 的两条示例）。"""
     target = tmp_path / "dl"
     target.mkdir()
     monkeypatch.setattr(screen, "pick_folder_ex", lambda title: (FOLDER_OK, str(target)))
@@ -413,7 +413,7 @@ def test_post_check_download_summary_of_failure(tmp_path: Path, monkeypatch) -> 
     text = out(ctx)
     assert "下载完成：2 个文件里 1 个成功、0 个跳过、1 个失败。" in text
     assert "  ✗ 失败 1 个：" in text
-    assert "      carpet.jar —— 写不进去（磁盘满或没有权限）" in text
+    assert "      carpet.jar —— 无法写入（磁盘空间不足或没有权限）" in text
     assert "已重试" not in text
 
 
@@ -430,7 +430,7 @@ def test_post_check_download_skipped_files_are_listed(tmp_path: Path, monkeypatc
     assert client.calls == []                     # 一个请求都没发
     assert (target / "carpet.jar").read_bytes() == b"old"
     text = out(ctx)
-    assert "  ⏭ 跳过 1 个：carpet.jar（你选择了跳过）" in text
+    assert "  ⏭ 跳过 1 个：carpet.jar（已选择跳过）" in text
 
 
 def test_post_check_download_user_declines(tmp_path: Path) -> None:
@@ -454,7 +454,7 @@ def test_post_check_download_interrupted_report_is_ignored(tmp_path: Path) -> No
     report.interrupted = True
     ctx = make_ctx(tmp_path, ["y"])
     assert screen.post_check_download(ctx, report) is None
-    assert "要不要把可用的版本下载下来" not in out(ctx)
+    assert "是否下载可用的版本" not in out(ctx)
 
 
 def test_post_check_download_conflict_quit_cancels(tmp_path: Path, monkeypatch) -> None:
@@ -493,12 +493,12 @@ def cancelled_outcome(prep, ok: int = 1):
 
 
 def test_render_result_cancelled(tmp_path: Path) -> None:
-    """取消语逐字（含"已经下好的 N 个文件保留在…"）。"""
+    """取消语逐字（含"已下载完成的 N 个文件保留在…"）。"""
     prep = prepare_download(downloadable_report("carpet"), tmp_path)
     ctx = make_ctx(tmp_path, [])
     screen.render_result(ctx, cancelled_outcome(prep, ok=1))
-    assert ("已取消下载。已经下好的 1 个文件保留在 " + str(tmp_path)
-            + " 里，没下完的临时文件已清理。") in out(ctx)
+    assert ("已取消下载。已下载完成的 1 个文件保留在 " + str(tmp_path)
+            + " 中，未完成的临时文件已清理。") in out(ctx)
 
 
 def test_render_result_extras_line(tmp_path: Path) -> None:
@@ -543,7 +543,7 @@ def test_render_result_all_failed_hint(tmp_path: Path) -> None:
     text = out(ctx)
     assert "      carpet.jar —— 下载失败（连接超时），已重试 2 次" in text
     assert "{detail}" not in text                  # 未填的占位符绝不能漏到用户面前
-    assert "✗ 一个都没下成功。可以稍后重试；如果是网络问题，先检查代理设置：" in text
+    assert "✗ 全部下载失败。可稍后重试；若为网络问题，请先检查代理设置：" in text
 # ---------------------------------------------------------------- 数字自洽（主 Agent 裁决 4）
 def sources_only_report(name: str = "jei") -> Report:
     """一个 🟢 模组，但它的版本里只有 sources.jar（没有可下载的主文件）。"""
@@ -606,7 +606,7 @@ def test_summary_numbers_add_up_on_screen(tmp_path: Path, monkeypatch) -> None:
     assert summary.outcome_total == (summary.ok + summary.skipped_total + summary.failed)
     text = out(ctx)
     assert "下载完成：3 个文件里 1 个成功、1 个跳过、1 个失败。" in text
-    assert "  ⏭ 跳过 1 个：carpet.jar（你选择了跳过）" in text
+    assert "  ⏭ 跳过 1 个：carpet.jar（已选择跳过）" in text
     assert "  ✗ 失败 1 个：" in text
     assert text.count(" —— ") == 1                # 失败清单只有一条
 

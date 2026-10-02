@@ -62,7 +62,7 @@ def test_default_mc_skips_known_check_when_offline() -> None:
     ("abc", "无法识别的游戏版本"),
     ("26.4-snapshot-2", "是快照版本"),
     ("24w14a", "是快照版本"),
-    ("1.20.9", "官方版本列表里没有"),
+    ("1.20.9", "官方版本列表中不存在"),
 ])
 def test_default_mc_rejects(bad: str, text: str) -> None:
     """非法 / 快照 / 不在官方清单：一律 ConfigError，且给的是对应那句文案。"""
@@ -102,7 +102,7 @@ def test_color_bad() -> None:
     """其它值一律拒绝，并给出逐字文案。"""
     with pytest.raises(ConfigError) as exc:
         set_color(Settings(), "rainbow")
-    assert "✗ 颜色只能是 auto / always / never（你输入的是 rainbow）。没有改动。" in str(exc.value)
+    assert "✗ 颜色只能为 auto / always / never（当前输入为 rainbow）。未做改动。" in str(exc.value)
 
 
 # ---------------------------------------------------------------- 代理（D42）
@@ -148,7 +148,7 @@ def test_concurrency_bad(value) -> None:
     """越界与非法输入报错，并给逐字文案。"""
     with pytest.raises(ConfigError) as exc:
         set_concurrency(Settings(), value)
-    assert "并发数要在 1 到 8 之间" in str(exc.value)
+    assert "并发数需在 1 到 8 之间" in str(exc.value)
 
 
 # ---------------------------------------------------------------- 缓存有效期
@@ -165,14 +165,14 @@ def test_cache_ttl_bad(hours) -> None:
     """越界与非法输入报错。"""
     with pytest.raises(ConfigError) as exc:
         set_cache_ttl(Settings(), "api", hours)
-    assert "缓存有效期要在 1 到 168 小时之间" in str(exc.value)
+    assert "缓存有效期需在 1 到 168 小时之间" in str(exc.value)
 
 
 def test_cache_ttl_unknown_key() -> None:
     """不认识的缓存键直接拒绝。"""
     with pytest.raises(ConfigError) as exc:
         set_cache_ttl(Settings(), "modrinth", 6)
-    assert "不认识的设置项" in str(exc.value)
+    assert "未知的设置项" in str(exc.value)
     assert TTL_KEYS == ("mojang", "api")
 
 

@@ -147,7 +147,7 @@ def test_verdict_lines_wording() -> None:
                           item("b", Status.UNKNOWN, ReasonCode.ERROR))
     assert verdict_line(blocked) == "结论：❌ 现在还不能升级到 Minecraft 26.3 —— 2 个模组中有 1 个阻塞、1 个未判定"
     empty = make_report()
-    assert verdict_line(empty) == "结论：⚠️ 这次没有检查任何模组 —— 清单「服务器A」里没有任何模组。"
+    assert verdict_line(empty) == "结论：⚠️ 本次未检查任何模组 —— 清单「服务器A」中没有任何模组。"
 
 
 def test_summary_line_has_two_totals() -> None:
@@ -191,7 +191,7 @@ def test_reason_text_no_loader_lists_loaders() -> None:
                  reason_key="reason.no_loader", hint_key="advice.no_loader",
                  available_loaders=("forge", "neoforge"))
     text = reason_text(entry, report)
-    assert text == "该模组没有 Fabric 版本（它只发布了 Forge、NeoForge 版本）"
+    assert text == "该模组没有 Fabric 版本（仅发布了 Forge、NeoForge 版本）"
 
 
 def test_reason_text_no_mc_version_uses_max() -> None:

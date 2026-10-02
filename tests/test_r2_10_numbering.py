@@ -70,7 +70,7 @@ def test_scenario_a_starts_at_one() -> None:
     hints = build_action_hints(scenario_a())
     first = next(line for line in hints if _STEP_RE.match(line))
     assert first.strip().startswith("1.")
-    assert "查清楚" in first
+    assert "确认 ⚪" in first
 
 
 def test_scenario_c_starts_at_one() -> None:

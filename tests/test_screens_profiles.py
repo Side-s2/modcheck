@@ -77,7 +77,7 @@ def test_empty_list_screen_verbatim(tmp_path: Path) -> None:
     """没有任何清单时给专门的 ⚠ 文案。"""
     ctx = make_ctx(tmp_path, ["q"])
     run_profiles_screen(ctx)
-    assert "⚠ 这里还没有任何模组清单。选 [n] 新建一个，或回主菜单选 [2] 扫描 mods 文件夹。" in out(ctx)
+    assert "⚠ 此处尚无任何模组清单。可选择 [n] 新建，或返回主菜单选择 [2] 扫描 mods 文件夹。" in out(ctx)
 
 
 def test_open_profile_back_to_list_then_quit(tmp_path: Path) -> None:
@@ -114,7 +114,7 @@ def test_invalid_choices_three_times_returns(tmp_path: Path) -> None:
     write_profile(tmp_path, "服务器A", 1)
     ctx = make_ctx(tmp_path, ["!@#", "!@#", "!@#", "0"])
     assert run_profiles_screen(ctx) == QUIT
-    assert "输入错误太多次，返回上一层。" in out(ctx)
+    assert "输入错误次数过多，返回上一级。" in out(ctx)
 
 
 def test_new_profile_creates_file(tmp_path: Path) -> None:
@@ -123,7 +123,7 @@ def test_new_profile_creates_file(tmp_path: Path) -> None:
     run_profiles_screen(ctx)
     path = tmp_path / "profiles" / "服务器B.json"
     assert path.exists()
-    assert "✓ 已创建空清单「服务器B」（0 个模组）。可以回主菜单选 [2] 把 mods 文件夹的内容扫描进来。" in out(ctx)
+    assert "✓ 已创建空清单「服务器B」（0 个模组）。可返回主菜单选择 [2]，将 mods 文件夹的内容扫描进来。" in out(ctx)
 
 
 def test_new_profile_rejects_bad_and_duplicate(tmp_path: Path) -> None:
@@ -133,7 +133,7 @@ def test_new_profile_rejects_bad_and_duplicate(tmp_path: Path) -> None:
     run_profiles_screen(ctx)
     text = out(ctx)
     assert "✗ 清单名不能为空" in text
-    assert "✗ 已经有一个叫「服务器A」的清单了。换一个名字。" in text
+    assert "✗ 已存在名为「服务器A」的清单。请更换名称。" in text
     assert (tmp_path / "profiles" / "服务器C.json").exists()
 
 
@@ -169,9 +169,9 @@ def test_delete_profile_requires_exact_name(tmp_path: Path) -> None:
     run_profiles_screen(ctx)
     text = out(ctx)
     assert "⚠ 即将删除清单「服务器A」（3 个模组）。" in text
-    assert "   这个操作不能撤销：清单文件会被直接删除，里面记录的中文名、备注、手动指定的平台项目都会一起消失。" in text
+    assert "   此操作不可撤销：清单文件将被直接删除，其中记录的中文名、备注、手动指定的平台项目都会一并丢失。" in text
     assert "   （不会删除你 mods 文件夹里的任何 jar 文件。）" in text
-    assert "已取消，清单没有被删除。（你输入的是「服务器B」，需要完整输入「服务器A」）" in text
+    assert "已取消，清单未被删除。（你输入的是「服务器B」，需完整输入「服务器A」）" in text
     assert path.exists()
 
 
@@ -199,7 +199,7 @@ def test_delete_profile_b_cancels(tmp_path: Path) -> None:
     path = write_entries(tmp_path, "服务器A", many_mods(1))
     ctx = make_ctx(tmp_path, ["1", "d", "b", "q"])
     run_profiles_screen(ctx)
-    assert "已取消，清单没有被删除。" in out(ctx)
+    assert "已取消，清单未被删除。" in out(ctx)
     assert path.exists()
 
 
@@ -214,7 +214,7 @@ def test_delete_profile_failure_keeps_file(tmp_path: Path, monkeypatch) -> None:
     ctx = make_ctx(tmp_path, ["1", "d", "服务器A", "q"])
     run_profiles_screen(ctx)
     text = out(ctx)
-    assert "✗ 删除失败：" in text and "清单没有被删除。" in text
+    assert "✗ 删除失败：" in text and "清单未被删除。" in text
     assert path.exists()
 
 
@@ -232,7 +232,7 @@ def test_rename_profile_updates_file_and_name(tmp_path: Path) -> None:
     write_entries(tmp_path, "服务器A", many_mods(2))
     ctx = make_ctx(tmp_path, ["1", "r", "主服", "q"])
     run_profiles_screen(ctx)
-    assert "✓ 清单「服务器A」已重命名为「主服」。文件也已经改名。" in out(ctx)
+    assert "✓ 清单「服务器A」已重命名为「主服」。对应文件也已改名。" in out(ctx)
     assert not (tmp_path / "profiles" / "服务器A.json").exists()
     new_path = tmp_path / "profiles" / "主服.json"
     assert new_path.exists()
@@ -259,7 +259,7 @@ def test_rename_profile_rejects_existing(tmp_path: Path) -> None:
     before = (tmp_path / "profiles" / "测试服.json").read_bytes()
     ctx = make_ctx(tmp_path, ["1", "r", "测试服", "q"])
     run_profiles_screen(ctx)
-    assert "✗ 已经有一个叫「测试服」的清单了。换一个名字，或先用 [d] 删掉它。" in out(ctx)
+    assert "✗ 已存在名为「测试服」的清单。请更换名称，或先用 [d] 删除它。" in out(ctx)
     assert (tmp_path / "profiles" / "测试服.json").read_bytes() == before
     assert (tmp_path / "profiles" / "服务器A.json").exists()
 
@@ -280,7 +280,7 @@ def test_rename_profile_same_name(tmp_path: Path) -> None:
     before = path.read_bytes()
     ctx = make_ctx(tmp_path, ["1", "r", "服务器A", "q"])
     run_profiles_screen(ctx)
-    assert "清单名字没有变化。" in out(ctx)
+    assert "清单名称未发生变化。" in out(ctx)
     assert path.read_bytes() == before
 
 
@@ -301,7 +301,7 @@ def test_rename_profile_keeps_old_when_save_fails(tmp_path: Path, monkeypatch) -
 
 
 def test_rename_profile_reports_leftover_old_file(tmp_path: Path, monkeypatch) -> None:
-    """新文件写好了但旧文件删不掉：必须明确告警（否则会出现两个清单）。"""
+    """新文件写好了但旧文件删不掉：必须明确告警（否则将同时存在两个清单）。"""
     write_entries(tmp_path, "服务器A", many_mods(1))
 
     def boom(*_args, **_kwargs):
@@ -310,7 +310,7 @@ def test_rename_profile_reports_leftover_old_file(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr("modcheck.cli.screens_profiles.delete_profile", boom)
     ctx = make_ctx(tmp_path, ["1", "r", "主服", "q"])
     run_profiles_screen(ctx)
-    assert "⚠ 新清单已经写好了，但旧的" in out(ctx)
+    assert "⚠ 新清单已写入，但旧的" in out(ctx)
     assert (tmp_path / "profiles" / "主服.json").exists()
 
 
@@ -320,7 +320,7 @@ def test_ignore_and_unignore(tmp_path: Path) -> None:
     write_entries(tmp_path, "服务器A", many_mods(2))
     ctx = make_ctx(tmp_path, ["1", "4", "1", "1", "q"])
     run_profiles_screen(ctx)
-    assert "✓ 已忽略「Mod0」。以后检查不再判定它；列表里会显示在 ⚫ 已忽略组。" in out(ctx)
+    assert "✓ 已忽略「Mod0」。后续检查不再判定该模组；列表中会显示在 ⚫ 已忽略组。" in out(ctx)
     assert status_of(tmp_path, "服务器A", 0) == "ignored"
 
     ctx2 = make_ctx(tmp_path, ["1", "4", "Mod0", "2", "q"])
@@ -348,7 +348,7 @@ def test_ignore_invalid_choice_reprompts(tmp_path: Path) -> None:
     ctx = make_ctx(tmp_path, ["1", "4", "1", "9", "1", "q"])
     run_profiles_screen(ctx)
     text = out(ctx)
-    assert "✗ 没有这个选项，请重新选择。" in text
+    assert "✗ 无此选项，请重新选择。" in text
     assert "✓ 已忽略「Mod0」" in text
 
 
@@ -358,7 +358,7 @@ def test_ignore_unknown_mod(tmp_path: Path) -> None:
     ctx = make_ctx(tmp_path, ["1", "4", "zzz", "q"])
     run_profiles_screen(ctx)
     text = out(ctx)
-    assert "✗ 清单「服务器A」里没有叫「zzz」的模组。" in text
+    assert "✗ 清单「服务器A」中不存在名为「zzz」的模组。" in text
     assert "[1] 忽略它" not in text
 
 
@@ -399,7 +399,7 @@ def test_set_source_by_slug(tmp_path: Path) -> None:
     write_entries(tmp_path, "服务器A", many_mods(1))
     ctx = make_ctx(tmp_path, ["1", "3", "1", "carpet", "q"], provider=carpet_provider())
     run_profiles_screen(ctx)
-    assert "✓ 已把「Mod0」指定为 Modrinth 项目「Carpet」（carpet）。下次检查直接用这个项目，不再询问。" in out(ctx)
+    assert "✓ 已把「Mod0」指定为 Modrinth 项目「Carpet」（carpet）。后续检查将直接使用该项目，不再询问。" in out(ctx)
     saved = sources_of(tmp_path, "服务器A")
     assert saved["sources"]["modrinth"] == "carpet"
     assert saved["status"] == "manual"
@@ -434,7 +434,7 @@ def test_set_source_network_failure(tmp_path: Path) -> None:
     provider = carpet_provider(raise_on={"get_project": ProviderNetworkError("offline")})
     ctx = make_ctx(tmp_path, ["1", "3", "1", "carpet", "q"], provider=provider)
     assert run_profiles_screen(ctx) == QUIT
-    assert "✗ 现在连不上 Modrinth，没法校验这个项目。请稍后再试。（清单没有改动）" in out(ctx)
+    assert "✗ 当前无法连接 Modrinth，无法校验该项目。请稍后重试。（清单未做改动）" in out(ctx)
     assert path.read_bytes() == before
 
 
@@ -444,7 +444,7 @@ def test_set_source_bad_input(tmp_path: Path) -> None:
     before = path.read_bytes()
     ctx = make_ctx(tmp_path, ["1", "3", "1", "not a slug!", "q"], provider=carpet_provider())
     run_profiles_screen(ctx)
-    assert "✗ 「not a slug!」不像 Modrinth 项目名或链接。" in out(ctx)
+    assert "✗ 「not a slug!」不是有效的 Modrinth 项目名或链接。" in out(ctx)
     assert path.read_bytes() == before
 
 
@@ -454,7 +454,7 @@ def test_set_source_unknown_mod(tmp_path: Path) -> None:
     ctx = make_ctx(tmp_path, ["1", "3", "zzz", "q"], provider=carpet_provider())
     run_profiles_screen(ctx)
     text = out(ctx)
-    assert "✗ 清单「服务器A」里没有叫「zzz」的模组。" in text
+    assert "✗ 清单「服务器A」中不存在名为「zzz」的模组。" in text
     assert "请输入 Modrinth 项目 slug 或链接" not in text
 
 
@@ -463,7 +463,7 @@ def test_set_source_empty_profile(tmp_path: Path) -> None:
     write_entries(tmp_path, "空清单", [])
     ctx = make_ctx(tmp_path, ["1", "3", "q"], provider=carpet_provider())
     run_profiles_screen(ctx)
-    assert "这个清单里还没有模组。回上一层用 [b]，或回主菜单选 [2] 扫描 mods 文件夹。" in out(ctx)
+    assert "该清单中尚无模组。可返回上一层（[b]），或返回主菜单选择 [2] 扫描 mods 文件夹。" in out(ctx)
 
 
 # ---------------------------------------------------------------- R3-A05 删除模组
@@ -483,8 +483,8 @@ def test_remove_mods_with_confirmation(tmp_path: Path) -> None:
     text = out(ctx)
     assert "即将从清单「服务器A」删除 2 个模组：" in text
     assert "    Mod0（m0）" in text and "    Mod1（m1）" in text
-    assert "这只会从清单记录里删掉它们：不会删除你 mods 文件夹里的 jar 文件。" in text
-    assert "✓ 已删除 2 个模组，清单「服务器A」现在有 3 个模组。（想让它们回来，可以重新扫描 mods 文件夹）" in text
+    assert "此操作仅从清单记录中删除条目，不会删除 mods 文件夹中的 jar 文件。" in text
+    assert "✓ 已删除 2 个模组，清单「服务器A」现有 3 个模组。（如需恢复，可重新扫描 mods 文件夹）" in text
     assert names(tmp_path, "服务器A") == ["m2", "m3", "m4"]
 
 
@@ -494,7 +494,7 @@ def test_remove_mods_cancelled_keeps_file(tmp_path: Path) -> None:
     before = path.read_bytes()
     ctx = make_ctx(tmp_path, ["1", "2", "1", "n", "q"])
     run_profiles_screen(ctx)
-    assert "已取消，清单没有被删除。" in out(ctx)
+    assert "已取消，清单未做改动。" in out(ctx)
     assert path.read_bytes() == before
 
 
@@ -514,8 +514,8 @@ def test_remove_mods_unknown_gives_candidates(tmp_path: Path) -> None:
     ctx = make_ctx(tmp_path, ["1", "2", "Mod0x", "2", "Mod", "q"])
     run_profiles_screen(ctx)
     text = out(ctx)
-    assert "✗ 清单「服务器A」里没有叫「Mod0x」的模组。" in text
-    assert "你要找的是不是：Mod0（modid=m0）、Mod1（modid=m1）、Mod2（modid=m2）？" in text
+    assert "✗ 清单「服务器A」中不存在名为「Mod0x」的模组。" in text
+    assert "是否想找：Mod0（modid=m0）、Mod1（modid=m1）、Mod2（modid=m2）？" in text
     assert path.read_bytes() == before
     assert "确认删除？" not in text
 
@@ -535,7 +535,7 @@ def test_remove_mods_empty_profile(tmp_path: Path) -> None:
     ctx = make_ctx(tmp_path, ["1", "2", "q"])
     run_profiles_screen(ctx)
     text = out(ctx)
-    assert "这个清单里还没有模组。回上一层用 [b]，或回主菜单选 [2] 扫描 mods 文件夹。" in text
+    assert "该清单中尚无模组。可返回上一层（[b]），或返回主菜单选择 [2] 扫描 mods 文件夹。" in text
     assert "确认删除？" not in text
 
 
@@ -591,8 +591,8 @@ def test_view_list_paging_and_boundaries(tmp_path: Path) -> None:
     run_profiles_screen(ctx)
     text = out(ctx)
     assert "第 1/2 页" in text and "第 2/2 页" in text
-    assert "已经是最后一页了。" in text
-    assert "已经是第一页了。" in text
+    assert "已是最后一页。" in text
+    assert "已是第一页。" in text
     assert "m29" in text
 
 
@@ -601,7 +601,7 @@ def test_view_empty_profile(tmp_path: Path) -> None:
     write_entries(tmp_path, "空清单", [])
     ctx = make_ctx(tmp_path, ["1", "1", "q"])
     run_profiles_screen(ctx)
-    assert "这个清单里还没有模组。回上一层用 [b]，或回主菜单选 [2] 扫描 mods 文件夹。" in out(ctx)
+    assert "该清单中尚无模组。可返回上一层（[b]），或返回主菜单选择 [2] 扫描 mods 文件夹。" in out(ctx)
 
 
 def test_view_quit_returns_to_main_menu(tmp_path: Path) -> None:
@@ -618,7 +618,7 @@ def test_view_invalid_choice_reprompts(tmp_path: Path) -> None:
     ctx = make_ctx(tmp_path, ["1", "1", "!@#", "q", "q"])
     run_profiles_screen(ctx)
     text = out(ctx)
-    assert "✗ 没有这个选项，请重新选择。" in text
+    assert "✗ 无此选项，请重新选择。" in text
     assert text.count("清单「服务器A」的模组") == 2      # 非法输入后又画了一次
 
 

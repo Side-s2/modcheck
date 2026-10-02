@@ -111,7 +111,7 @@ def test_list_screen_verbatim() -> None:
     assert t("manage.item", index=1, name="服务器A", count=120,
              date="2026-10-01 21:40") == "  [1] 服务器A（120 个模组，更新于 2026-10-01 21:40）"
     assert t("manage.empty") == (
-        "  ⚠ 这里还没有任何模组清单。选 [n] 新建一个，或回主菜单选 [2] 扫描 mods 文件夹。")
+        "  ⚠ 此处尚无任何模组清单。可选择 [n] 新建，或返回主菜单选择 [2] 扫描 mods 文件夹。")
     assert t("manage.hint.open") == "  [1-9] 打开某个清单进行管理"
     assert t("manage.hint.new") == "  [n]   新建空清单"
     assert t("manage.hint.quit") == "  [q]   返回主菜单"
@@ -137,9 +137,9 @@ def test_view_screen_verbatim() -> None:
         "清单「服务器A」的模组（共 120 个，第 1/6 页）：")
     assert t("manage.view.hint") == "  [n] 下一页  [p] 上一页  [b] 返回"
     assert t("manage.one.empty") == (
-        "这个清单里还没有模组。回上一层用 [b]，或回主菜单选 [2] 扫描 mods 文件夹。")
-    assert t("manage.view.last_page") == "已经是最后一页了。"
-    assert t("manage.view.first_page") == "已经是第一页了。"
+        "该清单中尚无模组。可返回上一层（[b]），或返回主菜单选择 [2] 扫描 mods 文件夹。")
+    assert t("manage.view.last_page") == "已是最后一页。"
+    assert t("manage.view.first_page") == "已是第一页。"
     assert t("manage.view.col.match") == "匹配"
 
 
@@ -153,14 +153,14 @@ def test_remove_screen_verbatim() -> None:
     assert t("manage.remove.item", name="[锂] Lithium", modid="lithium") == (
         "    [锂] Lithium（lithium）")
     assert t("manage.remove.note") == (
-        "这只会从清单记录里删掉它们：不会删除你 mods 文件夹里的 jar 文件。")
+        "此操作仅从清单记录中删除条目，不会删除 mods 文件夹中的 jar 文件。")
     assert t("manage.remove.confirm") == "确认删除？(y/N) > "
     assert t("manage.remove.done", count=2, profile="服务器A", left=118) == (
-        "✓ 已删除 2 个模组，清单「服务器A」现在有 118 个模组。"
-        "（想让它们回来，可以重新扫描 mods 文件夹）")
+        "✓ 已删除 2 个模组，清单「服务器A」现有 118 个模组。"
+        "（如需恢复，可重新扫描 mods 文件夹）")
     assert t("manage.remove.not_found_hint", profile="服务器A", name="xxx",
              suggest="地毯（modid=carpet）") == (
-        "✗ 清单「服务器A」里没有叫「xxx」的模组。你要找的是不是：地毯（modid=carpet）？")
+        "✗ 清单「服务器A」中不存在名为「xxx」的模组。是否想找：地毯（modid=carpet）？")
     assert t("manage.candidate.item", name="地毯", modid="carpet") == "地毯（modid=carpet）"
 
 
@@ -169,11 +169,11 @@ def test_source_screen_verbatim() -> None:
     assert t("manage.source.done", name="Carpet TIS Addition", title="Carpet TIS Addition",
              slug="carpet-tis-addition") == (
         "✓ 已把「Carpet TIS Addition」指定为 Modrinth 项目「Carpet TIS Addition」"
-        "（carpet-tis-addition）。下次检查直接用这个项目，不再询问。")
+        "（carpet-tis-addition）。后续检查将直接使用该项目，不再询问。")
     assert t("manage.source.not_found", slug="carpet-xyz") == (
         "✗ 在 Modrinth 上找不到「carpet-xyz」。请检查拼写，或直接粘贴项目链接。")
     assert t("manage.source.network") == (
-        "✗ 现在连不上 Modrinth，没法校验这个项目。请稍后再试。（清单没有改动）")
+        "✗ 当前无法连接 Modrinth，无法校验该项目。请稍后重试。（清单未做改动）")
 
 
 def test_ignore_screen_verbatim() -> None:
@@ -182,7 +182,7 @@ def test_ignore_screen_verbatim() -> None:
     assert t("manage.ignore.menu2") == "[2] 取消忽略（恢复正常的兼容性检查）"
     assert t("manage.ignore.ask") == "请选择 > "
     assert t("manage.ignore.done", name="OldStuff") == (
-        "✓ 已忽略「OldStuff」。以后检查不再判定它；列表里会显示在 ⚫ 已忽略组。")
+        "✓ 已忽略「OldStuff」。后续检查不再判定该模组；列表中会显示在 ⚫ 已忽略组。")
     assert t("manage.ignore.undone", name="OldStuff") == (
         "✓ 已取消忽略「OldStuff」，下次检查会正常判定它。")
 
@@ -193,9 +193,9 @@ def test_rename_screen_verbatim() -> None:
     assert t("manage.rename.prompt", chars=chars) == (
         '请输入新的清单名称（不能包含 ' + chr(92) + ' / : * ? " < > | 这些字符），[b] 返回 > ')
     assert t("manage.rename.exists", name="测试服") == (
-        "✗ 已经有一个叫「测试服」的清单了。换一个名字，或先用 [d] 删掉它。")
+        "✗ 已存在名为「测试服」的清单。请更换名称，或先用 [d] 删除它。")
     assert t("manage.rename.done", old="服务器A", new="主服") == (
-        "✓ 清单「服务器A」已重命名为「主服」。文件也已经改名。")
+        "✓ 清单「服务器A」已重命名为「主服」。对应文件也已改名。")
 
 
 def test_delete_profile_screen_verbatim() -> None:
@@ -203,14 +203,14 @@ def test_delete_profile_screen_verbatim() -> None:
     assert t("manage.delete.warn1", name="服务器A", count=120) == (
         "⚠ 即将删除清单「服务器A」（120 个模组）。")
     assert t("manage.delete.warn2") == (
-        "   这个操作不能撤销：清单文件会被直接删除，里面记录的中文名、备注、"
-        "手动指定的平台项目都会一起消失。")
+        "   此操作不可撤销：清单文件将被直接删除，其中记录的中文名、备注、"
+        "手动指定的平台项目都会一并丢失。")
     assert t("manage.delete.warn3") == "   （不会删除你 mods 文件夹里的任何 jar 文件。）"
     assert t("manage.delete.ask", name="服务器A") == (
-        "如果确定要删除，请输入这个清单的名称（服务器A）：")
+        "如确认删除，请输入该清单的名称（服务器A）：")
     assert t("manage.delete.prompt") == "> "
     assert t("manage.delete.cancel", value="xxx", name="服务器A") == (
-        "已取消，清单没有被删除。（你输入的是「xxx」，需要完整输入「服务器A」）")
+        "已取消，清单未被删除。（你输入的是「xxx」，需完整输入「服务器A」）")
     assert t("manage.delete.done", name="服务器A", left=1) == (
         "✓ 清单「服务器A」已删除。还剩 1 个清单。")
 
@@ -219,7 +219,7 @@ def test_new_profile_screen_verbatim() -> None:
     """新建空清单逐字。"""
     assert t("manage.new.prompt") == "请输入新清单的名称（例如 服务器B），[b] 返回 > "
     assert t("manage.new.done", name="服务器B") == (
-        "✓ 已创建空清单「服务器B」（0 个模组）。可以回主菜单选 [2] 把 mods 文件夹的内容扫描进来。")
+        "✓ 已创建空清单「服务器B」（0 个模组）。可返回主菜单选择 [2]，将 mods 文件夹的内容扫描进来。")
 
 
 # ---------------------------------------------------------------- 设置屏（PRD §13.3）
@@ -248,22 +248,22 @@ def test_settings_sub_screens_verbatim() -> None:
     assert t("settings.proxy.prompt") == (
         "请输入代理地址（例如 http://127.0.0.1:7890）。输入 null 表示不使用代理。[b] 返回 > ")
     assert t("settings.proxy.bad", value="abc") == (
-        "✗「abc」不像一个代理地址。正确格式像 http://127.0.0.1:7890。没有改动。")
+        "✗「abc」不是有效的代理地址。正确格式如 http://127.0.0.1:7890。未做改动。")
     assert t("settings.jobs.prompt", value=6) == (
-        "请输入并发数（1-8，数字越大越快，但更容易被 Modrinth 限流）。当前 6：[b] 返回 > ")
+        "请输入并发数（1-8，数值越大速度越快，但更容易触发 Modrinth 限流）。当前 6：[b] 返回 > ")
     assert t("settings.jobs.range", value=12) == (
-        "✗ 并发数要在 1 到 8 之间（你输入的是 12）。没有改动。")
+        "✗ 并发数需在 1 到 8 之间（当前输入为 12）。未做改动。")
     assert t("settings.cache.item1", hours=24) == "  [1] 官方版本清单（当前 24 小时）"
     assert t("settings.cache.item2", hours=6) == "  [2] Modrinth（当前 6 小时）"
     assert t("settings.cache.range", value=200) == (
-        "✗ 缓存有效期要在 1 到 168 小时之间（你输入的是 200）。没有改动。")
+        "✗ 缓存有效期需在 1 到 168 小时之间（当前输入为 200）。未做改动。")
     assert t("settings.cf.done", mask="****abcd") == (
         "✓ CurseForge API Key 已保存（回显只显示后 4 位：****abcd）。")
     assert t("settings.cf.prompt") == (
         "请输入 CurseForge API Key（输入 null 清除）。"
-        "提示：本工具当前没有启用 CurseForge，填了也不会联网，只为以后留用。[b] 返回 > ")
+        "提示：本工具当前未启用 CurseForge，填写后也不会发起网络请求，仅供后续启用时使用。[b] 返回 > ")
     assert t("settings.save_failed", path="C:/x/settings.json") == (
-        "✗ 设置没能保存到 C:/x/settings.json（磁盘满或没有权限）。这次的修改只在本次运行有效。")
+        "✗ 设置无法保存到 C:/x/settings.json（磁盘空间不足或没有权限）。本次修改仅在当前运行期间有效。")
 
 
 def test_reset_screen_verbatim() -> None:

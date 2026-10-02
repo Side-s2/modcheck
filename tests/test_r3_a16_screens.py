@@ -159,7 +159,7 @@ def test_full_profile_walkthrough(tmp_path: Path) -> None:
     assert run_profiles_screen(ctx) == "quit"
     text = out(ctx)
     assert "清单「服务器A」的模组（共 4 个，第 1/1 页）：" in text
-    assert "✓ 已删除 1 个模组，清单「服务器A」现在有 3 个模组。" in text
+    assert "✓ 已删除 1 个模组，清单「服务器A」现有 3 个模组。" in text
     assert "✓ 已把「[模1] Mod1」指定为 Modrinth 项目「Carpet」（carpet）。" in text
     assert "✓ 已忽略「[模1] Mod1」。" in text
     assert "✓ 清单「服务器A」已重命名为「主服」。" in text

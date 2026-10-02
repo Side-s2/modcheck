@@ -155,7 +155,7 @@ def test_cli_interactive_quit_returns_130(tmp_path: Path) -> None:
 
     assert code == 130
     assert out.count("结论：") == 1
-    assert "已按你的要求结束检查" in out       # 用户按的是 q，就照实说是他结束的
+    assert "已按用户要求结束检查" in out       # 用户按的是 q，就照实说是他结束的
     assert "按了 Ctrl+C" not in out           # 绝不能对用户说假话
     assert "⚪ 未判定（" not in out          # 不能把"用户取消"记成"这个模组查不到"
     assert "程序内部出错" not in out         # 更不能变成"本不应该发生"的内部错误
@@ -181,8 +181,8 @@ def test_cli_keyboard_interrupt_keeps_ctrl_c_wording(tmp_path: Path) -> None:
     out = console.stream.getvalue()  # type: ignore[attr-defined]
 
     assert code == 130
-    assert "按了 Ctrl+C" in out
-    assert "已按你的要求结束检查" not in out
+    assert "已中断（用户按下 Ctrl+C）" in out
+    assert "已按用户要求结束检查" not in out
 
 
 def test_cli_ordinary_failure_still_renders_unknown(tmp_path: Path) -> None:

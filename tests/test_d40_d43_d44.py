@@ -64,14 +64,14 @@ def test_needs_action_split() -> None:
 
 
 def test_advice_text_wording() -> None:
-    """建议行：无需处理 vs 把 X 换成 Y。"""
+    """建议行：无需处理 vs 将 X 替换为 Y。"""
     report = Report(mc_version="26.1", loader=Loader.FABRIC, profile_name="p", generated_at="t")
     same = item("26.1", ReasonCode.OLD_VERSION_ONLY, Status.DEGRADED,
                 latest_compat=V("26.1", ("26.1",)), latest_for_loader=V("26.3", ("26.3",)))
     older = item("26.0", ReasonCode.OLD_VERSION_ONLY, Status.DEGRADED,
                  latest_compat=V("26.1", ("26.1",)), latest_for_loader=V("26.3", ("26.3",)))
     assert advice_text(same, report).startswith("无需处理")
-    assert advice_text(older, report) == "把 26.0 换成 26.1"
+    assert advice_text(older, report) == "将 26.0 替换为 26.1"
 
 
 def test_next_step_counts_only_actionable() -> None:
@@ -85,7 +85,7 @@ def test_next_step_counts_only_actionable() -> None:
                     latest_compat=V("26.1", ("26.1",)), latest_for_loader=V("26.3", ("26.3",))))
     assert actionable_degraded(report) == 1
     hints = build_action_hints(report)
-    step2 = [line for line in hints if "拍板" in line]
+    step2 = [line for line in hints if "再确认" in line]
     assert step2 and "的 1 个" in step2[0]
 
 

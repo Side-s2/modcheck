@@ -108,7 +108,7 @@ def test_unmatched_is_unknown_not_guessed(tmp_path: Path) -> None:
     provider = FakeProvider(hits=[ProjectHit("P9", "other-mod", "Other Mod", 1, "d", "fake")])
     code, text = run(tmp_path, provider, [ModEntry(key="mystery", display_name="Mystery")])
     assert code == 2
-    assert "不会靠猜来匹配" in text
+    assert "不会以猜测方式匹配" in text
 
 
 def test_check_does_not_search_by_default(tmp_path: Path) -> None:

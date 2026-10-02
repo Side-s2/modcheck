@@ -101,7 +101,7 @@ def test_save_profile_raises_domain_error(tmp_path: Path) -> None:
     blocking.write_text("i am a file", encoding="utf-8")     # 同名文件挡住目录创建
     with pytest.raises(ProfileError) as exc:
         save_profile(new_profile("x"), blocking / "x.json")
-    assert "写不进去" in str(exc.value)
+    assert "无法写入" in str(exc.value)
 
 
 def test_delete_profile_raises_domain_error(tmp_path: Path) -> None:
@@ -119,7 +119,7 @@ def test_save_settings_raises_domain_error(tmp_path: Path) -> None:
     blocking.write_text("x", encoding="utf-8")
     with pytest.raises(ConfigError) as exc:
         save_settings(blocking / "settings.json", Settings())
-    assert "写不进去" in str(exc.value)
+    assert "无法写入" in str(exc.value)
 
 
 def test_failed_save_leaves_no_tmp(tmp_path: Path) -> None:
@@ -167,7 +167,7 @@ def test_rename_readonly_source_reports_partial(tmp_path: Path) -> None:
         ctx = make_ctx(tmp_path, ["1", "r", "新名字", "q"])
         run_profiles_screen(ctx)
         text = out(ctx)
-        assert "⚠ 新清单已经写好了，但旧的" in text
+        assert "⚠ 新清单已写入，但旧的" in text
         assert (tmp_path / "profiles" / "新名字.json").exists()
         assert path.exists()
     finally:
@@ -185,7 +185,7 @@ def test_settings_save_failure_message(tmp_path: Path) -> None:
         ctx = make_ctx(tmp_path, ["5", "4", "q"])
         run_settings_screen(ctx)
         text = out(ctx)
-        assert "✗ 设置没能保存到" in text and "这次的修改只在本次运行有效。" in text
+        assert "✗ 设置无法保存到" in text and "本次修改仅在当前运行期间有效。" in text
         assert path.read_bytes() == before
         assert ctx.settings.concurrency == 4
     finally:

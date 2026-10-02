@@ -1,4 +1,4 @@
-配置文件：C:\Users\Side_\AppData\Local\Temp\dsh-uwJpC7\golden-09jhbymd\settings.json
+配置文件：C:\Users\Side_\AppData\Local\Temp\dsh-Oy1JkV\golden-tzjk_15y\settings.json
 
   默认游戏版本：未设置
   默认加载器  ：fabric

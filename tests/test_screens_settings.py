@@ -114,7 +114,7 @@ def test_set_loader_invalid(tmp_path: Path) -> None:
     """[2] 非法选择就地重问。"""
     ctx = make_ctx(tmp_path, ["2", "9", "3", "q"])
     run_settings_screen(ctx)
-    assert "✗ 没有这个选项，请重新选择。" in out(ctx)
+    assert "✗ 无此选项，请重新选择。" in out(ctx)
     assert ctx.settings.default_loader is Loader.FORGE
 
 
@@ -133,7 +133,7 @@ def test_set_proxy_ok_clear_and_bad(tmp_path: Path) -> None:
 
     ctx3 = make_ctx(tmp_path, ["3", "127.0.0.1:7890", "q"])
     run_settings_screen(ctx3)
-    assert "✗「127.0.0.1:7890」不像一个代理地址。正确格式像 http://127.0.0.1:7890。没有改动。" in out(ctx3)
+    assert "✗「127.0.0.1:7890」不是有效的代理地址。正确格式如 http://127.0.0.1:7890。未做改动。" in out(ctx3)
 
 
 def test_set_color(tmp_path: Path) -> None:
@@ -150,7 +150,7 @@ def test_set_concurrency_ok_and_range(tmp_path: Path) -> None:
     ctx = make_ctx(tmp_path, ["5", "12", "4", "q"])
     run_settings_screen(ctx)
     text = out(ctx)
-    assert "✗ 并发数要在 1 到 8 之间（你输入的是 12）。没有改动。" in text
+    assert "✗ 并发数需在 1 到 8 之间（当前输入为 12）。未做改动。" in text
     assert "✓ 并发数已设为 4。" in text
     assert ctx.settings.concurrency == 4
     assert saved(ctx)["concurrency"] == 4
@@ -160,7 +160,7 @@ def test_set_concurrency_three_invalid_returns(tmp_path: Path) -> None:
     """[5] 连续 3 次非法 -> 回上一层。"""
     ctx = make_ctx(tmp_path, ["5", "0", "99", "x", "q"])
     run_settings_screen(ctx)
-    assert "输入错误太多次，返回上一层。" in out(ctx)
+    assert "输入错误次数过多，返回上一级。" in out(ctx)
     assert ctx.settings.concurrency == 6
 
 
@@ -177,7 +177,7 @@ def test_set_cache_ttl_range(tmp_path: Path) -> None:
     """[6] 越界提示范围。"""
     ctx = make_ctx(tmp_path, ["6", "2", "200", "q"])
     run_settings_screen(ctx)
-    assert "✗ 缓存有效期要在 1 到 168 小时之间（你输入的是 200）。没有改动。" in out(ctx)
+    assert "✗ 缓存有效期需在 1 到 168 小时之间（当前输入为 200）。未做改动。" in out(ctx)
 
 
 def test_set_curseforge_key_masked(tmp_path: Path) -> None:
@@ -213,7 +213,7 @@ def test_save_failure_keeps_memory_value(tmp_path: Path, monkeypatch) -> None:
                         lambda *a, **k: (_ for _ in ()).throw(OSError("read-only")))
     run_settings_screen(ctx)
     text = out(ctx)
-    assert "✗ 设置没能保存到" in text and "这次的修改只在本次运行有效。" in text
+    assert "✗ 设置无法保存到" in text and "本次修改仅在当前运行期间有效。" in text
     assert ctx.settings.concurrency == 4
     assert not ctx.settings_path.exists()
 
@@ -291,7 +291,7 @@ def test_invalid_main_choice_three_times(tmp_path: Path) -> None:
     """设置屏非法输入 3 次 -> 回主菜单。"""
     ctx = make_ctx(tmp_path, ["!@#", "!@#", "!@#", "q"])
     assert run_settings_screen(ctx) == QUIT
-    assert "输入错误太多次，返回上一层。" in out(ctx)
+    assert "输入错误次数过多，返回上一级。" in out(ctx)
 
 
 def test_config_show_reflects_changes(tmp_path: Path) -> None:
