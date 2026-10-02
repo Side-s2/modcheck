@@ -257,9 +257,19 @@ class DownloadDialog(QDialog):
                     why = str(detail or key)
                 lines.append(f"    · {name}\n        {why}")
             more = "" if len(s.failure_rows) <= 10 else f"\n    …… 还有 {len(s.failure_rows) - 10} 个"
+            # 全是网络错误时给一条**可操作**的排查建议：
+            # 「检查能成功但下载全失败」在国内是很常见的现象 —— 检查走 api.modrinth.com，
+            # 下载走 cdn.modrinth.com，是**两个不同的域名**，后者经常连不上。
+            # 只说「下载失败」用户无从下手，等于把问题丢回给他。
+            net_only = all(row[1] == "download.error.net" for row in s.failure_rows)
+            tip = ("\n\n排查建议：\n"
+                   "  · 如果「检查」能正常出结果、只有下载失败，通常是下载服务器\n"
+                   "    （cdn.modrinth.com，与检查用的接口不是同一个域名）连不上。\n"
+                   "  · 可在「设置 → 代理」里填一个可用代理后重试。\n"
+                   "  · 也可以按上面的文件名自行到 Modrinth 页面手动下载。") if net_only else ""
             QMessageBox.warning(self, "有文件没下成功",
                                 f"以下 {s.failed} 个文件下载失败：\n\n" + "\n".join(lines) + more +
-                                "\n\n可以稍后重试（已成功的不会重复下载）。")
+                                tip + "\n\n可以稍后重试（已成功的不会重复下载）。")
 
     def _on_failed(self, message: str) -> None:
         self.lb_progress.setText("下载失败")
