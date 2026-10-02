@@ -100,6 +100,7 @@ class MainWindow(QMainWindow):
         settings = bar.addMenu("设置(&S)")
         settings.addAction("打开设置…", self._open_settings)
         help_menu = bar.addMenu("帮助(&H)")
+        help_menu.addAction("使用教程", self._show_tutorial)
         help_menu.addAction("关于", self._show_about)
 
     def _open_scan(self) -> None:
@@ -118,6 +119,11 @@ class MainWindow(QMainWindow):
         from modcheck.gui.settings_dialog import SettingsDialog
 
         SettingsDialog(self._service, self).exec()
+
+    def _show_tutorial(self) -> None:
+        from modcheck.gui.tutorial_dialog import TutorialDialog
+
+        TutorialDialog(self).exec()
 
     def _show_about(self) -> None:
         """关于框：版本、数据来源、许可证 —— 用户与分发者都需要看到这三样。"""
