@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QHBoxLayout, QHeaderVie
                              QLabel, QListWidget, QMessageBox, QPushButton, QTableWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
+from modcheck.core.models import MatchStatus
 from modcheck.gui import theme
 
 
@@ -153,17 +154,38 @@ class ProfilesDialog(QDialog):
             self.table.setItem(i, 0, QTableWidgetItem(entry.file_name or entry.key))
             self.table.setItem(i, 1, QTableWidgetItem((entry.sources or {}).get("modrinth", "")
                                                       or entry.mod_id or ""))
-            ignored = bool(getattr(entry, "ignored", False))
+            # ⚠️ 忽略态在 match_status 里，**ModEntry 没有 ignored 字段**。
+            # 原先写的是 getattr(entry, "ignored", False) —— 恒为 False，
+            # 于是状态列永远显示"参与检查"，而且 toggle 永远传 True：
+            # **一旦点了忽略就再也取消不掉**（教程作者核对代码时发现的）。
+            ignored = entry.match_status is MatchStatus.IGNORED
             chip = theme.status_chip("ignored" if ignored else "ready")
             chip.setText("· 已忽略" if ignored else "· 参与检查")
             self.table.setCellWidget(i, 2, chip)
 
     # ---------------------------------------------------------------- 操作
     def _commit(self, result) -> None:
-        """core 返回 OpResult：成功了才写盘，失败只提示。"""
-        if not getattr(result, "ok", True):
-            QMessageBox.information(self, "没有改动", getattr(result, "message", "操作未生效"))
+        """core 返回 OpResult（changed / profile / message_key）—— 成功才写盘。
+
+        ⚠️ 这里曾经有三个叠加的错误，导致**清单对话框点任何按钮都毫无反应且不报错**：
+          1. 判断用了 result.ok —— OpResult **没有**这个字段，getattr 默认 True，等于从不拦截；
+          2. 提示读了 result.message —— 也没有，永远显示兜底文案；
+          3. **最要命的一条**：写盘写的是 self._profile（旧对象），
+             而 profile_ops 是**不可变风格**：改完返回 result.profile，原对象纹丝不动。
+             于是「删除模组 / 忽略 / 指定平台项目 / 重命名」全部静默失效。
+        不可变风格本身是对的（好测试、好回滚），错在我把返回值丢了。
+        """
+        from modcheck.i18n import t
+
+        if not getattr(result, "changed", False):
+            key = getattr(result, "message_key", "") or ""
+            try:
+                msg = t(key, **getattr(result, "message_args", {})) if key else "没有需要改动的地方"
+            except Exception:
+                msg = "没有需要改动的地方"
+            QMessageBox.information(self, "没有改动", msg)
             return
+        self._profile = result.profile            # ← 必须换成返回的新对象
         try:
             self._backend.save_profile(self._profile)
         except Exception as exc:
@@ -219,8 +241,9 @@ class ProfilesDialog(QDialog):
         if not selector or self._profile is None:
             return
         entry = self._profile.mods[self.table.currentRow()]
-        self._commit(self._backend.set_ignored(self._profile, selector,
-                                               not bool(getattr(entry, "ignored", False))))
+        self._commit(self._backend.set_ignored(
+            self._profile, selector,
+            entry.match_status is not MatchStatus.IGNORED))
 
     def _on_set_source(self) -> None:
         selector = self._selected_mod()
