@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
         row.setSpacing(10)
         self.cb_profile = self._combo(row, "模组清单",
                                       [f"{n}（{c} 个模组）" for n, c in self._service.profiles()])
-        self.cb_mc = self._combo(row, "目标版本", list(self._service.versions()))
+        self.cb_mc = self._combo(row, "目标版本", list(self._service.versions()), editable=True)
         self.cb_loader = self._combo(row, "服务端加载器", ["Fabric", "NeoForge", "Forge"])
         row.addStretch(1)
         self.btn_go = QPushButton("开始检查")
@@ -267,13 +267,20 @@ class MainWindow(QMainWindow):
         foot.addWidget(self.lb_status)
         outer.addLayout(foot)
 
-    def _combo(self, row: QHBoxLayout, caption: str, items: Sequence[str]) -> QComboBox:
+    def _combo(self, row: QHBoxLayout, caption: str, items: Sequence[str], *,
+               editable: bool = False) -> QComboBox:
         box = QVBoxLayout()
         box.setSpacing(5)
         cap = QLabel(caption)
         cap.setObjectName("sub")
         cb = QComboBox()
         cb.addItems(list(items) or ["（无）"])
+        if editable:
+            # ⚠️ 下拉里只列最近的正式版，但**用户可能需要更早的版本**（例如回退到旧版）。
+            # 不允许手输就等于替他决定了"只能升到最近 10 个版本"，实测被用户指出。
+            cb.setEditable(True)
+            cb.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)   # 手输的值不进下拉列表
+            cb.lineEdit().setPlaceholderText("可直接输入版本号，例如 1.21.4")
         theme.style_combo_popup(cb)          # 弹层边框交给容器，否则会多一层直角框
         box.addWidget(cap)
         box.addWidget(cb)
@@ -335,12 +342,19 @@ class MainWindow(QMainWindow):
     def _on_copy_command(self) -> None:
         """把等价的重跑命令复制到剪贴板 —— 让用户能在终端里复现同一次检查。"""
         cmd = (f"modcheck check --profile {self._profile_name()} "
-               f"--mc {self.cb_mc.currentText()} --loader {self.cb_loader.currentText().lower()}")
+               f"--mc {self._mc_name()} --loader {self.cb_loader.currentText().lower()}")
         QApplication.clipboard().setText(cmd)
         self.lb_status.setText("已复制：" + cmd)
 
     def _profile_name(self) -> str:
         return self.cb_profile.currentText().split("（")[0]
+
+    def _mc_name(self) -> str:
+        """目标版本：**剥掉可能的中文后缀**，并去掉空格。
+
+        下拉里某些条目带「（最新正式版）」这类注解，直接拿去当版本号会查不到。
+        """
+        return self.cb_mc.currentText().split("（")[0].strip()
 
     def _on_start(self) -> None:
         if self._worker is not None:
@@ -348,7 +362,7 @@ class MainWindow(QMainWindow):
             self.lb_progress.setText("正在取消……")
             return
         profile = self._profile_name()
-        self._worker = CheckWorker(self._service, profile, self.cb_mc.currentText(),
+        self._worker = CheckWorker(self._service, profile, self._mc_name(),
                                    self.cb_loader.currentText(), self)
         self._worker.progressed.connect(self._on_progress)
         self._worker.done.connect(self._on_done)

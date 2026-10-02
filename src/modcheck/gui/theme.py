@@ -155,10 +155,8 @@ class _PopupItemDelegate(QStyledItemDelegate):
                          str(index.data() or ""))
         painter.restore()
 
-    def sizeHint(self, option, index):                 # noqa: D102
-        size = super().sizeHint(option, index)
-        size.setHeight(max(size.height(), 28))
-        return size
+    # ⚠️ 不要覆写 sizeHint：自绘 + 自定义高度会让文字纵向挤在一起（实测被用户看到）。
+    # 高度交给样式表（QComboBox QAbstractItemView::item 的 padding）控制。
 
 
 def style_combo_popup(combo) -> None:
@@ -183,7 +181,7 @@ def style_combo_popup(combo) -> None:
         container.setLineWidth(0)
         container.setMidLineWidth(0)
         container.setStyleSheet(
-            f"QFrame {{ background: {CARD}; border: none; border-radius: 8px; }}")
+            f"QFrame {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; }}")
     # 自绘条目：不再依赖样式表去"盖住"那个焦点框（盖不住，实测过四种写法）
     combo.view().setItemDelegate(_PopupItemDelegate(combo.view()))
     combo.view().setStyleSheet(
