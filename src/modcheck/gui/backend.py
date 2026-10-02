@@ -238,10 +238,15 @@ class CliBackend:
         return looks_like_mods_dir(Path(target_dir))
 
     def run_download(self, prep, *, overwrite=None, on_progress=None,
-                     should_stop=None):
-        """真正下载。复用同一个 HttpClient（下载与 API 共用限速器，裁决 D45）。"""
+                     on_item=None, should_stop=None):
+        """真正下载。复用同一个 HttpClient（下载与 API 共用限速器，裁决 D45）。
+
+        ⚠️ on_progress 的签名是 (DownloadItem, 已下载字节, 文件总字节) ——
+        **不是**检查流程那种 (已完成, 总数, 名称)。GUI 侧踩过一次这个坑。
+        """
         return run_download_flow(prep, self.runtime.client, overwrite=overwrite or {},
-                                 on_progress=on_progress, should_stop=should_stop)
+                                 on_progress=on_progress, on_item=on_item,
+                                 should_stop=should_stop)
 
 
 __all__ = ["CliBackend"]

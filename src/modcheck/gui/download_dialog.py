@@ -39,11 +39,26 @@ class DownloadWorker(QThread):
         self._stop = True
 
     def run(self) -> None:                                   # noqa: D102
+        # ⚠️ 下载的进度回调签名是 **(条目, 已下载字节, 文件总字节)** ——
+        # 与检查流程的 (已完成, 总数, 名称) **完全不同**。
+        # 我照搬了检查那套，结果每次回调都抛
+        #   TypeError: progressed[int, int, str].emit(): argument 3 has unexpected type 'int'
+        # 异常发生在回调里 -> 该文件被判为失败 -> 已下好的文件被清理。
+        # 用户看到的就是「文件一闪而过 + 24 个全失败」，而其实是**全部下成功了**。
+        total = len(self._prep.plan.items) if self._prep else 0
+        state = {"done": 0}
+
+        def on_progress(item, done_bytes: int, total_bytes: int) -> None:
+            # 每个文件开始时把"已完成数"推进一位
+            if item is not state.get("last"):
+                state["last"] = item
+                state["done"] = min(state["done"] + 1, max(total, 1))
+            self.progressed.emit(state["done"], max(total, 1), item.target.name)
+
         try:
             outcome = self._backend.run_download(
                 self._prep, overwrite=self._overwrite,
-                on_progress=lambda d, t, n: self.progressed.emit(d, t, n),
-                should_stop=lambda: self._stop)
+                on_progress=on_progress, should_stop=lambda: self._stop)
             self.done.emit(outcome)
         except Exception as exc:
             self.failed.emit(f"{type(exc).__name__}: {exc}")
