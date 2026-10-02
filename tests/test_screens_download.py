@@ -144,7 +144,10 @@ def test_ask_download_defaults_to_no_and_prints_notes(tmp_path: Path) -> None:
     text = out(ctx)
     assert "是否下载可用的版本？(y/N) > " in text
     assert "    · 只会下载 🟢 就绪（最新版）和 🟡 需注意（可用的旧稳定版）的模组。" in text
-    assert "    · 🔴 阻塞、🟠 仅存测试版、⚪ 未判定、⚫ 已忽略 一律跳过。" in text
+    # 🟠 不再写「一律跳过」—— 紧接着会问「是否同时下载 🟠」，先说不下再问要不要下是自相矛盾的。
+    # 这里断言新措辞，同时**顺带断言它不再出现旧说法**，避免以后被改回去。
+    assert "    · 🔴 阻塞、⚪ 未判定、⚫ 已忽略 一律跳过；🟠 仅存测试版默认跳过" in text
+    assert "🟠 仅存测试版、⚪ 未判定" not in text
     assert "    · 不会改动你当前的 mods 文件夹，只会向你选择的文件夹写入文件。" in text
 
 
