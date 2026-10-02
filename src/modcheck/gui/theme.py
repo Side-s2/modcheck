@@ -96,12 +96,11 @@ QComboBox QAbstractItemView {{
 }}
 QComboBox QAbstractItemView::item {{ padding: 6px 8px; border: none; border-radius: 6px; }}
 QComboBox QAbstractItemView::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
-QComboBox::down-arrow {{
-    image: none; width: 0; height: 0; margin-right: 10px;
-    border-left: 4px solid transparent; border-right: 4px solid transparent;
-    border-top: 5px solid {MUTED};
-}}
-QComboBox::down-arrow:on {{ border-top: 5px solid {ACCENT}; }}
+/* 给 QComboBox 设了边框之后 Qt 就**不再画原生箭头**，而 ::down-arrow 只认图片。
+   用 border 假冒三角会被渲染成实心方块（踩过），所以这里用一张真正的小三角图。
+   路径在运行时由 _arrow_qss() 注入（源码运行与打包后位置不同）。 */
+QComboBox::drop-down {{ border: none; width: 26px; }}
+__ARROW_QSS__
 
 /* ---------- 滚动条 ----------
    默认滚动条是 Windows 原生样式（有箭头按钮、直角、灰蓝），与整体不搭。 */
@@ -186,6 +185,28 @@ def style_combo_popup(combo) -> None:
     combo.view().setItemDelegate(_PopupItemDelegate(combo.view()))
     combo.view().setStyleSheet(
         f"QListView {{ background: transparent; border: none; outline: none; }}")
+
+
+def _arrow_qss() -> str:
+    """下拉箭头图的两条规则；找不到图就返回空串（**绝不能因此启动失败**）。"""
+    import sys
+    from pathlib import Path
+
+    candidates = [Path(__file__).resolve().parents[3] / "assets"]
+    if getattr(sys, "frozen", False):
+        candidates.insert(0, Path(sys.argv[0]).resolve().parent / "assets")
+    for base in candidates:
+        normal, active = base / "arrow-down.png", base / "arrow-down-on.png"
+        if normal.is_file():
+            rule = (f"QComboBox::down-arrow {{ image: url({normal.as_posix()});"
+                    " width: 10px; height: 6px; margin-right: 10px; }")
+            if active.is_file():
+                rule += (f"QComboBox::down-arrow:on {{ image: url({active.as_posix()}); }}")
+            return rule
+    return ""
+
+
+QSS = QSS.replace("__ARROW_QSS__", _arrow_qss())
 
 
 def status_chip(status: str) -> QLabel:

@@ -83,6 +83,11 @@ def build(*, onefile: bool = False, output_dir: Path = Path("dist"),
         # 图标也带进产物：GUI 运行时用它设置窗口图标（exe 图标只影响资源管理器）
         if icon.is_file():
             cmd.append("--include-data-files=" + str(icon) + "=assets/modcheck.ico")
+        # 下拉箭头图：给 QComboBox 设了边框后 Qt 不再画原生箭头，必须自带一张
+        for extra in ("arrow-down.png", "arrow-down-on.png"):
+            asset = ROOT / "assets" / extra
+            if asset.is_file():
+                cmd.append("--include-data-files=" + str(asset) + "=assets/" + extra)
     for name in EXCLUDES:
         cmd.append("--nofollow-import-to=" + name)
     if not keep_intermediate:
