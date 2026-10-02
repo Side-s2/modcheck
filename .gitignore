@@ -44,3 +44,12 @@ desktop.ini
 
 # ---- 现场生成的演示环境（tests/make_fixtures.py，二进制不入库）----
 tests/_fixtures/
+# ---- 打包产物（由 build/nuitka_build.py 生成，不入库）----
+# 二进制产物应随 Release 分发，而不是进版本库：
+# 它们体积大、每次构建都变，留在库里只会让 git status 全是噪音。
+dist/
+dist-standalone/
+dist-gui/
+
+# ---- 测试/脚本的临时产物 ----
+testresult/
