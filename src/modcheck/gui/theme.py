@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
-from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QStyle, QStyledItemDelegate, QWidget)
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 # ---------------------------------------------------------------- 颜色
 BG = "#F4F5F7"          # 窗口底
@@ -126,46 +126,6 @@ QPushButton#primary:focus {{ border: 1px solid {ACCENT_DARK}; }}
 """
 
 
-class _PopupItemDelegate(QStyledItemDelegate):
-    """下拉弹层的条目自绘。
-
-    为什么需要它：Fusion 样式会给「当前项」画一个**直角焦点框**，
-    而且那个框**样式表管不到** —— 试过 ::item 的 border / outline、
-    控件级样式、去掉视图焦点、NoFrame + lineWidth(0)，方框依旧在
-    （用户看到的就是"右侧和下侧两条线特别明显"）。
-
-    与其继续和样式引擎较劲，不如自己画：**只画圆角底色和文字，不画任何边框**。
-    """
-
-    def paint(self, painter, option, index) -> None:
-        from PyQt6.QtCore import QRectF
-        from PyQt6.QtGui import QPalette
-
-        painter.save()
-        rect = QRectF(option.rect).adjusted(2, 2, -2, -2)
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        if selected:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(ACCENT_SOFT))
-            painter.drawRoundedRect(rect, 6, 6)
-        painter.setPen(QColor(TEXT if selected else TEXT))
-        painter.drawText(option.rect.adjusted(10, 0, -8, 0),
-                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                         str(index.data() or ""))
-        painter.restore()
-
-    def sizeHint(self, option, index):                 # noqa: D102
-        """行高必须按**字体真实高度**算。
-
-        ⚠️ 两个极端都错过一次：
-          · 硬编码 28 像素 -> 不同 DPI/字号下会**纵向重叠**，文字糊成一团；
-          · 干脆不覆写 -> 自绘时行高不够，同样重叠（用户两次都看到了）。
-        正确做法是取 option.fontMetrics.height() 再加上下留白。
-        """
-        size = super().sizeHint(option, index)
-        size.setHeight(max(size.height(), option.fontMetrics.height() + 12))
-        return size
-
 
 def style_combo_popup(combo) -> None:
     """给下拉框的弹层容器套上主题圆角边框。
@@ -190,10 +150,16 @@ def style_combo_popup(combo) -> None:
         container.setMidLineWidth(0)
         container.setStyleSheet(
             f"QFrame {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; }}")
-    # 自绘条目：不再依赖样式表去"盖住"那个焦点框（盖不住，实测过四种写法）
-    combo.view().setItemDelegate(_PopupItemDelegate(combo.view()))
+    # ⚠️ **不要给弹层设自绘代理**。
+    # 我为了消掉 Fusion 的焦点方框上过自绘代理，结果引入了一个严重得多的问题：
+    # 代理算出的行高（29px）与视图的布局步进（17px）不一致 ——
+    # 每行压住下一行 11 像素，**文字纵向重叠到看不清**（实测：间距 = -11）。
+    # 用户明确说"美观还好，但一定不能重叠"，所以这里只用样式表。
+    # 代价是当前项可能仍有一圈方框，可接受；**再也不要为了它上代理**。
     combo.view().setStyleSheet(
-        f"QListView {{ background: transparent; border: none; outline: none; }}")
+        f"QListView {{ background: transparent; border: none; outline: none; }}"
+        f"QListView::item {{ padding: 5px 10px; border: none; border-radius: 6px; }}"
+        f"QListView::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}")
 
 
 def _arrow_qss() -> str:
