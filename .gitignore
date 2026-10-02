@@ -53,3 +53,7 @@ dist-gui/
 
 # ---- 测试/脚本的临时产物 ----
 testresult/
+
+# publish/ 里的文档是**生成的副本**（源在根目录与 docs/），内容需要进库；
+# 只有它打出来的源码 zip 是产物，不入库。
+publish/*.zip
