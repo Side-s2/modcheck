@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Final
+from typing import Callable, Final
+
+from modcheck.errors import UserCancelled
+from modcheck.i18n import t
 
 #: 读文件的块大小（64 KB，兼顾内存与系统调用次数）
 CHUNK_SIZE: Final[int] = 65536
@@ -16,11 +19,14 @@ CHUNK_SIZE: Final[int] = 65536
 ZIP_MAGIC: Final[bytes] = b"PK"
 
 
-def sha1_of_file(path: Path, *, chunk: int = CHUNK_SIZE) -> str:
+def sha1_of_file(path: Path, *, chunk: int = CHUNK_SIZE,
+                 should_stop: Callable[[], bool] | None = None) -> str:
     """流式计算文件的 sha1（大文件不爆内存）。"""
     digest = hashlib.sha1()
     with Path(path).open("rb") as handle:
         while True:
+            if should_stop is not None and should_stop():
+                raise UserCancelled(t("scan.cancelled"))
             block = handle.read(chunk)
             if not block:
                 break

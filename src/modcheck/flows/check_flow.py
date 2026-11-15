@@ -129,6 +129,7 @@ class CheckStats:
 
     source: StatsSource | None = None
     requests_before: int = 0
+    cache_hits_before: int = 0
     successes_before: int = 0
     rate_limited_before: int = 0
     requests_after: int = 0
@@ -138,21 +139,20 @@ class CheckStats:
     requests_made: int = 0
     cache_hits: int = 0
 
-    def _counters(self) -> tuple[int, int, int]:
-        if self.source is None:
-            return (0, 0, 0)
-        requests, _cache_hits = self.source.stats
-        return int(requests), int(self.source.successes), int(self.source.rate_limited)
-
     def take_before(self) -> None:
         """取检查区间的起点快照（必须在 check_all 之前调用）。"""
-        self.requests_before, self.successes_before, self.rate_limited_before = self._counters()
+        if self.source is not None:
+            self.requests_before, self.cache_hits_before = self.source.stats
+            self.successes_before = self.source.successes
+            self.rate_limited_before = self.source.rate_limited
 
     def take_after(self) -> None:
         """取检查区间的终点快照。"""
-        self.requests_after, self.successes_after, self.rate_limited_after = self._counters()
         if self.source is not None:
             self.requests_made, self.cache_hits = self.source.stats
+            self.requests_after = self.requests_made
+            self.successes_after = self.source.successes
+            self.rate_limited_after = self.source.rate_limited
 
     @property
     def requests_delta(self) -> int:
@@ -258,6 +258,8 @@ def run_check_flow(entries: Sequence[ModEntry], *, provider: "BaseProvider | Non
         report.interrupted = True
         report.elapsed = time.monotonic() - start
         stats.take_after()
+        report.requests_made = stats.requests_delta
+        report.cache_hits = stats.cache_hits - stats.cache_hits_before
         return CheckOutcome(report, stats)
 
     for item in items:
@@ -272,7 +274,8 @@ def run_check_flow(entries: Sequence[ModEntry], *, provider: "BaseProvider | Non
     # 而不会想到"再跑一次就有了"（实测 200 个不同项目冷跑出现过 18 条）。
     if stats.rate_limited_delta > 0 and report.summary["unknown"] > 0:
         report.warnings.append(t("warn.rate_limited_summary", count=report.summary["unknown"]))
-    report.requests_made, report.cache_hits = stats.requests_made, stats.cache_hits
+    report.requests_made = stats.requests_delta
+    report.cache_hits = stats.cache_hits - stats.cache_hits_before
     for item in items:
         kind = item.mod.source_kind
         if kind is not None:

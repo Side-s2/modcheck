@@ -1,11 +1,10 @@
-"""R2 修复的回归测试（限速 / 代理 / 非 TTY / 中文报错）。"""
+"""R2 修复的回归测试（限速 / 代理）。"""
 from __future__ import annotations
 
 import pytest
 
 from fakes import FakeClock
-from modcheck.cli.main import main
-from modcheck.errors import EXIT_USAGE, ConfigError, ProviderRateLimited
+from modcheck.errors import ConfigError, ProviderRateLimited
 from modcheck.providers.http import MAX_STALLS, RateLimiter
 from modcheck.storage.settings import load_settings, set_setting
 
@@ -70,55 +69,7 @@ def test_config_set_proxy_validates_format(tmp_path) -> None:
     settings = load_settings(tmp_path / "settings.json")
     assert set_setting(settings, "proxy", "http://127.0.0.1:7890").proxy == \
         "http://127.0.0.1:7890"
-    assert set_setting(settings, "proxy", "socks5://10.0.0.1:1080").proxy == \
-        "socks5://10.0.0.1:1080"
-    for bad in ("127.0.0.1:7890", "http://", "://x", "随便写的"):
+    for bad in ("127.0.0.1:7890", "http://", "://x", "随便写的", "socks5://10.0.0.1:1080"):
         with pytest.raises(ConfigError):
             set_setting(settings, "proxy", bad)
-
-
-def test_cli_config_set_proxy_null_shows_unset(tmp_path, capsys) -> None:
-    """端到端：设了代理再清掉，config show 显示「未设置」。"""
-    assert main(["--config-dir", str(tmp_path), "config", "set", "proxy",
-                 "http://127.0.0.1:7890"]) == 0
-    assert main(["--config-dir", str(tmp_path), "config", "set", "proxy", "null"]) == 0
-    main(["--config-dir", str(tmp_path), "config", "show"])
-    out = capsys.readouterr().out
-    lines = [line for line in out.splitlines() if "代理" in line]
-    assert lines and "未设置" in lines[0]
-    assert "null" not in lines[0]
-
-
-# ---------------------------------------------------------------- R2-05/06
-def test_noninteractive_does_not_enter_menu(tmp_path, capsys) -> None:
-    """重定向/管道下不进菜单（否则用户看到一堆提问后卡死）。"""
-    code = main(["--config-dir", str(tmp_path), "--no-color"])
-    captured = capsys.readouterr()
-    assert code == EXIT_USAGE
-    assert "无法进入菜单" in captured.out
-    assert "请选择 >" not in captured.out
-
-
-def test_invalid_loader_is_chinese_and_exit_three(capsys) -> None:
-    """非法 --loader：中文提示 + 退出码 3，且不再吐英文 usage。"""
-    assert main(["check", "--loader", "quilt"]) == EXIT_USAGE
-    err = capsys.readouterr().err
-    assert "暂不支持加载器「quilt」" in err
-    assert "usage:" not in err
-    assert "invalid choice" not in err
-
-
-def test_unknown_argument_is_chinese(capsys) -> None:
-    """R2-4/X2：未知参数的提示里不允许出现 argparse 的英文原文。"""
-    assert main(["--bogus"]) == EXIT_USAGE
-    err = capsys.readouterr().err
-    for banned in ("unrecognized", "invalid choice", "usage:", "expected one"):
-        assert banned not in err, err
-    assert "不认识的参数" in err
-
-
-@pytest.mark.parametrize("value", ["quilt", "paper", "bukkit"])
-def test_all_invalid_loaders(value: str, capsys) -> None:
-    """所有非法加载器取值都返回 3 且带中文提示。"""
-    assert main(["check", "--loader", value]) == EXIT_USAGE
-    assert "✗" in capsys.readouterr().err
+    assert settings.proxy == "http://127.0.0.1:7890"

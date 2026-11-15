@@ -1,4 +1,4 @@
-"""配置目录探测（便携优先，其次用户目录，最后回退）。
+r"""配置目录探测（便携优先，其次用户目录，最后回退）。
 
 优先级（T-15 契约）：
     --config-dir > 环境变量 MODCHECK_CONFIG_DIR > 便携目录（exe 同级 config/，可写时）
@@ -91,7 +91,7 @@ def ensure_config_dir(path: Path) -> tuple[Path, bool]:
 
 
 def _source_root() -> Path | None:
-    """源码/启动器模式下的"程序目录" = 项目根（包含 src\ 的那一层）。
+    r"""源码/启动器模式下的"程序目录" = 项目根（包含 src\ 的那一层）。
 
     本文件位于 <root>/src/modcheck/storage/paths.py，所以 parents[3] 就是 <root>。
     只有当这一层真的叫 src 时才认（否则说明包被装到了 site-packages 之类的地方，

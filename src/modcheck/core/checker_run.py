@@ -3,13 +3,14 @@
 这里的每一条"省请求"的写法都对应一条实测教训：
   * **B 只在 A[0] 不支持目标版本时才请求** —— A[0] 支持就是 🟢，问 B 是浪费；
   * **A2 只在 A 为空时请求** —— 用来区分"完全没有该加载器"和"只有测试版"；
-  * **get_project 只在 A 与 A2 都为空时请求** —— version_count 只服务 NO_FILES 分支，
-    正常模组根本用不到它（否则每个模组白花一个请求）。
-最坏情况 3 个请求，正常模组 1~2 个。
+  * **get_project 只在 A 与 A2 都为空时请求** —— 用来区分项目不存在、没有版本和不支持加载器。
+  * **B2 在没有兼容正式版时请求** —— 也涵盖完全没有正式版的项目。
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Callable, Final, Sequence
 
 from modcheck.core.checker import Classification, classify, for_reason
@@ -106,14 +107,13 @@ def check_one(entry: ModEntry, provider, *, loader: Loader, mc_version: str,
         releases = list(provider.releases_for_loader(slug, loader, window=window,
                                                      prerelease=prerelease))
         any_loader: list = []
-        version_count: int | None = None
+        info = None
         if not releases:
             any_loader = list(provider.any_for_loader(slug, loader, window=window))
             if not any_loader:
                 info = provider.get_project(slug)
                 if info is None and not entry.sha1:
                     return _blank_item(entry, for_reason(ReasonCode.NOT_FOUND))
-                version_count = info.version_count if info is not None else None
 
         compat: list = []
         compat_any: list = []
@@ -125,21 +125,21 @@ def check_one(entry: ModEntry, provider, *, loader: Loader, mc_version: str,
         elif releases:
             compat = list(provider.compat_releases(slug, mc_version, loader, window=window,
                                                    prerelease=prerelease))
-            if not compat:
+        if not prerelease and not compat and (releases or any_loader):
+            latest_test = any_loader[0] if any_loader else None
+            if (latest_test is not None and latest_test.version_type in ("alpha", "beta")
+                    and loader.value in latest_test.loaders
+                    and mc_version in latest_test.game_versions):
+                compat_any = [latest_test]
+            else:
                 compat_any = list(provider.compat_any(slug, mc_version, loader, window=window))
 
         result = classify(loader=loader, mc_version=mc_version,
                           releases_for_loader=releases, compat_releases=compat,
                           compat_any=compat_any, any_for_loader=any_loader,
-                          prerelease=prerelease, version_count=version_count)
-        if result.reason is ReasonCode.NO_LOADER:
-            info = provider.get_project(slug)
-            if info is not None:
-                result = classify(loader=loader, mc_version=mc_version,
-                                  releases_for_loader=releases, compat_releases=compat,
-                                  compat_any=compat_any, any_for_loader=any_loader,
-                                  prerelease=prerelease, version_count=version_count,
-                                  available_loaders=info.loaders)
+                          prerelease=prerelease,
+                          version_count=info.version_count if info is not None else None,
+                          available_loaders=info.loaders if info is not None else ())
         return _blank_item(entry, result)
     except ProviderError as exc:
         return _blank_item(entry, for_reason(ReasonCode.ERROR), message=exc.message)
@@ -181,15 +181,28 @@ def check_all(entries: Sequence[ModEntry], provider, *, loader: Loader, mc_versi
             if on_done is not None:
                 on_done(done, len(entries), entry, item)
     else:
-        # pool.map 按输入顺序产出结果，既并发又保持报告行序稳定
+        # 只提交在途任务，取消后只需等它们退出。结果仍按清单顺序交付。
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            for entry, item in zip(entries, pool.map(work_one, entries)):
+            pending: deque[Future[ReportItem]] = deque()
+            for index, entry in enumerate(entries):
                 if should_stop is not None and should_stop():
+                    break
+                next_index = index + len(pending)
+                while len(pending) < workers and next_index < len(entries):
+                    pending.append(pool.submit(copy_context().run, work_one, entries[next_index]))
+                    next_index += 1
+                try:
+                    item = pending.popleft().result()
+                except UserCancelled:
+                    if should_stop is None or not should_stop():
+                        raise
                     break
                 results[done] = item
                 done += 1
                 if on_done is not None:
                     on_done(done, len(entries), entry, item)
+            for future in pending:
+                future.cancel()
     return [item for item in results if item is not None]
 
 

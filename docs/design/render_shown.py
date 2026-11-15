@@ -7,7 +7,7 @@ sys.path.insert(0, str(ROOT / "src"))
 os.environ["QT_QPA_PLATFORM"] = "windows"
 from PyQt6.QtWidgets import QApplication
 from modcheck.gui import theme
-from modcheck.gui.backend import CliBackend
+from modcheck.gui.backend import GuiBackend
 from modcheck.gui.profiles_dialog import ProfilesDialog
 cfg = Path(tempfile.mkdtemp(prefix="dlg2-"))
 from modcheck.storage.profiles import new_profile, save_profile, profile_path
@@ -21,7 +21,7 @@ save_profile(p, profile_path(cfg / "profiles", "服务器A"))
 
 app = QApplication(sys.argv)
 app.setStyle("Fusion"); app.setStyleSheet(theme.QSS)
-d = ProfilesDialog(CliBackend(config_dir=cfg))
+d = ProfilesDialog(GuiBackend(config_dir=cfg))
 d.resize(980, 620)
 d.show()                       # ← 关键：真实显示，让 Qt 完成布局
 for _ in range(6):

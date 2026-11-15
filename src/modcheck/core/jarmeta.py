@@ -50,6 +50,7 @@ class JarMeta:
     source_member: str | None = None
     error: str | None = None
     error_code: str | None = None   # broken | no_meta | not_found | too_large | read
+    mod_ids: tuple[str, ...] = ()
 
     @property
     def has_meta(self) -> bool:
@@ -124,27 +125,38 @@ def parse_fabric_json(raw: bytes) -> tuple[str | None, str | None, str | None,
         return None, None, None, {}, t("jar.error.read", detail=type(exc).__name__)
     if not isinstance(data, dict):
         return None, None, None, {}, t("jar.error.no_meta")
+    if "quilt_loader" in data:
+        loader = data["quilt_loader"]
+        if not isinstance(loader, dict) or not loader.get("id"):
+            return None, None, None, {}, t("jar.error.no_meta")
+        meta = loader.get("metadata")
+        depends: dict[str, list[str]] = {}
+        dependencies = loader.get("depends")
+        if isinstance(dependencies, list):
+            for item in dependencies:
+                if isinstance(item, dict) and isinstance(item.get("id"), str):
+                    versions = item.get("versions")
+                    if isinstance(versions, str):
+                        depends.setdefault(item["id"], []).append(versions)
+                    elif isinstance(versions, list):
+                        depends.setdefault(item["id"], []).extend(
+                            version for version in versions if isinstance(version, str))
+        name = _as_text(meta.get("name")) if isinstance(meta, dict) else None
+        return _as_text(loader["id"]), name, _as_text(loader.get("version")), depends, None
     return (_as_text(data.get("id")), _as_text(data.get("name")), _as_text(data.get("version")),
             _normalize_depends(data.get("depends")), None)
 
 
-def parse_mods_toml(raw: bytes) -> tuple[str | None, str | None, str | None,
-                                          dict[str, list[str]], str | None]:
-    """解析 META-INF/mods.toml 与 META-INF/neoforge.mods.toml。
-
-    返回：
-        (mod_id, name, version, depends, error)
-    """
+def _mods_toml(raw: bytes) -> tuple[list[dict], dict[str, list[str]], str | None]:
     try:
         import tomllib
 
         data = tomllib.loads(raw.decode("utf-8", errors="replace"))
     except Exception as exc:  # tomllib 的异常类型随版本变化，这里统一兜底
-        return None, None, None, {}, t("jar.error.read", detail=type(exc).__name__)
+        return [], {}, t("jar.error.read", detail=type(exc).__name__)
     mods = data.get("mods")
     if not isinstance(mods, list) or not mods or not isinstance(mods[0], dict):
-        return None, None, None, {}, t("jar.error.no_meta")
-    first = mods[0]
+        return [], {}, t("jar.error.no_meta")
     depends: dict[str, list[str]] = {}
     raw_deps = data.get("dependencies")
     if isinstance(raw_deps, dict):
@@ -159,8 +171,16 @@ def parse_mods_toml(raw: bytes) -> tuple[str | None, str | None, str | None,
                     continue
                 range_text = _as_text(item.get("versionRange")) or ""
                 depends.setdefault(mod_id, []).append(range_text)
+    return [mod for mod in mods if isinstance(mod, dict)], depends, None
+
+
+def parse_mods_toml(raw: bytes) -> tuple[str | None, str | None, str | None,
+                                       dict[str, list[str]], str | None]:
+    """解析 Forge 或 NeoForge 的主要模组信息。"""
+    mods, depends, error = _mods_toml(raw)
+    first = mods[0] if mods else {}
     return (_as_text(first.get("modId")), _as_text(first.get("displayName")),
-            _as_text(first.get("version")), depends, None)
+            _as_text(first.get("version")), depends, error)
 
 
 def parse_manifest(raw: bytes) -> tuple[str | None, str | None, str | None,
@@ -210,10 +230,17 @@ def read_jar_meta(path: Path) -> JarMeta:
                 except (KeyError, RuntimeError, zipfile.BadZipFile, OSError) as exc:
                     return JarMeta(path=target, error_code="read",
                                    error=t("jar.error.read", detail=type(exc).__name__))
+                mod_ids: tuple[str, ...] = ()
                 if member.endswith(".json"):
                     mod_id, name, version, depends, error = parse_fabric_json(raw)
                 elif member.endswith(".toml"):
-                    mod_id, name, version, depends, error = parse_mods_toml(raw)
+                    mods, depends, error = _mods_toml(raw)
+                    first = mods[0] if mods else {}
+                    mod_id = _as_text(first.get("modId"))
+                    name = _as_text(first.get("displayName"))
+                    version = _as_text(first.get("version"))
+                    mod_ids = tuple(dict.fromkeys(
+                        ident for mod in mods if (ident := _as_text(mod.get("modId")))))
                 else:
                     mod_id, name, version, depends, error = parse_manifest(raw)
                 if error is not None and member != MEMBER_PRIORITY[-1]:
@@ -227,7 +254,7 @@ def read_jar_meta(path: Path) -> JarMeta:
                     loader = "forge"
                 return JarMeta(path=target, mod_id=mod_id, name=name, version=version,
                                loader_hint=loader, mc_hint=_mc_hint_from_depends(depends),
-                               depends=depends, source_member=member, error=None)
+                               depends=depends, source_member=member, mod_ids=mod_ids)
             return JarMeta(path=target, error=t("jar.error.no_meta"), error_code="no_meta")
     except zipfile.BadZipFile:
         return JarMeta(path=target, error=t("jar.error.broken"), error_code="broken")

@@ -15,6 +15,7 @@ publish/ 里的文档**都是副本**（README 要同时留在仓库根目录给
 from __future__ import annotations
 
 import argparse
+import pprint
 import shutil
 import sys
 import zipfile
@@ -22,10 +23,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PUBLISH = ROOT / "publish"
+sys.path.insert(0, str(ROOT / "src"))
+from modcheck import __version__
 
 #: (源文件, publish 里的文件名, 说明)
 DOCS = (
-    ("README.md", "README.md", "发布门面：用途、两种版本、下载与快速上手"),
+    ("README.md", "README.md", "用途、下载与快速上手"),
     ("LICENSE", "LICENSE", "GPL-3.0 全文"),
     ("THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NOTICES.md", "第三方组件与数据来源"),
     ("docs/TUTORIAL.md", "TUTORIAL.md", "面向新手的完整教程"),
@@ -43,8 +46,20 @@ EXCLUDE_DIRS = {"__pycache__", ".pytest_cache", ".toolchain", "dist", "dist-gui"
 EXCLUDE_SUFFIX = (".pyc", ".pyo")
 
 
+def sync_gui_tutorial() -> None:
+    """从 Markdown 教程生成随程序分发的文本。"""
+    lines = (ROOT / "docs" / "TUTORIAL.md").read_text(encoding="utf-8").splitlines()
+    text = pprint.pformat("\n".join(lines[2:]).strip() + "\n", width=100)
+    output = (f'"""由 build/make_publish.py 从 docs/TUTORIAL.md 生成。"""\n\n'
+              f"TITLE = {lines[0].removeprefix('# ')!r}\n"
+              f"MARKDOWN = ({text})\n")
+    target = ROOT / "src" / "modcheck" / "gui" / "tutorial_content.py"
+    target.write_text(output, encoding="utf-8", newline="\n")
+
+
 def sync_docs() -> list[str]:
     """把源文档复制进 publish/；返回做了哪些事（供调用方打印）。"""
+    sync_gui_tutorial()
     PUBLISH.mkdir(exist_ok=True)
     done = []
     for source, name, note in DOCS:
@@ -57,17 +72,9 @@ def sync_docs() -> list[str]:
     return done
 
 
-def version() -> str:
-    """从 pyproject.toml 读版本号（不 import，避免依赖项目代码）。"""
-    for line in (ROOT / "pyproject.toml").read_text(encoding="utf-8").splitlines():
-        if line.startswith("version"):
-            return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return "0.0.0"
-
-
 def make_source_zip() -> Path:
     """打一个源码 zip（给 GitHub Release 的 Source code 用）。"""
-    target = PUBLISH / f"modcheck-{version()}-source.zip"
+    target = PUBLISH / f"modcheck-{__version__}-source.zip"
     count = 0
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in SOURCE_ITEMS:

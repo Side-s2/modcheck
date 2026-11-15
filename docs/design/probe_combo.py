@@ -20,7 +20,7 @@ def shot(cb, name):
     print("  已渲染", name)
 
 def make():
-    cb = QComboBox(); cb.addItems(["26.3（最新正式版）", "26.2", "26.1.2", "26.1"])
+    cb = QComboBox(); cb.addItems(["26.3", "26.2", "26.1.2", "26.1"])
     cb.resize(240, 34); theme.style_combo_popup(cb); return cb
 
 # A：现状

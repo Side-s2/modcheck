@@ -123,11 +123,13 @@ def classify(*, loader: Loader, mc_version: str,
         return _result(Status.READY, ReasonCode.OK_SAME_VERSION_NUMBER,
                        latest_for_loader=latest_loader, latest_compat=latest_compat)
     # ④ 有兼容的正式版，但不是最新版（同样自己验一遍 B[0] 是否真的支持 V）
-    if latest_compat is not None and _supports(latest_compat, mc_version, loader):
+    if (latest_compat is not None and _supports(latest_compat, mc_version, loader)
+            and _usable(latest_compat, prerelease)):
         return _result(Status.DEGRADED, ReasonCode.OLD_VERSION_ONLY,
                        latest_for_loader=latest_loader, latest_compat=latest_compat)
     # ⑤ 正式版都不支持，但放宽通道后支持 -> 只有测试版能用
-    if not prerelease and latest_any is not None:
+    if (not prerelease and latest_any is not None and latest_any.version_type in ("alpha", "beta")
+            and _supports(latest_any, mc_version, loader)):
         return _result(Status.PRERELEASE, ReasonCode.PRERELEASE_ONLY,
                        latest_for_loader=latest_loader, latest_any=latest_any)
     # ⑥ 该加载器有文件，但都不支持 V

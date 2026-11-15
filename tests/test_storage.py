@@ -72,6 +72,17 @@ def test_settings_corrupt_is_backed_up(tmp_path: Path) -> None:
     assert len(backups) == 1
 
 
+def test_valid_settings_survive_malformed_fields(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text('{"default_loader":"neoforge","retries":"inf","concurrency":"NaN",'
+                    '"cache_ttl_hours":6,"timeout_seconds":"3","proxy":[]}', encoding="utf-8")
+    settings = load_settings(path)
+    assert settings.default_loader is Loader.NEOFORGE
+    assert settings.timeout_seconds == 3
+    assert (settings.retries, settings.concurrency, settings.proxy) == (3, 6, None)
+    assert settings.cache_ttl_hours == {"mojang": 24.0, "api": 6.0}
+
+
 def test_set_setting_validates() -> None:
     """set_setting 的范围与枚举校验。"""
     settings = load_settings(Path("nope") / "settings.json")
@@ -116,12 +127,12 @@ def test_profile_save_load_round_trip(tmp_path: Path) -> None:
 
 
 def test_load_corrupt_profile_raises_e11(tmp_path: Path) -> None:
-    """损坏 JSON -> ProfileError，文案对齐 PRD E11。"""
+    """损坏 JSON 的错误包含清单路径和解析原因。"""
     path = tmp_path / "bad.json"
     path.write_text('{"mods": [', encoding="utf-8")
     with pytest.raises(ProfileError) as exc:
         load_profile(path)
-    assert "清单文件无法读取" in str(exc.value)
+    assert str(path) in str(exc.value)
     assert "不是合法的 JSON" in str(exc.value) or "Expecting" in str(exc.value)
 
 

@@ -1,4 +1,4 @@
-"""导入模组清单（flows.export.import_modlist 与菜单 [3] 的 [i]）的单测。
+"""导入模组清单（flows.export.import_modlist）的单测。
 
 这段功能是「导出模组清单」的逆操作：读别人导出的 JSON 清单 -> 校验 -> 合并进本机清单。
 所以这里断言的是**行为契约**：
@@ -10,17 +10,11 @@
 """
 from __future__ import annotations
 
-import io
 import json
 from pathlib import Path
 
 import pytest
 
-from modcheck.cli.context import AppContext
-from modcheck.cli.folderpicker import FOLDER_CANCELLED, FOLDER_OK, FOLDER_UNAVAILABLE
-from modcheck.cli.prompts import Prompter
-from modcheck.cli.screens_profiles import QUIT, run_profiles_screen
-from modcheck.console import Console
 from modcheck.core.models import ModEntry, Profile, Settings
 from modcheck.errors import ProfileError
 from modcheck.flows.export import (MODLIST_SCHEMA_VERSION, export_modlist, import_modlist,
@@ -46,7 +40,7 @@ def make_profile(name: str, *mods: ModEntry) -> Profile:
 def export_to(tmp_path: Path, profile: Profile, name: str = "modlist_对方.json") -> Path:
     """用**真正的导出功能**造一份清单文件（保证"导出的能被导回来"是被验证过的）。"""
     target = tmp_path / name
-    export_modlist(profile, target, fmt="json")
+    export_modlist(profile, target)
     return target
 
 
@@ -308,142 +302,3 @@ def test_import_accepts_an_arbitrary_file_name(tmp_path: Path) -> None:
 def test_schema_version_constant_matches_the_profile_model() -> None:
     """导入认的版本号必须与写出清单的模型一致 —— 否则自己导的自己导不回来。"""
     assert MODLIST_SCHEMA_VERSION == Profile().schema_version
-
-
-# ---------------------------------------------------------------- 菜单 [3] 的 [i]
-def feed(values: list[str]):
-    """注入输入序列；用完后一律返回 q（保证不会挂死）。"""
-    queue = list(values)
-
-    def _input(prompt: str = "") -> str:
-        return queue.pop(0) if queue else "q"
-
-    return _input
-
-
-def make_ctx(tmp_path: Path, values: list[str]) -> AppContext:
-    """最小上下文：console / config_dir / prompter。"""
-    console = Console(stream=io.StringIO(), color="never", width=100)
-    return AppContext(settings=Settings(), config_dir=tmp_path, console=console,
-                      registry=None, cache=None, client=None, interactive=True,
-                      prompter=Prompter(input_fn=feed(values), out=console))
-
-
-def out(ctx: AppContext) -> str:
-    """取屏幕输出。"""
-    return ctx.console.stream.getvalue()          # type: ignore[attr-defined]
-
-
-def file_picker(path: Path):
-    """假的"选择文件"对话框（测试里绝不能真的弹窗）。"""
-    return lambda title: (FOLDER_OK, str(path))
-
-
-def test_list_screen_offers_import(tmp_path: Path) -> None:
-    """列表屏必须列出 [i]（用户找不到入口就等于没做）。"""
-    ctx = make_ctx(tmp_path, ["q"])
-    run_profiles_screen(ctx)
-    assert "  [i]   导入清单文件（读取别人导出的 JSON 清单）" in out(ctx)
-
-
-def test_import_screen_creates_profile_from_the_dialog(tmp_path: Path) -> None:
-    """[i] -> 对话框选中文件 -> 回车用清单自己的名字 -> 写盘并给回执。"""
-    source = export_to(tmp_path, make_profile("服务器B", entry("carpet"), entry("lithium")))
-    ctx = make_ctx(tmp_path, ["i", "", "q"])
-
-    assert run_profiles_screen(ctx, picker=file_picker(source)) == QUIT
-
-    text = out(ctx)
-    assert "正在读取模组清单：" in text
-    assert "  ✓ 该文件含 2 个模组，清单名为「服务器B」。" in text
-    assert "✓ 已导入 2 个模组，新建清单「服务器B」（现有 2 个模组）。" in text
-    assert "文件：" in text
-    assert len(load_profile(profile_path(tmp_path / "profiles", "服务器B")).mods) == 2
-
-
-def test_import_screen_merges_into_a_named_profile(tmp_path: Path) -> None:
-    """输入另一个清单名 -> 合并进它（已有条目一个不丢）。"""
-    profiles = tmp_path / "profiles"
-    save_profile(make_profile("demo", entry("carpet")), profile_path(profiles, "demo"))
-    source = export_to(tmp_path, make_profile("服务器B", entry("sodium")))
-    ctx = make_ctx(tmp_path, ["i", "demo", "q"])
-
-    run_profiles_screen(ctx, picker=file_picker(source))
-
-    assert "✓ 已导入 1 个模组到清单「demo」：新增 1 个，合并 0 个，该清单现有 2 个模组。" in out(ctx)
-
-
-def test_import_screen_reports_a_bad_file_in_chinese(tmp_path: Path) -> None:
-    """文件不是本工具的清单：屏幕上是中文说明，且清单目录一个文件都不多。"""
-    bad = tmp_path / "bad.json"
-    bad.write_text("{坏掉的内容", encoding="utf-8")
-    ctx = make_ctx(tmp_path, ["i", "q"])
-
-    run_profiles_screen(ctx, picker=file_picker(bad))
-
-    text = out(ctx)
-    assert "不是有效的 JSON" in text
-    assert "Traceback" not in text
-    assert not (tmp_path / "profiles").exists()
-
-
-def test_import_screen_dialog_cancel_is_not_an_error(tmp_path: Path) -> None:
-    """在系统对话框里按取消 = 不导入（不是错误，也不再追问路径）。"""
-    ctx = make_ctx(tmp_path, ["i", "q"])
-    run_profiles_screen(ctx, picker=lambda title: (FOLDER_CANCELLED, None))
-    assert "已取消导入，清单未做改动。" in out(ctx)
-
-
-def test_import_screen_falls_back_to_a_typed_path(tmp_path: Path) -> None:
-    """没有系统对话框（非 Windows / COM 不可用）时手输路径照样能导入。"""
-    source = export_to(tmp_path, make_profile("服务器B", entry("carpet")))
-    ctx = make_ctx(tmp_path, ["i", str(source), "", "q"])
-
-    run_profiles_screen(ctx, picker=lambda title: (FOLDER_UNAVAILABLE, None))
-
-    text = out(ctx)
-    assert "请把对方的 .json 清单文件保存到本机" in text
-    assert "✓ 已导入 1 个模组，新建清单「服务器B」（现有 1 个模组）。" in text
-
-
-def test_import_screen_accepts_a_quoted_path(tmp_path: Path) -> None:
-    """从资源管理器"复制为路径"粘来的带引号路径也要能用。"""
-    source = export_to(tmp_path, make_profile("服务器B", entry("carpet")))
-    ctx = make_ctx(tmp_path, ["i", '"' + str(source) + '"', "", "q"])
-
-    run_profiles_screen(ctx, picker=lambda title: (FOLDER_UNAVAILABLE, None))
-
-    assert "✓ 已导入 1 个模组，新建清单「服务器B」（现有 1 个模组）。" in out(ctx)
-
-
-def test_import_screen_reasks_after_a_wrong_path(tmp_path: Path) -> None:
-    """路径打错：说一句"读不到"，然后让用户重输（不是直接踢回列表屏）。"""
-    source = export_to(tmp_path, make_profile("服务器B", entry("carpet")))
-    ctx = make_ctx(tmp_path, ["i", str(tmp_path / "nope.json"), str(source), "", "q"])
-
-    run_profiles_screen(ctx, picker=lambda title: (FOLDER_UNAVAILABLE, None))
-
-    text = out(ctx)
-    assert "读不到要导入的清单文件" in text
-    assert "✓ 已导入 1 个模组" in text
-
-
-def test_import_screen_rejects_an_illegal_profile_name(tmp_path: Path) -> None:
-    """目标清单名含非法字符：说清规则并重问（与新建清单同一套校验）。"""
-    source = export_to(tmp_path, make_profile("服务器B", entry("carpet")))
-    ctx = make_ctx(tmp_path, ["i", "bad/name", "好名字", "q"])
-
-    run_profiles_screen(ctx, picker=file_picker(source))
-
-    text = out(ctx)
-    assert "清单名不能为空，也不能包含" in text
-    assert "✓ 已导入 1 个模组，新建清单「好名字」（现有 1 个模组）。" in text
-
-
-def test_import_screen_quit_at_the_name_prompt_returns_to_the_menu(tmp_path: Path) -> None:
-    """在"合并到哪份清单"处按 q：回主菜单，且什么都没写。"""
-    source = export_to(tmp_path, make_profile("服务器B", entry("carpet")))
-    ctx = make_ctx(tmp_path, ["i", "q"])
-
-    assert run_profiles_screen(ctx, picker=file_picker(source)) == QUIT
-    assert not (tmp_path / "profiles").exists()

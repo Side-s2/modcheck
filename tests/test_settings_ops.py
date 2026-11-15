@@ -115,8 +115,8 @@ def test_proxy_clear_words(raw: str) -> None:
 
 @pytest.mark.parametrize("raw,expected", [
     ("http://127.0.0.1:7890", "http://127.0.0.1:7890"),
-    ("  socks5://127.0.0.1:1080  ", "socks5://127.0.0.1:1080"),
-    ("https://proxy.example.com", "https://proxy.example.com"),
+    ("  http://[::1]:1080/  ", "http://[::1]:1080/"),
+    ("http://proxy.example.com", "http://proxy.example.com"),
 ])
 def test_proxy_ok(raw: str, expected: str) -> None:
     """合法代理地址原样保存（去掉首尾空格）。"""
@@ -124,9 +124,13 @@ def test_proxy_ok(raw: str, expected: str) -> None:
     assert set_proxy(Settings(), raw).proxy == expected
 
 
-@pytest.mark.parametrize("raw", ["127.0.0.1:7890", "http://", "http:///x", "://host", "just a string"])
+@pytest.mark.parametrize("raw", [
+    "127.0.0.1:7890", "http://", "http:///x", "://host", "just a string",
+    "http://host:0", "http://host:65536", "http://host:bad", "http://[::1",
+    "socks5://host:1080", "https://host",
+])
 def test_proxy_bad(raw: str) -> None:
-    """不满足 scheme://host 的一律拒绝（绝不落盘）。"""
+    """错误地址和未支持的协议会在保存前报错。"""
     with pytest.raises(ConfigError):
         set_proxy(Settings(), raw)
 

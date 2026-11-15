@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPolygonF
 
-OUT = ROOT / "assets"
+OUT = ROOT / "src" / "modcheck" / "gui"
 OUT.mkdir(exist_ok=True)
 for name, color, w, h in (("arrow-down.png", "#6B7280", 20, 12),
                           ("arrow-down-on.png", "#2F6FED", 20, 12)):

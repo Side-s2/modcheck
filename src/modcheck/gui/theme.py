@@ -1,36 +1,13 @@
-"""GUI 主题：颜色、字体、样式表与小组件。
-
-所有颜色**与 CLI 的报告配色一致**（🔴🟠🟡⚪🟢⚫），这样同一个用户在两个界面之间
-切换时不会产生"红黄颜色含义变了"的困惑。
-颜色来源于 CLI 的 console.py（256 色 208 = 橙），这里换成对应的十六进制。
-"""
+"""应用调色板及 GUI 控件样式。"""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from pathlib import Path
 
-# ---------------------------------------------------------------- 颜色
-BG = "#F4F5F7"          # 窗口底
-CARD = "#FFFFFF"        # 卡片
-BORDER = "#E4E7EC"
-TEXT = "#1A1D21"
-MUTED = "#6B7280"
-ACCENT = "#2F6FED"
-ACCENT_DARK = "#2A62D4"
-ACCENT_SOFT = "#EAF0FE"
+from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtGui import QColor, QPainterPath, QPalette, QPolygon, QRegion
+from PyQt6.QtWidgets import (QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QListView, QMenu,
+                             QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget)
 
-#: 与 CLI 的 Status 一一对应（CLI 侧：🟠 用 256 色 208）
-STATUS_COLOR = {
-    "blocked": "#E5484D",       # 🔴
-    "prerelease": "#F76B15",    # 🟠
-    "degraded": "#F5A524",      # 🟡
-    "unknown": "#8B8D98",       # ⚪
-    "ready": "#30A46C",         # 🟢
-    "ignored": "#8B8D98",       # ⚫
-}
-
-#: 状态中文名（与 CLI 的 group.*.title 用词一致）
 STATUS_LABEL = {
     "blocked": "阻塞",
     "prerelease": "仅存测试版",
@@ -40,180 +17,234 @@ STATUS_LABEL = {
     "ignored": "已忽略",
 }
 
-QSS = f"""
-* {{ font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif; font-size: 13px; color: {TEXT}; }}
-QWidget#root {{ background: {BG}; }}
-QFrame#card {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 10px; }}
-QLabel#title {{ font-size: 17px; font-weight: 600; }}
-QLabel#sub {{ color: {MUTED}; font-size: 12px; }}
-QLabel#verdict {{ font-size: 15px; font-weight: 600; padding: 4px 14px; }}
-QComboBox {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px;
-             padding: 7px 12px; min-width: 150px; }}
-QComboBox:hover {{ border-color: {ACCENT}; }}
-QComboBox::drop-down {{ border: none; width: 22px; }}
-QPushButton#primary {{ background: {ACCENT}; color: white; border: none; border-radius: 8px;
-                       padding: 9px 22px; font-weight: 600; }}
-QPushButton#primary:hover {{ background: {ACCENT_DARK}; }}
-QPushButton#primary:disabled {{ background: #B9C6E8; }}
-QPushButton {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; padding: 9px 16px; }}
-QPushButton:hover {{ border-color: #C7CCD4; }}
-QPushButton:disabled {{ color: #B0B4BB; }}
-QProgressBar {{ border: none; border-radius: 4px; background: #E9ECF1; height: 8px; text-align: center; }}
-QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
-QTabBar::tab {{ background: transparent; padding: 8px 12px; margin-right: 4px; border-radius: 8px; }}
-QTabBar::tab:selected {{ background: {ACCENT_SOFT}; }}
-QTableWidget {{ border: none; gridline-color: transparent; background: {CARD};
-                selection-background-color: {ACCENT_SOFT}; }}
-QTableWidget::item {{ padding: 10px 8px; border-bottom: 1px solid #F0F2F5; }}
-QTableWidget::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
-QHeaderView::section {{ background: {CARD}; border: none; border-bottom: 1px solid {BORDER};
-                        padding: 10px 8px; color: {MUTED}; font-weight: 600; text-align: left; }}
-
-/* ---------- 输入控件 ---------- */
-QLineEdit, QSpinBox, QDoubleSpinBox {{
-    background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; padding: 7px 10px;
-    selection-background-color: {ACCENT_SOFT}; selection-color: {TEXT};
-}}
-QLineEdit:hover, QSpinBox:hover {{ border-color: #C7CCD4; }}
-QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border: 1px solid {ACCENT}; }}
-QSpinBox::up-button, QSpinBox::down-button {{ width: 18px; border: none; background: transparent; }}
-QCheckBox {{ spacing: 7px; }}
-
-/* ---------- 列表 ---------- */
-QListWidget {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px; }}
-QListWidget::item {{ padding: 7px 8px; border-radius: 6px; }}
-QListWidget::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
-QListWidget::item:hover {{ background: #F5F7FA; }}
-
-/* ---------- 下拉框的弹出列表 ----------
-   QComboBox 的下拉是**独立的顶层视图**，不写这条它就用系统默认灰白样式，
-   跟整体主题明显不搭（视觉评审发现）。 */
-/* 弹出列表本身**不画边框** —— 边框交给外层容器（见 style_combo_popup），
-   否则会出现「圆角框外面又套一个直角实线框」（视觉评审发现）。 */
-QComboBox QAbstractItemView {{
-    background: {CARD}; border: none; padding: 4px;
-    outline: none; selection-background-color: {ACCENT_SOFT}; selection-color: {TEXT};
-}}
-QComboBox QAbstractItemView::item {{ padding: 6px 8px; border: none; border-radius: 6px; }}
-QComboBox QAbstractItemView::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}
-/* 给 QComboBox 设了边框之后 Qt 就**不再画原生箭头**，而 ::down-arrow 只认图片。
-   用 border 假冒三角会被渲染成实心方块（踩过），所以这里用一张真正的小三角图。
-   路径在运行时由 _arrow_qss() 注入（源码运行与打包后位置不同）。 */
-QComboBox::drop-down {{ border: none; width: 26px; }}
-__ARROW_QSS__
-
-/* ---------- 滚动条 ----------
-   默认滚动条是 Windows 原生样式（有箭头按钮、直角、灰蓝），与整体不搭。 */
-QScrollBar:vertical {{ background: transparent; width: 10px; margin: 0; }}
-QScrollBar::handle:vertical {{ background: #C9CFDA; border-radius: 5px; min-height: 32px; }}
-QScrollBar::handle:vertical:hover {{ background: #AEB6C4; }}
-QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0; }}
-QScrollBar::handle:horizontal {{ background: #C9CFDA; border-radius: 5px; min-width: 32px; }}
-QScrollBar::handle:horizontal:hover {{ background: #AEB6C4; }}
-/* 去掉两端的箭头按钮与空白页 */
-QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; border: none; background: none; }}
-QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
-
-/* ---------- 焦点提示 ----------
-   默认的**虚线焦点框**（点列表/表格时文字周围那圈点线）与主题不符。
-   注意：不能简单地 outline:none 了事 —— 那会让键盘用户完全看不到焦点在哪。
-   这里改成"选中用底色、键盘焦点用一条主题色细边"，既好看又不丢可访问性。 */
-QTableWidget::item:focus, QListWidget::item:focus, QTabBar::tab:focus {{ outline: none; }}
-QTableWidget {{ outline: none; }}
-QListWidget {{ outline: none; }}
-QPushButton:focus {{ border: 1px solid {ACCENT}; }}
-QPushButton#primary:focus {{ border: 1px solid {ACCENT_DARK}; }}
-"""
-
-
-
-def style_combo_popup(combo) -> None:
-    """给下拉框的弹层容器套上主题圆角边框。
-
-    ⚠️ 必须用代码设置，QSS 够不着：弹层是一个**独立的顶层 QFrame**
-    （combo.view().window()），QComboBox QAbstractItemView 只作用于里面的列表视图。
-    不处理的话，列表视图的圆角边框外面会再套一层原生直角实线框 ——
-    看起来就像「框外面莫名其妙多了一个方框」。
-    """
-    from PyQt6.QtWidgets import QFrame
-
-    container = combo.view().window()
-    if isinstance(container, QFrame):
-        # frameShape=NoFrame 还不够：容器仍然保留 1px 的 frameWidth，
-        # 画出来就是「圆角框里再套一个直角实线框」（实测 frameWidth 仍是 1）。
-        # 做减法：**不给容器画边框**。
-        # 之前我给它加了 1px 边框想"盖住"原生框，结果右/下两条线反而更明显
-        # （用户原话是"越描越黑"）—— 原生框本来就在，再加一层只会叠加。
-        # 现在只保留背景与圆角，视觉上干净且不会出现多余线条。
-        container.setFrameShape(QFrame.Shape.NoFrame)
-        container.setLineWidth(0)
-        container.setMidLineWidth(0)
-        container.setStyleSheet(
-            f"QFrame {{ background: {CARD}; border: 1px solid {BORDER}; border-radius: 8px; }}")
-    # ⚠️ **不要给弹层设自绘代理**。
-    # 我为了消掉 Fusion 的焦点方框上过自绘代理，结果引入了一个严重得多的问题：
-    # 代理算出的行高（29px）与视图的布局步进（17px）不一致 ——
-    # 每行压住下一行 11 像素，**文字纵向重叠到看不清**（实测：间距 = -11）。
-    # 用户明确说"美观还好，但一定不能重叠"，所以这里只用样式表。
-    # 代价是当前项可能仍有一圈方框，可接受；**再也不要为了它上代理**。
-    combo.view().setStyleSheet(
-        f"QListView {{ background: transparent; border: none; outline: none; }}"
-        f"QListView::item {{ padding: 5px 10px; border: none; border-radius: 6px; }}"
-        f"QListView::item:selected {{ background: {ACCENT_SOFT}; color: {TEXT}; }}")
+# 还原初版圆点色。小字号的状态文字沿用同色系较深的色值。
+_LIGHT_STATUS_DOTS = {
+    "blocked": "#E5484D", "prerelease": "#F76B15", "degraded": "#F5A524",
+    "unknown": "#8B8D98", "ready": "#30A46C", "ignored": "#8B8D98",
+}
+_LIGHT_STATUS = {
+    "blocked": "#BE3137", "prerelease": "#AD470A", "degraded": "#8B5D15",
+    "unknown": "#595D69", "ready": "#18754B", "ignored": "#626572",
+}
+_DARK_STATUS = {
+    "blocked": "#FFADB1", "prerelease": "#FFAE7D", "degraded": "#F5C66A",
+    "unknown": "#BEC6D4", "ready": "#7DDBAB", "ignored": "#BEC6D4",
+}
 
 
 def _arrow_qss() -> str:
-    """下拉箭头图的两条规则；找不到图就返回空串（**绝不能因此启动失败**）。"""
-    import sys
-    from pathlib import Path
-
-    candidates = [Path(__file__).resolve().parents[3] / "assets"]
-    if getattr(sys, "frozen", False):
-        candidates.insert(0, Path(sys.argv[0]).resolve().parent / "assets")
-    for base in candidates:
-        normal, active = base / "arrow-down.png", base / "arrow-down-on.png"
-        if normal.is_file():
-            rule = (f"QComboBox::down-arrow {{ image: url({normal.as_posix()});"
-                    " width: 10px; height: 6px; margin-right: 10px; }")
-            if active.is_file():
-                rule += (f"QComboBox::down-arrow:on {{ image: url({active.as_posix()}); }}")
-            return rule
-    return ""
+    normal = Path(__file__).resolve().with_name("arrow-down.png")
+    active = normal.with_name("arrow-down-on.png")
+    return (f'QComboBox::down-arrow {{ image: url("{normal.as_posix()}");'
+            ' width: 10px; height: 6px; margin-right: 7px; }'
+            f'QComboBox::down-arrow:on {{ image: url("{active.as_posix()}"); }}')
 
 
-QSS = QSS.replace("__ARROW_QSS__", _arrow_qss())
+QSS = """
+QWidget#root, QDialog, QMenuBar { background: palette(window); color: palette(window-text); }
+QFrame#card { background: palette(base); border: 1px solid palette(mid); border-radius: 10px; }
+QLabel#title { font-size: 17px; font-weight: 600; }
+QLabel#sub { color: palette(placeholder-text); font-size: 12px; }
+QLabel#cacheNotice { color: palette(placeholder-text); }
+QComboBox {
+    combobox-popup: 0; background: palette(base); border: 1px solid palette(mid);
+    border-radius: 8px; padding: 7px 26px 7px 12px; min-width: 135px;
+}
+QComboBox::drop-down { border: none; width: 24px; }
+QComboBox:disabled { color: palette(placeholder-text); }
+QListView#comboItems {
+    background: palette(base); padding: 5px; border: 1px solid palette(mid); border-radius: 8px;
+    selection-background-color: palette(highlight); selection-color: palette(highlighted-text);
+}
+QListView#comboItems::item { padding: 6px 8px; border: 0; border-radius: 5px; }
+QListView#comboItems::item:selected { background: palette(highlight); color: palette(highlighted-text); }
+
+QPushButton { background: palette(button); border: 1px solid palette(mid);
+              border-radius: 8px; padding: 9px 16px; }
+QPushButton#primary { background: #2F6FED; color: white; border: 1px solid #2F6FED;
+                      padding: 9px 22px; font-weight: 600; }
+QPushButton#primary:hover { background: #245DCD; }
+QPushButton:disabled, QPushButton#primary:disabled {
+    color: palette(placeholder-text); background: palette(alternate-base); border-color: palette(mid);
+}
+QProgressBar { border: 0; border-radius: 4px; background: palette(alternate-base); height: 8px; }
+QProgressBar::chunk { background: #2F6FED; border-radius: 4px; }
+QTabBar::tab { background: transparent; padding: 8px 12px; margin-right: 4px; border-radius: 8px; }
+QTabBar::tab:selected { background: palette(highlight); }
+QTableWidget { border: 0; gridline-color: transparent; background: palette(base); }
+QTableWidget::item { padding: 10px 8px; border-bottom: 1px solid palette(alternate-base); }
+QHeaderView::section { background: palette(base); border: 0; border-bottom: 1px solid palette(mid);
+                       padding: 10px 8px; color: palette(placeholder-text); font-weight: 600; }
+QLineEdit, QSpinBox, QDoubleSpinBox, QListWidget, QTextBrowser {
+    background: palette(base); border: 1px solid palette(mid); border-radius: 8px;
+}
+QLineEdit, QSpinBox, QDoubleSpinBox { padding: 7px 10px; }
+QCheckBox { spacing: 7px; }
+QListWidget { padding: 4px; }
+QListWidget::item { padding: 7px 8px; border-radius: 6px; }
+QListWidget::item:hover:!selected { background: palette(alternate-base); }
+QTextBrowser { padding: 14px; }
+QTextBrowser#tutorialText QScrollBar:vertical {
+    width: 9px; margin: 2px; background: transparent;
+}
+QTextBrowser#tutorialText QScrollBar::handle:vertical {
+    background: palette(mid); min-height: 24px; border-radius: 3px;
+}
+QTextBrowser#tutorialText QScrollBar::add-line:vertical,
+QTextBrowser#tutorialText QScrollBar::sub-line:vertical { height: 0; }
+QTextBrowser#tutorialText QScrollBar::add-page:vertical,
+QTextBrowser#tutorialText QScrollBar::sub-page:vertical { background: transparent; }
+QListWidget#tutorialChapters { border: 0; padding: 4px; }
+QListWidget#tutorialChapters::item, QListWidget#profileList::item {
+    min-height: 36px; padding: 2px 12px; margin: 2px 0; border: 0; border-radius: 6px;
+}
+QListWidget#tutorialChapters::item:selected, QListWidget#profileList::item:selected {
+    background: palette(highlight); color: palette(highlighted-text);
+}
+QMenu {
+    background: palette(base); color: palette(text); border: 1px solid palette(mid);
+    border-radius: 9px; padding: 5px;
+}
+QMenu::item { padding: 7px 22px 7px 12px; border-radius: 5px; }
+QMenuBar::item { padding: 4px 8px; border-radius: 5px; }
+QMenu::item:selected, QMenuBar::item:selected {
+    background: palette(highlight); color: palette(highlighted-text);
+}
+QToolTip { background: palette(tool-tip-base); color: palette(tool-tip-text); border: 1px solid palette(mid); }
+QPushButton:hover, QComboBox:hover, QLineEdit:hover,
+QSpinBox:hover, QDoubleSpinBox:hover { border-color: #2F6FED; }
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus,
+QPushButton:focus, QPushButton#primary:focus, QListWidget:focus {
+    border: 1px solid #2F6FED;
+}
+QPushButton#primary:focus { border-color: white; }
+""" + _arrow_qss()
 
 
-def status_chip(status: str) -> QLabel:
-    """状态色标签（圆点 + 文字），颜色与 CLI 一致。"""
-    color = STATUS_COLOR.get(status, MUTED)
-    label = QLabel("● " + STATUS_LABEL.get(status, status))
-    label.setStyleSheet(f"color:{color}; font-weight:600; background:transparent;")
-    return label
+def apply_theme(app: QApplication, preference: str = "auto") -> None:
+    """Apply the saved appearance preference."""
+    app.setProperty("modcheckTheme", preference)
+    dark = (preference == "dark"
+            or (preference == "auto" and app.styleHints().colorScheme() == Qt.ColorScheme.Dark))
+    role = QPalette.ColorRole
+    colors = {
+        role.Window: "#191D25" if dark else "#F6FAFF",
+        role.Base: "#212632" if dark else "#FFFFFF",
+        role.AlternateBase: "#2C3443" if dark else "#EAF3FF",
+        role.Button: "#252C39" if dark else "#FFFFFF",
+        role.Mid: "#4B5568" if dark else "#C5D6F0",
+        role.WindowText: "#E9EDF4" if dark else "#14213A",
+        role.PlaceholderText: "#A8B3C5" if dark else "#4A5F7C",
+        role.Highlight: "#384E77" if dark else "#D7E8FF",
+        role.HighlightedText: "#FFFFFF" if dark else "#173E85",
+        role.Link: "#94BAFF" if dark else "#1D54BC",
+    }
+    palette = QPalette()
+    for key, value in colors.items():
+        palette.setColor(key, QColor(value))
+    for key in (role.Text, role.ButtonText, role.ToolTipText):
+        palette.setColor(key, palette.color(role.WindowText))
+        palette.setColor(QPalette.ColorGroup.Disabled, key, palette.color(role.PlaceholderText))
+    palette.setColor(role.ToolTipBase, palette.color(role.Base))
+    app.setPalette(palette)
+    status_colors = _DARK_STATUS if dark else _LIGHT_STATUS
+    dot_colors = _DARK_STATUS if dark else _LIGHT_STATUS_DOTS
+    status_rules = []
+    for status, color in status_colors.items():
+        status_rules.append(f'QLabel[status="{status}"] {{ color: {color}; background: transparent; }}')
+        status_rules.append(f'QLabel[statusDot="{status}"] {{ color: {dot_colors[status]};'
+                            ' background: transparent; }')
+    if not dark:
+        status_rules.append("QLabel[statusDot] { font-size: 15px; }")
+    app.setStyleSheet(QSS + "\n".join(status_rules))
+
+
+def setup_theme(app: QApplication) -> None:
+    app.setStyle("Fusion")
+    font = app.font()
+    font.setFamilies(["Microsoft YaHei UI", "Segoe UI", *font.families()])
+    font.setPixelSize(13)
+    app.setFont(font)
+    apply_theme(app)
+
+    def system_changed(_scheme) -> None:
+        if app.property("modcheckTheme") == "auto":
+            apply_theme(app)
+
+    app.styleHints().colorSchemeChanged.connect(system_changed)
+
+
+class RoundedMenu(QMenu):
+    """Clip the native popup surface to the menu's rounded edge."""
+
+    def _update_mask(self) -> None:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), 9, 9)
+        self.setMask(QRegion(QPolygon(path.toFillPolygon().toPolygon())))
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._update_mask()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_mask()
+
+
+class _ComboItemDelegate(QStyledItemDelegate):
+    """Use the selected row highlight as the keyboard focus indicator."""
+
+    def paint(self, painter, option, index) -> None:
+        styled = QStyleOptionViewItem(option)
+        if styled.state & QStyle.StateFlag.State_HasFocus:
+            styled.state |= QStyle.StateFlag.State_Selected
+        styled.state &= ~QStyle.StateFlag.State_HasFocus
+        super().paint(painter, styled, index)
+
+
+def style_combo_popup(combo: QComboBox) -> None:
+    view = QListView(combo)
+    view.setObjectName("comboItems")
+    view.setUniformItemSizes(True)
+    combo.setView(view)
+    combo.setItemDelegate(_ComboItemDelegate(view))
+    view.setFrameShape(QFrame.Shape.NoFrame)
+
+
+def set_status(label: QLabel, status: str) -> None:
+    label.setProperty("status", status)
+    style = label.style()
+    style.unpolish(label)
+    style.polish(label)
+    label.update()
+
+
+def _status_dot(status: str) -> QLabel:
+    dot = QLabel("●")
+    dot.setProperty("statusDot", status)
+    return dot
+
+
+def status_chip(status: str, text: str | None = None) -> QWidget:
+    label = QLabel(text if text is not None else STATUS_LABEL.get(status, status))
+    label.setProperty("status", status)
+    chip = QWidget()
+    chip.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    layout = QHBoxLayout(chip)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(5)
+    layout.addWidget(_status_dot(status))
+    layout.addWidget(label, 1)
+    return chip
 
 
 def tab_widget(text: str, status: str | None = None) -> QWidget:
-    """页签内容：状态色圆点 + 文字。
-
-    ⚠️ 两个坑（都实测踩过）：
-      1. 不能用 setTabText 传 HTML —— 它不解析，会把 <span> 原样显示；
-      2. 不能用 setTabTextColor 给整条上色 —— **选中态会被 QSS 覆盖，状态色就丢了**。
-    所以圆点必须是独立控件，这样任何选中态都盖不掉它。
-    """
     box = QWidget()
-    lay = QHBoxLayout(box)
-    lay.setContentsMargins(4, 2, 4, 2)
-    lay.setSpacing(6)
+    box.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    layout = QHBoxLayout(box)
+    layout.setContentsMargins(4, 2, 4, 2)
+    layout.setSpacing(6)
     if status:
-        dot = QLabel("●")
-        dot.setStyleSheet(f"color:{STATUS_COLOR.get(status, MUTED)}; font-size:15px;"
-                          "background:transparent;")
-        lay.addWidget(dot)
-    label = QLabel(text)
-    label.setStyleSheet("background:transparent;")
-    lay.addWidget(label)
+        layout.addWidget(_status_dot(status))
+    layout.addWidget(QLabel(text))
     return box
-
-
-__all__ = ["BG", "CARD", "BORDER", "TEXT", "MUTED", "ACCENT", "ACCENT_SOFT", "QSS",
-           "STATUS_COLOR", "STATUS_LABEL", "status_chip", "tab_widget", "style_combo_popup"]

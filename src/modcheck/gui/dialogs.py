@@ -9,12 +9,23 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QMessageBox, QWidget
+from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox, QWidget
 
 
 def describe(exc: BaseException) -> str:
     """异常 → 技术细节文本（只进「详细信息」，不作为主文案）。"""
     return f"{type(exc).__name__}: {exc}"
+
+
+def choose_json_output(parent: QWidget, title: str, default_name: str) -> str | None:
+    dialog = QFileDialog(parent, title)
+    dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+    dialog.setNameFilter("JSON (*.json)")
+    dialog.setDefaultSuffix("json")
+    dialog.selectFile(default_name)
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        return dialog.selectedFiles()[0]
+    return None
 
 
 def show_info(parent: QWidget | None, title: str, message: str, *, detail: str = "") -> None:

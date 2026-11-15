@@ -15,9 +15,11 @@ from pathlib import Path
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
-from modcheck.gui.backend import CliBackend
+from modcheck.flows.runtime import build_runtime, resolve_runtime_directory
+from modcheck.gui.backend import GuiBackend
 from modcheck.gui.main_window import MainWindow
-from modcheck.gui.theme import QSS
+from modcheck.gui.theme import apply_theme, setup_theme
+from modcheck.storage.instance import configuration_lock
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -32,28 +34,29 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv)
     # 窗口/任务栏图标：打包后图标在 exe 同级的 assets/ 下；源码运行时用仓库里的。
     # 找不到就跳过 —— 图标缺失绝不该导致启动失败。
-    for candidate in (Path(__file__).resolve().parents[3] / "assets" / "modcheck.ico",
-                      Path(sys.argv[0]).resolve().parent / "assets" / "modcheck.ico"):
+    for directory in (Path(sys.argv[0]).resolve().parent, *Path(__file__).resolve().parents):
+        candidate = directory / "assets" / "modcheck.ico"
         if candidate.is_file():
             app.setWindowIcon(QIcon(str(candidate)))
             break
     app.setApplicationName("modcheck")
     app.setApplicationDisplayName("Minecraft 模组兼容性检查")
-    # Fusion 让样式在各版本 Windows 上一致 —— 原生样式会把我们设的圆角/内边距吃掉
-    app.setStyle("Fusion")
-    app.setStyleSheet(QSS)
+    setup_theme(app)
 
     try:
-        backend = CliBackend(config_dir=config_dir)
+        directory, warnings = resolve_runtime_directory(config_dir)
+        with configuration_lock(directory):
+            runtime = build_runtime(resolved_directory=directory)
+            runtime.warnings[:0] = warnings
+            backend = GuiBackend(runtime=runtime)
+            apply_theme(app, runtime.settings.theme)
+            window = MainWindow(backend)
+            window.show()
+            return app.exec()
     except Exception as exc:                      # 配置目录不可用等：给出可读提示而不是崩
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.critical(None, "启动失败", f"无法初始化：{exc}")
         return 1
-
-    window = MainWindow(backend)
-    window.show()
-    return app.exec()
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

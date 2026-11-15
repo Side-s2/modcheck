@@ -1,12 +1,10 @@
 """T-20 scan 流水线测试（离线，用假 Provider）。
 
-流水线本体在 modcheck.flows.scan_flow（CLI 只做参数与渲染），
-所以这里直接测流程层；run_scan 的端到端写盘另有一条用例。
+测试流程层的扫描、识别和降级行为。
 """
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -14,25 +12,11 @@ import pytest
 from modcheck.core.models import Loader, MatchStatus, ProjectHit, SourceKind, VersionInfo
 from modcheck.errors import ConfigError
 from modcheck.flows.scan_flow import DEFAULT_PROFILE, scan_dirs, scan_from_list
-from modcheck.providers.registry import ProviderRegistry
 from modcheck.storage.profiles import load_profile, profile_path
 from fakes import FakeProvider
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import make_fixtures  # noqa: E402  （与测试同目录的现场生成脚本）
-
-
-@dataclass
-class FakeCtx:
-    """只带 run_scan 需要的字段的上下文。"""
-
-    registry: ProviderRegistry
-    console: object = None
-
-
-def make_ctx(provider: FakeProvider) -> FakeCtx:
-    """把假 Provider 包成上下文。"""
-    return FakeCtx(registry=ProviderRegistry(providers=[provider]))
 
 
 def make_provider() -> FakeProvider:
@@ -168,23 +152,3 @@ def test_scan_offline_still_builds_profile(tmp_path: Path) -> None:
     report = scan_dirs([mods], provider=provider)
     assert report.offline is True
     assert {entry.mod_id for entry in report.entries} >= {"carpet", "lithium", "fabric-api"}
-
-
-def test_run_scan_writes_profile(tmp_path: Path) -> None:
-    """端到端：run_scan 会原子写盘并可再次读回。"""
-    from argparse import Namespace
-
-    from modcheck.cli.commands.scan import run_scan
-    from modcheck.console import Console
-
-    mods = make_fixtures.make_mods_dir(tmp_path / "mods")
-    ctx = make_ctx(make_provider())
-    ctx.console = Console(stream=open(tmp_path / "out.txt", "w", encoding="utf-8"),
-                          color="never", width=120)  # noqa: SIM115
-    ctx.profiles_dir = tmp_path / "profiles"  # type: ignore[attr-defined]
-    args = Namespace(paths=[str(mods)], profile="demo", from_list=None, new=False, yes=True)
-    code = run_scan(args, ctx)  # type: ignore[arg-type]
-    assert code == 0
-    saved = load_profile(profile_path(tmp_path / "profiles", "demo"))
-    assert {entry.mod_id for entry in saved.mods} >= {"carpet", "lithium", "fabric-api"}
-    assert DEFAULT_PROFILE == "demo"

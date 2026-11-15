@@ -16,6 +16,7 @@ from modcheck.core.settings_ops import NULL_WORDS as _CORE_NULL_WORDS
 from modcheck.core.settings_ops import parse_proxy as _core_parse_proxy
 from modcheck.errors import ConfigError, ModcheckError
 from modcheck.i18n import t
+from modcheck.storage.atomic import atomic_text
 
 #: config set 允许修改的键（点号表示嵌套）
 SETTING_KEYS: Final[tuple[str, ...]] = (
@@ -53,18 +54,11 @@ def save_settings(path: Path, settings: Settings) -> None:
         ConfigError: 目录 / 文件写不进去（磁盘满、只读、没有权限）。
     """
     target = Path(path)
-    tmp = target.with_name(target.name + ".tmp")
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with tmp.open("w", encoding="utf-8") as handle:
+        with atomic_text(target) as handle:
             json.dump(settings.to_dict(), handle, ensure_ascii=False, indent=2)
             handle.write("\n")
-        os.replace(tmp, target)
     except OSError as exc:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
         raise ConfigError(t("err.settings.save_failed", path=target)) from exc
 
 

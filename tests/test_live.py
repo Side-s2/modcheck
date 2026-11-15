@@ -9,8 +9,9 @@ from typing import Mapping
 
 import pytest
 
-from modcheck.core.checker import classify
-from modcheck.core.models import Loader, Status
+from modcheck.core.checker_run import check_one
+from modcheck.core.models import Loader, ModEntry, Status
+from modcheck.core.report import ReportItem
 from modcheck.providers.http import (HttpClient, HttpConfig, HttpResponse, default_transport)
 from modcheck.providers.modrinth import ModrinthProvider
 from modcheck.providers.mojang import MojangVersions
@@ -45,52 +46,35 @@ def live() -> tuple[ModrinthProvider, MeasuringTransport]:
     return ModrinthProvider(client), transport
 
 
-def _decide(provider: ModrinthProvider, slug: str, mc: str) -> object:
-    """按基线 §9.5.2 的两个请求做一次判定。"""
-    a = provider.releases_for_loader(slug, Loader.FABRIC, window=25)
-    b = provider.compat_releases(slug, mc, Loader.FABRIC, window=25)
-    b2 = provider.compat_any(slug, mc, Loader.FABRIC, window=25) if not b else []
-    a2 = provider.any_for_loader(slug, Loader.FABRIC, window=25) if not a else []
-    return classify(loader=Loader.FABRIC, mc_version=mc, releases_for_loader=a,
-                    compat_releases=b, compat_any=b2, any_for_loader=a2)
+def _decide(provider: ModrinthProvider, slug: str, mc: str) -> ReportItem:
+    entry = ModEntry(key=slug, display_name=slug, sources={"modrinth": slug})
+    return check_one(entry, provider, loader=Loader.FABRIC, mc_version=mc)
 
 
-def test_live_carpet_261_is_old_version_only(live) -> None:
-    """carpet @ 26.1/fabric -> 🟡 OLD_VERSION_ONLY（§17.3）。"""
+@pytest.mark.parametrize(("slug", "mc"), [
+    ("carpet", "26.1"), ("carpet", "26.3"), ("journeymap", "26.3"),
+    ("jei", "26.1"), ("jei", "26.3"),
+])
+def test_live_compatibility_matches_published_builds(live, slug: str, mc: str) -> None:
+    """报告应与实时发布数据一致，固定发布状态由离线样本覆盖。"""
     provider, _ = live
-    result = _decide(provider, "carpet", "26.1")
-    assert result.status is Status.DEGRADED  # type: ignore[attr-defined]
-    assert result.reason.value == "OLD_VERSION_ONLY"  # type: ignore[attr-defined]
-
-
-def test_live_carpet_263_is_ready(live) -> None:
-    """carpet @ 26.3/fabric -> 🟢 OK（§17.3）。"""
-    provider, _ = live
-    result = _decide(provider, "carpet", "26.3")
-    assert result.status is Status.READY  # type: ignore[attr-defined]
-
-
-def test_live_journeymap_263_is_ready(live) -> None:
-    """journeymap @ 26.3/fabric -> 🟢 OK（防"全局最新"误判的回归重点）。"""
-    provider, _ = live
-    result = _decide(provider, "journeymap", "26.3")
-    assert result.status is Status.READY  # type: ignore[attr-defined]
-
-
-def test_live_jei_261_is_old_version_only(live) -> None:
-    """jei @ 26.1/fabric -> 🟡 OLD_VERSION_ONLY（§17.3）。"""
-    provider, _ = live
-    result = _decide(provider, "jei", "26.1")
-    assert result.status is Status.DEGRADED  # type: ignore[attr-defined]
-    assert result.reason.value == "OLD_VERSION_ONLY"  # type: ignore[attr-defined]
-
-
-def test_live_jei_263_is_prerelease_only(live) -> None:
-    """jei @ 26.3/fabric -> 🟡 PRERELEASE_ONLY（§17.3）。"""
-    provider, _ = live
-    result = _decide(provider, "jei", "26.3")
-    assert result.status is Status.PRERELEASE  # type: ignore[attr-defined]
-    assert result.reason.value == "PRERELEASE_ONLY"  # type: ignore[attr-defined]
+    result = _decide(provider, slug, mc)
+    releases = provider.compat_releases(slug, mc, Loader.FABRIC)
+    if releases:
+        assert result.status in (Status.READY, Status.DEGRADED), result.provider_message
+        selected = result.latest_compat
+        assert selected is not None and selected.is_release
+        assert selected.version_id in {version.version_id for version in releases}
+    else:
+        prereleases = provider.compat_any(slug, mc, Loader.FABRIC)
+        if not prereleases:
+            assert result.status is Status.BLOCKED, result.provider_message
+            return
+        assert result.status is Status.PRERELEASE, result.provider_message
+        selected = result.latest_any
+        assert selected is not None and selected.version_type in ("alpha", "beta")
+        assert selected.version_id in {version.version_id for version in prereleases}
+    assert mc in selected.game_versions and Loader.FABRIC.value in selected.loaders
 
 
 def test_live_jei_cost_is_two_requests(live) -> None:
@@ -121,12 +105,13 @@ def test_live_never_pulls_full_version_list(live) -> None:
 
 
 def test_live_mojang_latest_release() -> None:
-    """官方版本清单：最新正式版是 26.3，且年份制版本号存在。"""
-    cfg = HttpConfig()
-    versions = MojangVersions(HttpClient(cfg))
+    """官方版本清单的最新正式版与 API 标明的 latest.release 一致。"""
+    client = HttpClient(HttpConfig())
+    versions = MojangVersions(client)
+    expected = client.get_json(versions.URL)["latest"]["release"]
     releases = versions.list_releases(limit=5)
-    assert versions.latest_release() == "26.3"
-    assert [item.version_id for item in releases][0] == "26.3"
+    assert versions.latest_release() == expected
+    assert releases[0].version_id == expected
     assert all(item.type == "release" for item in releases)
     assert len(versions.known_versions()) > 50
 

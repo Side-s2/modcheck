@@ -16,10 +16,12 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
-import socket
 import ssl
+import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -35,9 +37,11 @@ from modcheck.cache import HttpCache, url_key
 # 临时文件后缀只允许有一份定义（core/downloader.py）：下载底座与下载编排必须用同一个
 # 名字，否则"取消时清理 .part"会漏。core 是更底层的一层，providers -> core 不构成环。
 from modcheck.core.downloader import PART_SUFFIX
-from modcheck.errors import (ProviderHTTPError, ProviderNetworkError, ProviderNotFound,
+from modcheck.core.settings_ops import parse_proxy
+from modcheck.errors import (ConfigError, ProviderHTTPError, ProviderNetworkError, ProviderNotFound,
                              ProviderParseError, ProviderRateLimited, ProviderVerifyError)
 from modcheck.i18n import t
+from modcheck.providers.network import network_sleep, remaining_time, run_network, timeout_error
 
 #: 单次 429 最多等多久（防御异常的 X-Ratelimit-Reset）
 MAX_PAUSE_SECONDS: Final[float] = 60.0
@@ -145,7 +149,7 @@ class RateLimiter:
                     wait = (self._stamps[-1] + spacing - now) if self._stamps else 1e-6
                     if len(self._stamps) >= self.per_minute:
                         wait = max(wait, self.window - (now - self._stamps[0]) + 1e-6)
-            self._sleep(max(1e-6, min(wait, MAX_PAUSE_SECONDS)))
+            network_sleep(max(1e-6, min(wait, MAX_PAUSE_SECONDS)), self._sleep)
             if self._clock() <= now:
                 # 时钟没前进：什么都不等就重试，必然是死循环
                 stalled += 1
@@ -169,41 +173,53 @@ class RateLimiter:
             self._stamps.popleft()
 
 
-def default_transport(cfg: HttpConfig) -> Transport:
-    """基于 urllib 的真实 transport（代理、UA、证书错误都在这里处理）。"""
+def _build_opener(cfg: HttpConfig) -> urllib.request.OpenerDirector:
+    try:
+        proxy = parse_proxy(cfg.proxy or "")
+    except ConfigError as exc:
+        raise ProviderNetworkError(exc.message, code="PROXY", retryable=False) from exc
+    if sys.platform == "win32":
+        import truststore
 
+        context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    else:
+        context = ssl.create_default_context()
+    handlers: list[urllib.request.BaseHandler] = [urllib.request.HTTPSHandler(context=context)]
+    if proxy:
+        handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+    return urllib.request.build_opener(*handlers)
+
+
+def _network_error(exc: Exception, url: str, timeout: float) -> ProviderNetworkError:
+    reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return ProviderNetworkError(
+            t("err.network.cert", host=urllib.parse.urlsplit(url).hostname or "",
+              detail=getattr(reason, "verify_message", "") or str(reason)),
+            code="CERT", retryable=False)
+    if isinstance(reason, TimeoutError):
+        return timeout_error(timeout)
+    return ProviderNetworkError(t("err.net.generic", detail=str(reason)))
+
+
+def default_transport(cfg: HttpConfig) -> Transport:
+    """在单次请求时限内读取 API 响应。"""
     def _send(method: str, url: str, headers: Mapping[str, str], data: bytes | None,
               timeout: float) -> HttpResponse:
-        request = urllib.request.Request(url, data=data, headers=dict(headers), method=method)
-        handlers: list[urllib.request.BaseHandler] = []
-        if cfg.proxy:
-            handlers.append(urllib.request.ProxyHandler({"http": cfg.proxy, "https": cfg.proxy}))
-        opener = urllib.request.build_opener(*handlers)
-        try:
-            with opener.open(request, timeout=timeout) as response:
-                body = response.read(cfg.max_body_bytes + 1)
-                return HttpResponse(status=int(getattr(response, "status", 200)),
-                                    headers=dict(response.headers), body=body)
-        except urllib.error.HTTPError as exc:
+        def receive() -> HttpResponse:
+            request = urllib.request.Request(url, data=data, headers=dict(headers), method=method)
             try:
-                body = exc.read(cfg.max_body_bytes + 1)
-            except Exception:
-                body = b""
-            return HttpResponse(status=int(exc.code), headers=dict(exc.headers or {}), body=body)
-        except ssl.SSLCertVerificationError as exc:
-            # 证书错误重试没有意义，直接失败（PRD §7.1 第 9 条）
-            raise ProviderNetworkError(t("err.cert"), code="CERT", retryable=False) from exc
-        except urllib.error.URLError as exc:
-            reason = getattr(exc, "reason", exc)
-            if isinstance(reason, ssl.SSLCertVerificationError):
-                raise ProviderNetworkError(t("err.cert"), code="CERT", retryable=False) from exc
-            raise ProviderNetworkError(t("err.net.generic", detail=str(reason))) from exc
-        except (socket.timeout, TimeoutError) as exc:
-            raise ProviderNetworkError(t("err.timeout", timeout=int(timeout),
-                                         retries=cfg.retries)) from exc
-        except OSError as exc:
-            raise ProviderNetworkError(t("err.net.generic", detail=str(exc))) from exc
+                with _build_opener(cfg).open(request, timeout=timeout) as response:
+                    return HttpResponse(status=int(response.status),
+                                        headers=dict(response.headers),
+                                        body=response.read(cfg.max_body_bytes + 1))
+            except urllib.error.HTTPError as exc:
+                with exc:
+                    return HttpResponse(status=int(exc.code), headers=dict(exc.headers or {}))
+            except (OSError, http.client.HTTPException) as exc:
+                raise _network_error(exc, url, timeout) from exc
 
+        return run_network(receive, timeout)
     return _send
 
 
@@ -215,53 +231,49 @@ def default_stream_transport(cfg: HttpConfig) -> StreamTransport:
     """
 
     def _open(url: str, headers: Mapping[str, str], timeout: float) -> StreamResponse:
-        request = urllib.request.Request(url, headers=dict(headers), method="GET")
-        handlers: list[urllib.request.BaseHandler] = []
-        if cfg.proxy:
-            handlers.append(urllib.request.ProxyHandler({"http": cfg.proxy, "https": cfg.proxy}))
-        opener = urllib.request.build_opener(*handlers)
-        try:
-            response = opener.open(request, timeout=timeout)
-        except urllib.error.HTTPError as exc:
-            return StreamResponse(status=int(exc.code), headers=dict(exc.headers or {}))
-        except ssl.SSLCertVerificationError as exc:
-            raise ProviderNetworkError(t("err.cert"), code="CERT", retryable=False) from exc
-        except urllib.error.URLError as exc:
-            reason = getattr(exc, "reason", exc)
-            if isinstance(reason, ssl.SSLCertVerificationError):
-                raise ProviderNetworkError(t("err.cert"), code="CERT", retryable=False) from exc
-            raise ProviderNetworkError(t("err.net.generic", detail=str(reason))) from exc
-        except (socket.timeout, TimeoutError) as exc:
-            raise ProviderNetworkError(t("err.timeout", timeout=int(timeout),
-                                         retries=cfg.retries)) from exc
-        except OSError as exc:
-            raise ProviderNetworkError(t("err.net.generic", detail=str(exc))) from exc
+        def connect() -> Any:
+            request = urllib.request.Request(url, headers=dict(headers), method="GET")
+            try:
+                return _build_opener(cfg).open(request, timeout=timeout)
+            except urllib.error.HTTPError as exc:
+                return exc
+            except (OSError, http.client.HTTPException) as exc:
+                raise _network_error(exc, url, timeout) from exc
+
+        response = run_network(connect, timeout, discard=lambda response: response.close())
+        if isinstance(response, urllib.error.HTTPError):
+            with response:
+                return StreamResponse(status=int(response.code), headers=dict(response.headers or {}))
         return StreamResponse(status=int(getattr(response, "status", 200) or 200),
                               headers=dict(response.headers or {}),
-                              chunks=_read_chunks(response),
+                              chunks=_read_chunks(response, url, timeout),
                               closer=response.close)
 
     return _open
 
 
-def _read_chunks(response: Any, chunk: int = STREAM_CHUNK) -> Iterator[bytes]:
+def _read_chunks(response: Any, url: str, timeout: float) -> Iterator[bytes]:
     """按块读出响应体；读完（或中途出错）一定关掉连接。
 
     中途断网转成 ProviderNetworkError：调用方据此重试或记失败，
     **残留的 .part 由 HttpClient.download 的 finally 负责删掉**。
     """
     try:
+        # read1 不会为填满整个块而等待多次 socket 读取。
+        read = getattr(response, "read1", response.read)
         while True:
-            try:
-                block = response.read(chunk)
-            except (socket.timeout, TimeoutError) as exc:
-                raise ProviderNetworkError(t("err.net.generic",
-                                             detail=str(exc) or "timeout")) from exc
-            except OSError as exc:
-                raise ProviderNetworkError(t("err.net.generic", detail=str(exc))) from exc
+            read_timeout = min(timeout, remaining_time())
+            buffer = getattr(response, "fp", None)
+            socket_file = getattr(getattr(buffer, "raw", None), "_sock", None)
+            if socket_file is not None:
+                socket_file.settimeout(read_timeout)
+            block = read(STREAM_CHUNK)
             if not block:
                 return
             yield block
+    except (OSError, http.client.HTTPException) as exc:
+        remaining_time()
+        raise _network_error(exc, url, timeout) from exc
     finally:
         try:
             response.close()
@@ -289,10 +301,12 @@ class HttpClient:
                  sleep: Callable[[float], None] = time.sleep,
                  transport: Transport | None = None,
                  stream_transport: StreamTransport | None = None,
-                 use_cache: bool = True) -> None:
+                 use_cache: bool = True, read_cache: bool = True) -> None:
         self.cfg = cfg
         self.use_cache = use_cache
+        self._read_cache = read_cache
         self._cache = cache
+        self._clock = clock
         self._limiter = limiter or RateLimiter(cfg.rate_limit_per_min, clock=clock, sleep=sleep)
         self._sleep = sleep
         self._transport = transport or default_transport(cfg)
@@ -305,6 +319,13 @@ class HttpClient:
         #: 收到过多少次 429（用于在报告里提示"结果可能不完整"）
         self._rate_limited = 0
         self._lock = threading.Lock()
+
+    def for_operation(self, *, read_cache: bool = True) -> HttpClient:
+        """共用连接设置、磁盘缓存和限速器，单独记录本次操作的统计。"""
+        return HttpClient(self.cfg, cache=self._cache, limiter=self._limiter,
+                          clock=self._clock, sleep=self._sleep, transport=self._transport,
+                          stream_transport=self._stream, use_cache=self.use_cache,
+                          read_cache=read_cache)
 
     # ---------------------------------------------------------------- 对外
     def get_json(self, url: str, params: Mapping[str, str] | None = None, *,
@@ -323,15 +344,16 @@ class HttpClient:
 
     def download(self, url: str, dest: Path, *, sha1: str | None = None,
                  on_chunk: Callable[[int], None] | None = None,
-                 timeout: float | None = None) -> int:
+                 timeout: float | None = None, replace_existing: bool = True) -> int:
         """流式下载一个文件并原子落地（PRD §14.2，R3-B01）。
 
         参数：
             url: 直链（Modrinth 的 files[].url）。
-            dest: 正式文件路径；下载过程一律写 dest + ".part"。
+            dest: 正式文件路径；下载过程写入同目录的临时文件。
             sha1: 期望的 sha1；None 表示不校验。
             on_chunk: 每收到一块回调一次（参数是这一块的字节数），节流由调用方负责。
             timeout: 单次请求超时；None 用 cfg.timeout。
+            replace_existing: False 时，目标已存在则抛 FileExistsError。
 
         返回：
             实际写入的字节数。
@@ -346,17 +368,25 @@ class HttpClient:
         保证：任何异常路径都不会留下 .part（try/finally），也不会碰 dest 的旧文件。
         """
         target = Path(dest)
-        part = target.with_name(target.name + PART_SUFFIX)
+        part = None
         rate_limits = 0
         try:
             while True:
                 self._begin_request()
-                response = self._stream(url, self._download_headers(),
-                                        float(timeout) if timeout is not None else self.cfg.timeout)
+                request_timeout = self.cfg.timeout if timeout is None else float(timeout)
+                request_timeout = min(request_timeout, remaining_time())
+                response = self._stream(url, self._download_headers(), request_timeout)
                 status = int(response.status)
                 if 200 <= status < 300:
-                    written, actual = self._write_part(response, part, on_chunk)
-                    self._finish(part, target, actual, sha1)
+                    try:
+                        fd, path = tempfile.mkstemp(prefix=".modcheck-", suffix=PART_SUFFIX,
+                                                    dir=target.parent)
+                        part = Path(path)
+                        os.close(fd)
+                        written, actual = self._write_part(response, part, on_chunk)
+                    finally:
+                        _close_stream(response)
+                    self._finish(part, target, actual, sha1, replace_existing=replace_existing)
                     return written
                 _close_stream(response)
                 if status == 429:
@@ -368,13 +398,14 @@ class HttpClient:
                     if rate_limits <= MAX_DOWNLOAD_RATE_RETRIES:
                         continue
                     raise ProviderRateLimited(t("err.rate_limited"), status=status, url=url,
-                                              hint=t("err.rate_limited.hint"))
+                                              hint=t("err.rate_limited.hint"), retryable=False)
                 # 下载不是"找项目"：404 这里也只表示这个直链拿不到（PRD §14.2 第 4 条）
                 raise ProviderHTTPError(t("err.http.status", status=status), status=status, url=url)
         finally:
             # 任何异常路径都不许留下 .part（PRD §14.2 第 5 条）。
             # 成功路径上 .part 已经被 os.replace 掉了，这里是空操作。
-            _discard_part(part)
+            if part is not None:
+                _discard_part(part)
 
     @property
     def stats(self) -> tuple[int, int]:
@@ -425,8 +456,9 @@ class HttpClient:
 
     def _request(self, method: str, url: str, *, data: bytes | None = None,
                  ttl: float | None = None, cache_key: str | None = None) -> Any:
+        remaining_time()
         key = cache_key or self._cache_key_for(method, url, data)
-        if self._cache is not None and self.use_cache:
+        if self._cache is not None and self.use_cache and self._read_cache:
             cached = self._cache.get(key, self._ttl(ttl))
             if cached is not None:
                 with self._lock:
@@ -438,6 +470,8 @@ class HttpClient:
             "User-Agent": self.cfg.user_agent,
             "Accept": "application/json",
         }
+        if not self._read_cache:
+            headers["Cache-Control"] = "no-cache"
         if data is not None:
             headers["Content-Type"] = "application/json"
 
@@ -447,7 +481,7 @@ class HttpClient:
                 response = self._send(method, url, headers, data)
             except ProviderNetworkError as exc:
                 if exc.retryable and attempt < self.cfg.retries:
-                    self._sleep(self._delay(attempt))
+                    network_sleep(self._delay(attempt), self._sleep)
                     attempt += 1
                     continue
                 raise
@@ -474,7 +508,7 @@ class HttpClient:
                                           hint=t("err.rate_limited.hint"))
             if 500 <= status < 600:
                 if attempt < self.cfg.retries:
-                    self._sleep(self._delay(attempt))
+                    network_sleep(self._delay(attempt), self._sleep)
                     attempt += 1
                     continue
                 raise ProviderHTTPError(t("err.http.5xx", status=status), status=status, url=url)
@@ -486,14 +520,16 @@ class HttpClient:
         一个文件 = 一个名额（不按字节/分片计数），所以
         "limiter.acquire() 次数 == 真实请求次数" 在两条路径上都成立。
         """
+        remaining_time()
         self._limiter.acquire()
+        remaining_time()
         with self._lock:
             self._requests += 1
 
     def _send(self, method: str, url: str, headers: Mapping[str, str],
               data: bytes | None) -> HttpResponse:
         self._begin_request()
-        return self._transport(method, url, headers, data, self.cfg.timeout)
+        return self._transport(method, url, headers, data, min(self.cfg.timeout, remaining_time()))
 
     def _download_headers(self) -> dict[str, str]:
         """下载用的请求头（直链是二进制，不能要 application/json）。"""
@@ -506,6 +542,7 @@ class HttpClient:
         written = 0
         with Path(part).open("wb") as handle:
             for block in response.chunks:
+                remaining_time()
                 if not block:
                     continue
                 handle.write(block)
@@ -515,7 +552,8 @@ class HttpClient:
                     on_chunk(len(block))
         return written, digest.hexdigest()
 
-    def _finish(self, part: Path, target: Path, actual: str, expected: str | None) -> None:
+    def _finish(self, part: Path, target: Path, actual: str, expected: str | None, *,
+                replace_existing: bool) -> None:
         """校验 sha1 后原子落地；校验不过**绝不**覆盖目标文件。"""
         if expected:
             want = str(expected).strip().lower()
@@ -523,7 +561,13 @@ class HttpClient:
                 raise ProviderVerifyError(
                     t("err.download.sha1", name=Path(target).name, expected=want, actual=actual),
                     hint=t("err.download.sha1.hint"))
-        os.replace(part, target)
+        remaining_time()
+        if replace_existing:
+            os.replace(part, target)
+        elif os.name == "nt":
+            os.rename(part, target)
+        else:
+            os.link(part, target)
 
     def _delay(self, attempt: int) -> float:
         backoff = self.cfg.backoff or (0.5,)

@@ -22,15 +22,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Iterable, Sequence
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Sequence
 
 from modcheck.core.filename import is_archive_like, is_disabled_like, parse_jar_filename
 from modcheck.core.hashid import sha1_of_file
-from modcheck.core.jarmeta import read_jar_meta
+from modcheck.core.jarmeta import JarMeta, read_jar_meta
 from modcheck.core.matching import candidate_names, match_exact
 from modcheck.core.models import Detected, MatchStatus, ModEntry, ProjectHit, SourceKind
-from modcheck.errors import ConfigError, ProviderError, UserCancelled
+from modcheck.errors import (ConfigError, ProviderError, ProviderNetworkError, ProviderRateLimited,
+                             UserCancelled)
 from modcheck.i18n import t
+from modcheck.providers.network import network_budget, remaining_time
 from modcheck.storage.profiles import (MergeStats, key_of, load_profile, merge_entries,
                                        new_profile, profile_path, save_profile)
 
@@ -41,6 +43,7 @@ if TYPE_CHECKING:  # 只为类型注解；运行时不引入具体数据源（�
 DEFAULT_PROFILE = "demo"
 #: 单批指纹反查的哈希上限
 HASH_BATCH = 100
+NETWORK_TIMEOUT = 120.0
 
 #: 进度回调：(已完成, 总数, 当前文件名)
 ProgressFn = Callable[[int, int, str], None]
@@ -84,14 +87,18 @@ class ScanReport:
 # ---------------------------------------------------------------- 目录模式
 def scan_dirs(directories: Sequence[Path], *, provider: "BaseProvider | None",
               on_progress: ProgressFn | None = None,
-              should_stop: StopFn | None = None) -> ScanReport:
+              should_stop: StopFn | None = None,
+              on_network_progress: ProgressFn | None = None,
+              network_timeout: float = NETWORK_TIMEOUT) -> ScanReport:
     """扫描若干目录（默认不递归），返回识别结果。
 
     参数：
         directories: 要扫描的目录（每个都必须存在，否则抛 ConfigError）。
         provider: 注入的数据源；None 表示一个可用的都没有（只靠 jar 内信息识别）。
-        on_progress: 每读一个 jar 回调一次 (已完成, 总数, 文件名)。GUI/CLI 各自决定怎么画。
-        should_stop: 返回 True 时**立刻停下**（在下一个 jar 之前），结果里 cancelled=True。
+        on_progress: 读取每个 jar 前回调 (序号, 总数, 文件名)。
+        should_stop: 请求取消时返回 True。
+        on_network_progress: 联网操作前回调 (序号, 阶段总数, 操作说明)。
+        network_timeout: 整个联网识别阶段的秒数上限。
 
     抛出：
         ConfigError: 目录不存在。
@@ -126,7 +133,7 @@ def scan_dirs(directories: Sequence[Path], *, provider: "BaseProvider | None",
         per_dir.append((directory, jars, skipped, subdirs))
 
     digests: dict[Path, str] = {}
-    metas = {}
+    metas: dict[Path, JarMeta] = {}
     # 用户反馈：30 个模组扫描也要等不少时间，设计容量还更大 —— 必须有进度。
     # 读 jar + 算 sha1 是这里最慢的一步，进度就报在这一段（由调用方决定画成什么）。
     total_jars = sum(len(jars) for _d, jars, _s, _sub in per_dir)
@@ -141,32 +148,30 @@ def scan_dirs(directories: Sequence[Path], *, provider: "BaseProvider | None",
             if on_progress is not None:
                 on_progress(done, total_jars, jar.name)
             try:
-                digest = sha1_of_file(jar)
+                digest = sha1_of_file(jar, should_stop=should_stop)
+            except UserCancelled:
+                report.cancelled = True
+                return report
             except OSError:
+                report.skipped.append(SkipItem(jar.name, t("scan.skipped.unreadable")))
                 continue
             digests[jar] = digest
             metas[jar] = read_jar_meta(jar)
 
-    hash_hits = _lookup_hashes(digests, provider, report)
-
-    for directory, jars, skipped, subdirs in per_dir:
+    # 先准备所有本地条目，联网失败时也能保留完整的扫描范围。
+    for _directory, jars, skipped, subdirs in per_dir:
         if should_stop is not None and should_stop():
             report.cancelled = True
             return report
         report.skipped.extend(skipped)
         report.subdirs.extend(subdirs)
         for jar in jars:
-            meta = metas[jar]
-            digest = digests.get(jar, "")
-            hit = hash_hits.get(digest)
+            meta = metas.get(jar)
+            if meta is None:
+                continue
+            digest = digests[jar]
             if meta.error_code == "broken":
                 report.skipped.append(SkipItem(jar.name, t("scan.skipped.broken")))
-                continue
-            if hit is not None:
-                entry = _entry_from_hash(jar, meta, digest, hit)
-                report.by_hash += 1
-                report.entries.append(entry)
-                candidates.append((jar, entry))
                 continue
             if not meta.has_meta:
                 # 裁决 D35：**必须进清单**。
@@ -174,23 +179,24 @@ def scan_dirs(directories: Sequence[Path], *, provider: "BaseProvider | None",
                 # 清单与 mods 文件夹不一致还会让用户彻底不再信任这份清单。
                 # 这里标成"未识别"，检查时显示 ⚪ 未判定 + 建议。
                 entry = _entry_from_filename(jar, digest)
-                report.unidentified.append(jar.name)
-                report.entries.append(entry)
-                candidates.append((jar, entry))
-                continue
-            entry = _entry_from_meta(jar, meta, digest)
-            report.by_meta += 1
-            report.entries.append(entry)
+            else:
+                entry = _entry_from_meta(jar, meta, digest)
             candidates.append((jar, entry))
 
-    # 这两个阶段都要能被打断：它们逐个出网，实测合计要几分钟。
-    # 中断必须体现在 report.cancelled 上 —— 半份结果绝不允许落盘（save_scan_result 依赖它）。
-    if _resolve_slugs(report.entries, provider, should_stop=should_stop):
+    if not _identify_online(candidates, report, provider, should_stop, on_network_progress,
+                            network_timeout, metas=metas):
+        return report
+    if should_stop is not None and should_stop():
         report.cancelled = True
         return report
-    _resolve_by_name(candidates, provider, report, should_stop=should_stop)
-    if report.cancelled:                      # 搜索阶段被叫停：不再做合并（结果要丢就给个干净信号）
-        return report
+    for jar, entry in candidates:
+        if entry.source_kind is SourceKind.HASH:
+            report.by_hash += 1
+        elif metas[jar].has_meta:
+            report.by_meta += 1
+        else:
+            report.unidentified.append(jar.name)
+        report.entries.append(entry)
     _merge_duplicates(report)
     return report
 
@@ -212,7 +218,8 @@ class SaveOutcome:
 
 
 def save_scan_result(report: ScanReport, *, profiles_dir: Path, profile_name: str,
-                     new: bool = False, on_notice: NoticeFn | None = None) -> SaveOutcome:
+                     new: bool = False, on_notice: NoticeFn | None = None,
+                     refresh_files: bool = True) -> SaveOutcome:
     """把扫描结果与已有清单合并后原子写盘（流水线第 ⑦ 步）。
 
     参数：
@@ -244,7 +251,7 @@ def save_scan_result(report: ScanReport, *, profiles_dir: Path, profile_name: st
     if not new and not created:
         profile = load_profile(path)
         existing = profile.mods
-    merged, stats = merge_entries(existing, report.entries)
+    merged, stats = merge_entries(existing, report.entries, refresh_files=refresh_files)
     if profile is None:
         profile = new_profile(profile_name)
     profile.mods = merged
@@ -252,67 +259,77 @@ def save_scan_result(report: ScanReport, *, profiles_dir: Path, profile_name: st
     return SaveOutcome(path=path, merged=merged, stats=stats, created=created, replaced=bool(new))
 
 
-def _resolve_slugs(entries: list[ModEntry], provider: "BaseProvider | None", *,
-                   should_stop: StopFn | None = None) -> bool:
-    """把"项目 ID"换成人类可读的 slug（裁决 D38）；返回 True 表示被叫停。
-
-    ⚠️ 这个阶段**逐个出网**，实测 30 个模组要几分钟（本机 372 秒）。
-    原先它没有 should_stop —— 那几分钟里界面上的「取消」按了**完全没反应**，
-    用户会认为程序真的死了。慢可以忍，停不下来不能忍。
-
-    两条识别路径原本写进去的是不同种类的标识：hash 反查给的是 project_id，
-    搜索命中给的是 slug。Modrinth 两种都接受，所以查询不会出错，但：
-      ① 清单是给用户手改的，看到 fQEb0iXm 根本不知道那是什么；
-      ② 两条路径的 key 不一致，换文件名重扫时兜底失效会出现重复条目。
-    这里统一成 slug —— 只在首次扫描、且条目还没解析过 slug 时发生。
-    """
-    if provider is None:
-        return False
-    pending = {entry.sources.get("modrinth") for entry in entries if entry.sources.get("modrinth")}
-    if not pending:
-        return False
-    resolved: dict[str, str] = {}
-    for entry in entries:
-        # 每一条之前都查一次：一次网络调用可能要好几秒，攒着查会让「取消」迟到很久
-        if should_stop is not None and should_stop():
-            return True
-        ident = entry.sources.get("modrinth")
-        if not ident:
-            continue
-        if ident not in resolved:
-            try:
-                info = provider.get_project(ident)
-            except ProviderError:
-                resolved[ident] = ident
-                continue
-            resolved[ident] = info.slug if (info is not None and info.slug) else ident
-        if resolved[ident] != ident:
-            entry.sources["modrinth"] = resolved[ident]
-            entry.key = key_of(entry)
-    return False
-
-
-def _lookup_hashes(digests: dict[Path, str], provider: "BaseProvider | None",
-                   report: ScanReport) -> dict[str, object]:
-    """批量指纹反查；失败只记一行提示，不中断扫描。"""
-    if not digests:
-        return {}
+def _identify_online(candidates: list[tuple[Path, ModEntry]], report: ScanReport,
+                     provider: "BaseProvider | None", should_stop: StopFn | None,
+                     on_progress: ProgressFn | None, timeout: float, *,
+                     metas: dict[Path, JarMeta] | None = None) -> bool:
+    if not candidates:
+        return True
     if provider is None:
         report.offline = True
         report.warnings.append(t("scan.offline"))
-        return {}
-    unique = sorted({digest for digest in digests.values() if digest})
-    hits: dict[str, object] = {}
-    for start in range(0, len(unique), HASH_BATCH):
-        batch = unique[start:start + HASH_BATCH]
-        try:
-            found = provider.resolve_by_hash(batch)
-        except ProviderError:
-            report.offline = True
-            report.warnings.append(t("scan.offline"))
-            return hits
-        hits.update(found)
-    return hits
+        return True
+    try:
+        with network_budget(timeout, should_stop):
+            if metas is not None:
+                try:
+                    _identify_hashes(candidates, metas, provider, on_progress)
+                    _resolve_slugs(candidates, provider, on_progress)
+                except (ProviderNetworkError, ProviderRateLimited):
+                    raise
+                except ProviderError as exc:
+                    _note_network_error(report, exc)
+            _resolve_by_name(candidates, provider, report, on_progress)
+            remaining_time()
+    except UserCancelled:
+        report.cancelled = True
+        return False
+    except ProviderError as exc:
+        _note_network_error(report, exc)
+    return True
+
+
+def _note_network_error(report: ScanReport, exc: ProviderError) -> None:
+    report.offline = True
+    warning = t("scan.network_incomplete", detail=exc.message)
+    if warning not in report.warnings:
+        report.warnings.append(warning)
+
+
+def _identify_hashes(candidates: list[tuple[Path, ModEntry]], metas: dict[Path, JarMeta],
+                     provider: "BaseProvider", on_progress: ProgressFn | None) -> None:
+    by_digest: dict[str, list[int]] = {}
+    for index, (_jar, entry) in enumerate(candidates):
+        if entry.sha1:
+            by_digest.setdefault(entry.sha1, []).append(index)
+    for batch in _batches(sorted(by_digest), "正在查询文件指纹", on_progress):
+        for digest, hit in provider.resolve_by_hash(batch).items():
+            for index in by_digest.get(digest, ()):
+                jar, _entry = candidates[index]
+                candidates[index] = (jar, _entry_from_hash(jar, metas[jar], digest, hit))
+
+
+def _resolve_slugs(candidates: list[tuple[Path, ModEntry]], provider: "BaseProvider",
+                   on_progress: ProgressFn | None) -> None:
+    by_id: dict[str, list[ModEntry]] = {}
+    for _jar, entry in candidates:
+        if ident := entry.sources.get("modrinth"):
+            by_id.setdefault(ident, []).append(entry)
+    for batch in _batches(sorted(by_id), "正在获取项目名称", on_progress):
+        for ident, info in provider.get_projects(batch).items():
+            if info.slug:
+                for entry in by_id.get(ident, ()):
+                    entry.sources["modrinth"] = info.slug
+                    entry.key = key_of(entry)
+
+
+def _batches(values: list[str], phase: str, on_progress: ProgressFn | None) -> Iterator[list[str]]:
+    total = (len(values) + HASH_BATCH - 1) // HASH_BATCH
+    for index, start in enumerate(range(0, len(values), HASH_BATCH), start=1):
+        remaining_time()
+        if on_progress is not None:
+            on_progress(index, total, phase)
+        yield values[start:start + HASH_BATCH]
 
 
 def _entry_from_hash(jar: Path, meta, digest: str, version) -> ModEntry:
@@ -330,7 +347,12 @@ def _entry_from_hash(jar: Path, meta, digest: str, version) -> ModEntry:
     )
     entry.detected = Detected(mc_versions=list(parsed.mc_version and [parsed.mc_version] or []),
                               loaders=[parsed.loader] if parsed.loader else [],
-                              mod_version=parsed.mod_version)
+                              mod_version=meta.version or parsed.mod_version,
+                              mod_ids=list(meta.mod_ids))
+    if meta.mc_hint and meta.mc_hint not in entry.detected.mc_versions:
+        entry.detected.mc_versions.insert(0, meta.mc_hint)
+    if meta.loader_hint and meta.loader_hint not in entry.detected.loaders:
+        entry.detected.loaders.insert(0, meta.loader_hint)
     entry.key = key_of(entry)
     return entry
 
@@ -354,7 +376,8 @@ def _entry_from_meta(jar: Path, meta, digest: str) -> ModEntry:
     if parsed.loader and parsed.loader not in loaders:
         loaders.append(parsed.loader)
     entry.detected = Detected(mc_versions=mc_versions, loaders=loaders,
-                              mod_version=meta.version or parsed.mod_version)
+                              mod_version=meta.version or parsed.mod_version,
+                              mod_ids=list(meta.mod_ids))
     entry.key = key_of(entry)
     return entry
 
@@ -376,36 +399,34 @@ def _entry_from_filename(jar: Path, digest: str) -> ModEntry:
     return entry
 
 
-def _resolve_by_name(candidates: list[tuple[Path, ModEntry]], provider: "BaseProvider | None",
-                     report: ScanReport, *, should_stop: StopFn | None = None) -> None:
-    """对还没有平台项目的条目做精确同名搜索（失败只降级，不中断）。"""
-    if not candidates:
-        return
-    if provider is None:
-        report.offline = True
-        return
+def _resolve_by_name(candidates: list[tuple[Path, ModEntry]], provider: "BaseProvider",
+                     report: ScanReport, on_progress: ProgressFn | None) -> None:
+    """对还没有平台项目的条目做精确同名搜索。"""
+    pending = [(jar, entry) for jar, entry in candidates if not entry.sources.get("modrinth")]
     cache: dict[str, list[ProjectHit]] = {}
-    for jar, entry in candidates:
-        # 搜索是逐个出网的，取消在这里也必须能生效
-        if should_stop is not None and should_stop():
-            report.cancelled = True
-            return
-        if entry.sources.get("modrinth"):
-            continue
+    for index, (jar, entry) in enumerate(pending, start=1):
+        remaining_time()
+        if on_progress is not None:
+            on_progress(index, len(pending), f"正在搜索 {entry.best_name}")
         matched = False
         for name in candidate_names(entry):
+            remaining_time()
             if name not in cache:
                 try:
                     cache[name] = provider.search(name, limit=10)
-                except ProviderError:
-                    report.offline = True
+                except (ProviderNetworkError, ProviderRateLimited):
+                    raise
+                except ProviderError as exc:
                     cache[name] = []
+                    if not report.warnings:
+                        _note_network_error(report, exc)
             result = match_exact(cache[name], [name])
             if result.hit is not None:
                 entry.sources["modrinth"] = result.hit.slug
                 entry.display_name = entry.display_name or result.hit.title
                 entry.match_status = MatchStatus.EXACT
                 entry.source_kind = SourceKind.SEARCH
+                entry.key = key_of(entry)
                 report.by_search += 1
                 matched = True
                 break
@@ -430,7 +451,9 @@ def _merge_duplicates(report: ScanReport) -> None:
 def scan_from_list(path: Path, *, provider: "BaseProvider | None",
                    known_mc_versions: Iterable[str] | None = None,
                    on_progress: ProgressFn | None = None,
-                   should_stop: StopFn | None = None) -> ScanReport:
+                   should_stop: StopFn | None = None,
+                   on_network_progress: ProgressFn | None = None,
+                   network_timeout: float = NETWORK_TIMEOUT) -> ScanReport:
     """从"每行一个文件名"的文本清单导入（决策 D20：全部低置信，不发指纹请求）。
 
     抛出：
@@ -475,9 +498,9 @@ def scan_from_list(path: Path, *, provider: "BaseProvider | None",
         if parsed.name:
             report.guessed += 1
 
-    _resolve_by_name([(Path(e.file_name or "x.jar"), e) for e in report.entries], provider,
-                     report, should_stop=should_stop)
-    if report.cancelled:
+    candidates = [(Path(e.file_name or "x.jar"), e) for e in report.entries]
+    if not _identify_online(candidates, report, provider, should_stop, on_network_progress,
+                            network_timeout):
         return report
     _merge_duplicates(report)
     return report

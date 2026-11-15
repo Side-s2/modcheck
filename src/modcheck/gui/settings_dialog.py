@@ -5,21 +5,23 @@
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-                             QMessageBox, QPushButton, QSpinBox, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
+                             QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+                             QSpinBox, QVBoxLayout, QWidget)
 
 from modcheck.gui import theme
 from modcheck.gui.dialogs import describe, show_warning
 
 
 class SettingsDialog(QDialog):
-    """七个设置项 + 重置为默认。"""
+    """编辑 GUI 当前支持的设置。"""
 
-    def __init__(self, backend, parent: QWidget | None = None) -> None:
+    def __init__(self, backend, parent: QWidget | None = None, *, known_versions=()) -> None:
         super().__init__(parent)
         self._backend = backend
         self._ops = backend.settings_ops()
         self._settings = backend.load_settings()
+        self._known_versions = known_versions
         self.setWindowTitle("设置")
         self.resize(620, 460)
         self._build()
@@ -34,7 +36,7 @@ class SettingsDialog(QDialog):
         title = QLabel("设置")
         title.setObjectName("title")
         outer.addWidget(title)
-        hint = QLabel("这些是全局默认值，CLI 与 GUI 共用同一份配置文件。")
+        hint = QLabel("代理、并发数和缓存设置将在保存后用于后续操作。")
         hint.setObjectName("sub")
         outer.addWidget(hint)
 
@@ -46,31 +48,33 @@ class SettingsDialog(QDialog):
         form.addRow("默认游戏版本", self.ed_mc)
 
         self.cb_loader = QComboBox()
-        self.cb_loader.addItems(["（每次询问）", "Fabric", "NeoForge", "Forge"])
+        self.cb_loader.addItems(["Fabric", "NeoForge", "Forge"])
         theme.style_combo_popup(self.cb_loader)
         form.addRow("默认加载器", self.cb_loader)
 
+        self.cb_theme = QComboBox()
+        for label, value in (("跟随系统", "auto"), ("浅色", "light"), ("深色", "dark")):
+            self.cb_theme.addItem(label, value)
+        theme.style_combo_popup(self.cb_theme)
+        form.addRow("外观", self.cb_theme)
+
         self.ed_proxy = QLineEdit()
-        self.ed_proxy.setPlaceholderText("例如 http://127.0.0.1:7890；填 null / none / - 表示清除")
+        self.ed_proxy.setPlaceholderText("HTTP 代理，例如 http://127.0.0.1:7890")
         form.addRow("代理", self.ed_proxy)
 
-        self.cb_color = QComboBox()
-        self.cb_color.addItems(["auto", "always", "never"])
-        theme.style_combo_popup(self.cb_color)
-        form.addRow("彩色输出", self.cb_color)
-
         self.sp_jobs = QSpinBox()
+        self.sp_jobs.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sp_jobs.setRange(1, 8)
         form.addRow("并发数", self.sp_jobs)
 
-        self.sp_ttl = QSpinBox()
-        self.sp_ttl.setRange(1, 720)
+        self.sp_ttl = QDoubleSpinBox()
+        self.sp_ttl.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.sp_ttl.setRange(self._ops.TTL_LOW, self._ops.TTL_HIGH)
+        self.sp_ttl.setDecimals(1)
         self.sp_ttl.setSuffix(" 小时")
         form.addRow("缓存有效期（API）", self.sp_ttl)
-
-        self.ed_cf = QLineEdit()
-        self.ed_cf.setPlaceholderText("留空表示不启用 CurseForge")
-        form.addRow("CurseForge API Key", self.ed_cf)
+        self.ck_cache = QCheckBox("优先使用有效缓存进行兼容性检查")
+        form.addRow("检查来源", self.ck_cache)
 
         outer.addLayout(form)
         outer.addStretch(1)
@@ -90,49 +94,33 @@ class SettingsDialog(QDialog):
         outer.addLayout(foot)
 
     # ---------------------------------------------------------------- 读写
-    def _cf_key(self) -> str | None:
-        """CurseForge 的 Key 藏在 providers 字典里，不是独立字段。"""
-        return (self._settings.providers.get("curseforge") or {}).get("api_key")
-
     def _load(self) -> None:
         s = self._settings
         self.ed_mc.setText(s.default_mc_version or "")
-        self.cb_loader.setCurrentText(s.default_loader.display_name if s.default_loader else "（每次询问）")
+        self.cb_loader.setCurrentText(s.default_loader.display_name)
+        self.cb_theme.setCurrentIndex(self.cb_theme.findData(s.theme))
         self.ed_proxy.setText(s.proxy or "")
-        self.cb_color.setCurrentText(s.color or "auto")
         self.sp_jobs.setValue(int(s.concurrency))
-        self.sp_ttl.setValue(int(s.cache_ttl_hours.get("api", 6)))
-        key = self._cf_key()
-        self.ed_cf.setText(self._ops.mask_secret(key) if key else "")
+        ttl = float(s.cache_ttl_hours.get("api", 6))
+        self.sp_ttl.setRange(min(ttl, self._ops.TTL_LOW), max(ttl, self._ops.TTL_HIGH))
+        self.sp_ttl.setValue(ttl)
+        self._displayed_ttl = self.sp_ttl.value()
+        self.ck_cache.setChecked(s.check_cache)
 
     def _collect(self):
         """把界面上的值交给 core 的 setter 逐个校验；任何一个非法就报错并中止。"""
         ops, s = self._ops, self._ops.clone(self._settings)
-        # ⚠️ known 是**必填**关键字参数（官方正式版清单）：漏传会直接 TypeError，
-        # 表现就是用户改默认版本时弹「参数缺失」。取不到版本清单时传空集合，
-        # set_default_mc 会跳过「是否存在」检查（离线也不该拦住用户改设置）。
-        try:
-            known = tuple(self._backend.versions())
-        except Exception:
-            known = ()
-        s = ops.set_default_mc(s, self.ed_mc.text().strip() or None, known=known)
+        s = ops.set_default_mc(s, self.ed_mc.text().strip() or None, known=self._known_versions)
         # ⚠️ set_default_loader 收的是**字符串**（value: str | None），不是 Loader 枚举 ——
         # 传枚举会被 str() 成 "Loader.FABRIC" 然后报「暂不支持加载器 Loader.FABRIC」。
         # CLI 那边传的是 chosen.value，这里保持一致。
-        name = self.cb_loader.currentText()
-        s = ops.set_default_loader(s, None if name.startswith("（") else name.lower())
+        s = ops.set_default_loader(s, self.cb_loader.currentText())
         s = ops.set_proxy(s, self.ed_proxy.text().strip() or None)
-        s = ops.set_color(s, self.cb_color.currentText())
         s = ops.set_concurrency(s, self.sp_jobs.value())
-        s = ops.set_cache_ttl(s, "api", float(self.sp_ttl.value()))
-        key = self.ed_cf.text().strip()
-        # 掩码值原样写回，避免把 **** 存进去
-        # 掩码值原样写回，避免把 ****xxxx 当成新 key 存进配置里。
-        # ⚠️ key 存在 providers["curseforge"]["api_key"]，**没有** Settings.curseforge_key 这个属性
-        current = self._cf_key()
-        masked = ops.mask_secret(current) if current else ""
-        if key != masked:
-            s = ops.set_curseforge_key(s, key or None)
+        if self.sp_ttl.value() != self._displayed_ttl:
+            s = ops.set_cache_ttl(s, "api", self.sp_ttl.value())
+        s.theme = self.cb_theme.currentData()
+        s.check_cache = self.ck_cache.isChecked()
         return s
 
     # ---------------------------------------------------------------- 动作
@@ -153,11 +141,18 @@ class SettingsDialog(QDialog):
 
     def _on_reset(self) -> None:
         if QMessageBox.question(self, "重置为默认",
-                                "把所有设置恢复成默认值？\n"
-                                "（会覆盖默认版本、加载器、代理、并发、缓存有效期、API Key）"
+                                "将此窗口中的设置恢复为默认值？"
                                 ) != QMessageBox.StandardButton.Yes:
             return
-        self._settings = self._ops.reset_settings()
+        defaults = self._ops.reset_settings()
+        self._settings = self._ops.clone(self._settings)
+        self._settings.default_mc_version = defaults.default_mc_version
+        self._settings.default_loader = defaults.default_loader
+        self._settings.proxy = defaults.proxy
+        self._settings.theme = defaults.theme
+        self._settings.check_cache = defaults.check_cache
+        self._settings.concurrency = defaults.concurrency
+        self._settings.cache_ttl_hours["api"] = defaults.cache_ttl_hours["api"]
         self._load()
 
 

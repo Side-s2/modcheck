@@ -102,7 +102,7 @@ def _ident_values(entry: ModEntry, level: int) -> list[str]:
     if level == 0:
         return [entry.key]
     if level == 1:
-        return [entry.mod_id or ""]
+        return [entry.mod_id or "", *entry.detected.mod_ids]
     if level == 2:
         return [str(slug) for slug in (entry.sources or {}).values() if slug]
     if level == 3:
@@ -244,7 +244,8 @@ def set_source(profile: Profile, selector: str, *, provider: str, slug: str,
     entry = clone_entry(target)
     entry.sources = dict(entry.sources or {})
     entry.sources[str(provider)] = str(slug)
-    entry.match_status = MatchStatus.MANUAL
+    if entry.match_status is not MatchStatus.IGNORED:
+        entry.match_status = MatchStatus.MANUAL
     # key 首选平台标识（D30）：不改的话去重/合并会与 D38 的「统一写 slug」打架
     entry.key = "slug:" + str(provider) + ":" + str(slug).strip().lower()
     entry.updated_at = now_iso()
@@ -354,7 +355,10 @@ def parse_project_selector(raw: str) -> str | None:
     if not text:
         return None
     if "://" in text or text.lower().startswith(("modrinth.com/", "www.modrinth.com/")):
-        parts = urlsplit(text if "://" in text else "https://" + text)
+        try:
+            parts = urlsplit(text if "://" in text else "https://" + text)
+        except ValueError:
+            return None
         if parts.scheme not in ("http", "https"):
             return None
         if parts.netloc.lower() not in ("modrinth.com", "www.modrinth.com"):

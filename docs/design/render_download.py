@@ -7,7 +7,7 @@ sys.path.insert(0, str(ROOT / "src"))
 os.environ["QT_QPA_PLATFORM"] = "windows"
 from PyQt6.QtWidgets import QApplication, QCheckBox, QTableWidgetItem
 from modcheck.gui import theme
-from modcheck.gui.backend import CliBackend
+from modcheck.gui.backend import GuiBackend
 from modcheck.gui.download_dialog import DownloadDialog
 
 # 用假 prep 造一份逼真的展示数据（不联网、不写盘）
@@ -39,7 +39,7 @@ class FakePrep:
 
 cfg = Path(tempfile.mkdtemp(prefix="dlg-"))
 app = QApplication(sys.argv); app.setStyle("Fusion"); app.setStyleSheet(theme.QSS)
-d = DownloadDialog(CliBackend(config_dir=cfg), report=None)
+d = DownloadDialog(GuiBackend(config_dir=cfg), report=None)
 d._prep = FakePrep(); d.ed_dir.setText("D:/mods-new"); d._fill()
 d.show()
 for _ in range(5): app.processEvents()

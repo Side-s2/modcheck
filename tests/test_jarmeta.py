@@ -9,6 +9,7 @@ from pathlib import Path
 from modcheck.core.hashid import is_probably_jar, sha1_of_file
 from modcheck.core.jarmeta import (MAX_MEMBER_BYTES, left_bound, parse_fabric_json,
                                    parse_mods_toml, read_jar_meta)
+from modcheck.flows.scan_flow import scan_dirs
 
 
 def _make_jar(path: Path, members: dict[str, bytes]) -> Path:
@@ -44,12 +45,16 @@ def test_fabric_missing_minecraft_depend(tmp_path: Path) -> None:
 
 
 def test_quilt_meta(tmp_path: Path) -> None:
-    """quilt.mod.json 走同一条 JSON 解析路径，loader_hint=quilt。"""
-    raw = json.dumps({"id": "qmod", "name": {"en_us": "Quilt Mod"}, "version": "1.0"})
+    """识别 Quilt 官方的嵌套元数据与版本提示。"""
+    raw = json.dumps({"schema_version": 1, "quilt_loader": {
+        "id": "qmod", "metadata": {"name": "Quilt Mod"}, "version": "1.0",
+        "depends": [{"id": "minecraft", "versions": [">=1.21"]}],
+    }})
     jar = _make_jar(tmp_path / "q.jar", {"quilt.mod.json": raw.encode("utf-8")})
     meta = read_jar_meta(jar)
     assert meta.mod_id == "qmod"
     assert meta.name == "Quilt Mod"
+    assert meta.version == "1.0" and meta.mc_hint == "1.21"
     assert meta.loader_hint == "quilt"
 
 
@@ -100,6 +105,24 @@ def test_manifest_fallback(tmp_path: Path) -> None:
     assert meta.name == "Some Library"
     assert meta.version == "2.1"
     assert meta.mod_id is None
+
+
+def test_scan_keeps_all_declared_forge_ids_on_one_file(tmp_path: Path) -> None:
+    raw = b"""
+[[mods]]
+modId = "MainProject"
+displayName = "Main Project"
+version = "2.0"
+[[mods]]
+modId = "submod"
+version = "1.0"
+"""
+    jar = _make_jar(tmp_path / "bundle.jar", {"META-INF/neoforge.mods.toml": raw})
+    assert read_jar_meta(jar).mod_ids == ("MainProject", "submod")
+    (entry,) = scan_dirs([tmp_path], provider=None).entries
+    assert entry.file_name == "bundle.jar"
+    assert entry.mod_id == "MainProject" and entry.current_version == "2.0"
+    assert entry.to_dict()["detected"]["mod_ids"] == ["MainProject", "submod"]
 
 
 def test_no_metadata_zip(tmp_path: Path) -> None:

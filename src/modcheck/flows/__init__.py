@@ -14,8 +14,7 @@
 这条边界是 GUI 能复用流程的前提：flows 一旦沾上终端输出，GUI 就得另写一份，
 两份逻辑早晚漂移。docs/research/36_layering_check.py 会静态检查它。
 """
-from modcheck.flows.export import (CSV_HEADER, default_filename, export_csv, export_json,
-                                   export_markdown)
+from modcheck.flows.export import default_filename, export_json
 from modcheck.flows.runtime import Runtime, build_runtime
 from modcheck.flows.check_flow import (CheckOutcome, CheckStats, ProfileEntries,
                                        load_profile_entries, run_check_flow,
@@ -36,5 +35,5 @@ __all__ = [
     "TargetCheck", "check_target_dir", "ensure_target_dir", "looks_like_mods_dir",
     "prepare_download", "run_download_flow",
     "Runtime", "build_runtime",
-    "CSV_HEADER", "default_filename", "export_csv", "export_json", "export_markdown",
+    "default_filename", "export_json",
 ]

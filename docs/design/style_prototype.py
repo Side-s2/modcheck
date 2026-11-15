@@ -81,7 +81,7 @@ hl.addWidget(t1); hl.addWidget(t2)
 
 row = QHBoxLayout(); row.setSpacing(10)
 for label, items in (("模组清单", ["服务器A（30 个模组）"]),
-                     ("目标版本", ["26.3（最新正式版）", "26.2", "26.1"]),
+                     ("目标版本", ["26.3", "26.2", "26.1"]),
                      ("服务端加载器", ["Fabric", "NeoForge", "Forge"])):
     box = QVBoxLayout(); box.setSpacing(5)
     cap = QLabel(label); cap.setObjectName("sub")
@@ -172,7 +172,7 @@ dl.addWidget(d1); dl.addWidget(d2)
 outer.addWidget(detail)
 
 foot = QHBoxLayout()
-for b in ("导出 JSON", "导出 Markdown", "复制重跑命令"):
+for b in ("导出 JSON",):
     foot.addWidget(QPushButton(b))
 foot.addStretch(1)
 st_lb = QLabel("配置目录：D:\\…\\config   ·   Modrinth 已启用"); st_lb.setObjectName("sub")

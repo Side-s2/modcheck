@@ -1,29 +1,25 @@
-"""GUI 的真实后端：与 CLI 共用 flows 的运行时装配与检查流程。
-
-这一层存在的意义：**GUI 里不出现任何判定逻辑**。
-它只做三件事 —— 取清单列表、取版本列表、把 Report 转成表格行。
-所有"这个模组到底行不行"的判断都来自 core，流程编排来自 flows，
-所以 GUI 与 CLI 的结论**在构造上不可能不一致**。
-"""
+"""将 GUI 请求交给流程层，并将结果转换为界面数据。"""
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable, Sequence
 
-from modcheck.core.models import Loader
-from modcheck.core.report import advice_text, reason_text, version_cell, verdict_line
-from modcheck.errors import ProviderError
-from modcheck.flows import (default_filename, export_csv, export_json, export_markdown,
+from modcheck.core.models import Loader, ProjectInfo, Settings
+from modcheck.core.profile_ops import add_mod, remove_mods, set_ignored, set_source
+from modcheck.core.report import Report, ReportItem, reason_text, version_cell
+from modcheck.errors import ConfigError
+from modcheck.flows import (default_filename, export_json,
                             load_profile_entries, looks_like_mods_dir, prepare_download,
                             run_check_flow, run_download_flow, scan_dirs)
 # 直接从子模块导入：flows/__init__ 的导出清单仍在变动，走包级导入容易被子代理的在途改动卡住
-from modcheck.flows.export import import_modlist, read_modlist
+from modcheck.flows.export import export_modlist, import_modlist, read_modlist
 from modcheck.flows.scan_flow import save_scan_result
-from modcheck.flows.runtime import build_runtime
+from modcheck.flows.runtime import Runtime, build_runtime
 from modcheck.gui.main_window import Row
 from modcheck.providers.mojang import MojangVersions
-from modcheck.core.profile_ops import add_mod, remove_mods, set_ignored, set_source
-from modcheck.core.profile_ops import rename as rename_profile_ops  # noqa: F401  (供未来使用)
+from modcheck.providers.modrinth import ModrinthProvider
+from modcheck.providers.network import network_budget
+from modcheck.providers.registry import ProviderRegistry
 from modcheck.storage.profiles import (delete_profile, list_profiles, load_profile, new_profile,
                                        profile_path, rename_profile, save_profile,
                                        validate_profile_name)
@@ -31,6 +27,7 @@ from modcheck.storage.settings import load_settings, save_settings
 
 #: 与 CLI 的 --window 默认值保持一致；**不得为了省流量调小**（会漏掉真正可用的版本）
 DEFAULT_WINDOW = 25
+CHECK_NETWORK_TIMEOUT = 300.0
 
 
 def _short_date(raw: str | None) -> str:
@@ -49,7 +46,7 @@ def _mod_name(item) -> str:
     return "（未知）"
 
 
-def _to_row(item) -> Row:
+def _to_row(item: ReportItem, report: Report) -> Row:
     """把 core 的 ReportItem 转成界面用的行（纯搬运，不做判断）。"""
     latest = item.latest_compat or item.latest_for_loader or item.latest_any
     available = ""
@@ -58,113 +55,98 @@ def _to_row(item) -> Row:
             available = f"{item.latest_compat.version_number}（{_short_date(item.latest_compat.date_published)}）"
         elif item.latest_any is not None:
             available = f"{item.latest_any.version_number}（{item.latest_any.version_type} 通道）"
-    reason = ""
-    if item.status.value in ("blocked", "unknown"):
-        reason = reason_text(item, _StubReport(item))
-    elif item.status.value in ("degraded", "prerelease"):
-        reason = reason_text(item, _StubReport(item))
+    reason = reason_text(item, report)
     return Row(name=_mod_name(item), status=item.status.value, version=version_cell(item),
                date=_short_date(latest.date_published if latest else None),
-               reason=reason, available=available)
+               reason=reason, available=available, mod_ids=tuple(item.mod.detected.mod_ids))
 
 
-class _StubReport:
-    """reason_text/advice_text 需要 loader 与 mc_version；这里只透传。"""
+class GuiBackend:
+    """界面与核心流程之间的适配器。"""
 
-    def __init__(self, item) -> None:
-        self.loader = Loader.FABRIC
-        self.mc_version = ""
-
-
-class CliBackend:
-    """界面用的后端实现（名字保留 Cli 前缀不合适，但先叫 Backend 更清楚）。"""
-
-    def __init__(self, config_dir: str | Path | None = None) -> None:
-        self.runtime = build_runtime(config_dir=config_dir)
-        self._versions: list[str] | None = None
-        #: 最近一次检查的报告 —— 导出按钮要用它（与 CLI 导出**同一份实现**）
-        self.last_report = None
+    def __init__(self, config_dir: str | Path | None = None, *, runtime: Runtime | None = None) -> None:
+        self.runtime = runtime if runtime is not None else build_runtime(config_dir=config_dir)
+        self.last_report: Report | None = None
 
     # ---------------------------------------------------------------- 清单
     def profiles(self) -> Sequence[tuple[str, int]]:
-        """(清单名, 模组数)。读不到就返回空列表，由界面显示"无"。"""
-        try:
-            return [(s.name, s.mod_count) for s in list_profiles(self.runtime.profiles_dir)]
-        except Exception:
-            return []
+        """用文件名标识清单，以便打开手工改过文件名的 JSON。"""
+        return [(summary.path.stem, summary.mod_count)
+                for summary in list_profiles(self.runtime.profiles_dir)]
 
     # ---------------------------------------------------------------- 版本
-    def versions(self) -> Sequence[str]:
-        """**全部**官方正式版（最近的在前）。
-
-        ⚠️ 以前只取最近 10 个，于是"往更早的版本回退"这件事在界面上根本做不到。
-        现在取全量：下拉里只显示前几个（够用且不刷屏），但**校验自定义输入时用全量**，
-        这样用户填 1.21.4 这种旧版本也能被正确接受。
-        取不到就给空 —— 界面显示（无），不阻塞其它功能。
-        """
-        if self._versions is None:
-            try:
-                releases = MojangVersions(self.runtime.client).list_releases()
-                self._versions = [r.version_id for r in releases]
-            except ProviderError:
-                self._versions = []
-        return self._versions
+    def versions(self, should_stop: Callable[[], bool] | None = None) -> Sequence[str]:
+        """读取官方正式版列表，供后台线程调用。"""
+        runtime = self.runtime
+        ttl = runtime.settings.cache_ttl_hours["mojang"] * 3600
+        with network_budget(20.0, should_stop):
+            releases = MojangVersions(runtime.client, ttl=ttl).list_releases()
+        return [release.version_id for release in releases if release.version_id]
 
     # ---------------------------------------------------------------- 检查
     def run(self, profile: str, mc: str, loader: str,
             on_progress: Callable[[int, int, str], None],
             should_stop: Callable[[], bool], *, window: int = DEFAULT_WINDOW,
-            prerelease: bool = False) -> tuple[str, list[Row]]:
+            prerelease: bool = False, refresh: bool = False) -> list[Row]:
         """跑一次检查。**任何判定都不在这里发生** —— 全部来自 flows/core。
 
         window/prerelease 与 CLI 的同名参数**默认值必须一致**（25 / False）：
         它们是判定口径的一部分，两边不一致就会出现"同一个模组在 CLI 与 GUI 里结论不同"。
         """
-        settings = self.runtime.settings
-        # ⚠️ primary 是**方法**不是属性：写成 registry.primary 会把方法对象当数据源传进去，
-        # 结果是每个模组都抛异常 -> 全部 ⚪「未判定」。实测踩过（30 个模组全查不出来）。
-        provider = self.runtime.registry.primary()
-        loaded = load_profile_entries(profiles_dir=self.runtime.profiles_dir,
+        self.last_report = None
+        runtime = self.runtime
+        settings = runtime.settings
+        client = runtime.client.for_operation(read_cache=settings.check_cache and not refresh)
+        provider = ProviderRegistry.from_settings(settings, client).primary()
+        loaded = load_profile_entries(profiles_dir=runtime.profiles_dir,
                                       profile=profile, provider=provider,
                                       on_progress=on_progress, should_stop=should_stop)
-        outcome = run_check_flow(
-            loaded.entries, provider=provider,
-            loader=Loader.parse(loader.strip().lower()), mc_version=mc,
-            window=int(window), prerelease=bool(prerelease),
-            jobs=int(settings.concurrency), on_progress=on_progress,
-            should_stop=should_stop, stats_source=self.runtime.client,
-            profile_name=loaded.name, profile_saved=loaded.saved)
-        self.last_report = outcome.report
-        rows = [_to_row(item) for item in outcome.report.iter_items()]
-        return verdict_line(outcome.report), rows
+        with network_budget(CHECK_NETWORK_TIMEOUT, should_stop):
+            outcome = run_check_flow(
+                loaded.entries, provider=provider,
+                loader=Loader.parse(loader.strip().lower()), mc_version=mc,
+                window=int(window), prerelease=bool(prerelease),
+                jobs=int(settings.concurrency), on_progress=on_progress,
+                should_stop=should_stop, stats_source=client,
+                profile_name=profile, profile_saved=loaded.saved)
+        report = outcome.report
+        rows = [_to_row(item, report) for item in report.iter_items()]
+        self.last_report = report
+        return rows
 
     # ---------------------------------------------------------------- 导出
-    def export_default_name(self, fmt: str) -> str:
-        """默认文件名（与 CLI 的命名规则一致）。"""
+    def export_default_name(self) -> str:
+        """生成本次检查报告的 JSON 文件名。"""
         report = self.last_report
         if report is None:
-            return "report." + fmt
-        return default_filename(report.profile_name, report.mc_version, report.loader, fmt)
+            return "report.json"
+        return default_filename(report.profile_name, report.mc_version, report.loader)
 
-    def export_to(self, path: str | Path, fmt: str) -> Path:
-        """导出报告。**复用 flows.export**，所以 GUI 导出的文件与 CLI 导出的逐字节相同。"""
+    def export_to(self, path: str | Path) -> Path:
+        """导出 JSON 报告。"""
         if self.last_report is None:
             raise RuntimeError("还没有可导出的报告")
-        target = Path(path)
-        if fmt == "json":
-            export_json(self.last_report, target)
-        elif fmt == "md":
-            export_markdown(self.last_report, target)
-        else:
-            export_csv(self.last_report, target)
+        target = self._export_path(path)
+        export_json(self.last_report, target)
         return target
 
+    def _export_path(self, path: str | Path) -> Path:
+        target = Path(path)
+        if target.suffix.lower() != ".json":
+            raise ConfigError("请使用 .json 扩展名保存文件。")
+        existing = target.resolve()
+        if (existing.parent == self.runtime.profiles_dir.resolve()
+                or existing == self.runtime.settings_path.resolve()):
+            raise ConfigError("请另选保存位置，以免覆盖程序正在使用的清单或设置。")
+        return target
 
     # ---------------------------------------------------------------- 清单管理（二期）
     # 所有"怎么改"的规则都在 core/profile_ops.py 里；这里只负责"读进来、改、写回去"。
     def load_profile(self, name: str):
         """读一份清单。"""
-        return load_profile(profile_path(self.runtime.profiles_dir, name))
+        profile = load_profile(profile_path(self.runtime.profiles_dir, name))
+        profile.name = name
+        return profile
 
     def save_profile(self, profile) -> None:
         """写回清单（原子写盘由 storage 负责，失败会抛领域异常）。"""
@@ -196,8 +178,22 @@ class CliBackend:
     def remove_mods(self, profile, selectors):
         return remove_mods(profile, list(selectors))
 
-    def set_source(self, profile, selector, *, provider, slug):
-        return set_source(profile, selector, provider=provider, slug=slug)
+    def verify_project(self, slug: str, should_stop: Callable[[], bool]) -> ProjectInfo:
+        """通过实时请求确认 Modrinth 上存在这个模组。"""
+        client = self.runtime.client.for_operation(read_cache=False)
+        with network_budget(20.0, should_stop):
+            project = ModrinthProvider(client).get_project(slug)
+        if project is None:
+            raise ConfigError(f"Modrinth 上找不到项目「{slug}」。请检查链接或项目标识。")
+        if not project.slug or not project.project_id:
+            raise ConfigError("Modrinth 返回的项目信息不完整，请稍后重试。")
+        if project.project_type != "mod":
+            raise ConfigError(f"「{project.title or project.slug}」在 Modrinth 上不是模组项目。")
+        return project
+
+    def set_source(self, profile, selector, *, project: ProjectInfo):
+        return set_source(profile, selector, provider="modrinth", slug=project.slug,
+                          title=project.title)
 
     def set_ignored(self, profile, selector, ignored):
         return set_ignored(profile, selector, ignored)
@@ -206,7 +202,7 @@ class CliBackend:
         return add_mod(profile, **kwargs)
 
     # ---------------------------------------------------------------- 设置（二期）
-    def load_settings(self):
+    def load_settings(self) -> Settings:
         """当前设置（GUI 直接改它的副本再存回）。"""
         return load_settings(self.runtime.settings_path)
 
@@ -215,6 +211,7 @@ class CliBackend:
         # ⚠️ 参数顺序是 (path, settings)，不是 (settings, path) ——
         # 写反了会报 "TypeError: expected str, bytes or os.PathLike object, not Settings"
         save_settings(self.runtime.settings_path, settings)
+        self.runtime = build_runtime(resolved_directory=self.runtime.config_dir)
 
     def settings_ops(self):
         """把 core.settings_ops 整个暴露给设置对话框 —— 校验规则只有一份实现。"""
@@ -236,12 +233,18 @@ class CliBackend:
         return import_modlist(profile, profiles_dir=self.runtime.profiles_dir,
                               profile_name=profile.name)
 
+    def export_modlist_file(self, name: str, path: str | Path) -> Path:
+        target = self._export_path(path)
+        export_modlist(self.load_profile(name), target)
+        return target
+
     # ---------------------------------------------------------------- 扫描（三期）
-    def scan(self, folders, on_progress=None, should_stop=None):
+    def scan(self, folders, on_progress=None, should_stop=None, on_network_progress=None):
         """扫描若干文件夹并返回 ScanReport（识别规则全在 flows/core 里）。"""
         return scan_dirs([Path(f) for f in folders],
                          provider=self.runtime.registry.primary(),
-                         on_progress=on_progress, should_stop=should_stop)
+                         on_progress=on_progress, should_stop=should_stop,
+                         on_network_progress=on_network_progress)
 
     def save_scan(self, scan_report, profile_name: str, *, new: bool = False):
         """把扫描结果合并进清单并原子写盘。"""
@@ -262,16 +265,17 @@ class CliBackend:
         """目标目录看起来是"正在用的 mods 文件夹"吗（要额外提醒一次）。"""
         return looks_like_mods_dir(Path(target_dir))
 
-    def run_download(self, prep, *, overwrite=None, on_progress=None,
+    def run_download(self, prep, *, selected=None, overwrite=None, on_progress=None,
                      on_item=None, should_stop=None):
         """真正下载。复用同一个 HttpClient（下载与 API 共用限速器，裁决 D45）。
 
         ⚠️ on_progress 的签名是 (DownloadItem, 已下载字节, 文件总字节) ——
         **不是**检查流程那种 (已完成, 总数, 名称)。GUI 侧踩过一次这个坑。
         """
-        return run_download_flow(prep, self.runtime.client, overwrite=overwrite or {},
+        return run_download_flow(prep, self.runtime.client, overwrite=overwrite,
+                                 selected=selected if selected is not None else {},
                                  on_progress=on_progress, on_item=on_item,
                                  should_stop=should_stop)
 
 
-__all__ = ["CliBackend"]
+__all__ = ["GuiBackend"]
