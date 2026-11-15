@@ -7,11 +7,11 @@ sys.path.insert(0, str(ROOT / "src"))
 os.environ["QT_QPA_PLATFORM"] = "windows"
 from PyQt6.QtWidgets import QApplication
 from modcheck.gui import theme
-from modcheck.gui.backend import CliBackend
+from modcheck.gui.backend import GuiBackend
 from modcheck.gui.scan_dialog import ScanDialog
 cfg = Path(tempfile.mkdtemp(prefix="scan-"))
 app = QApplication(sys.argv); app.setStyle("Fusion"); app.setStyleSheet(theme.QSS)
-d = ScanDialog(CliBackend(config_dir=cfg))
+d = ScanDialog(GuiBackend(config_dir=cfg))
 d.list.addItem(str(ROOT / "mods_sample"))
 d.list.addItem(str(ROOT / "mods_sample" / "sub"))
 d.lb_progress.setText("正在读取 12/30：carpet-extra-26.1.jar")

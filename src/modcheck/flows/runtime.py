@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
 
 from modcheck.cache import HttpCache
@@ -51,20 +52,21 @@ class Runtime:
         return path_helpers.settings_path(self.config_dir)
 
 
-def build_runtime(*, config_dir: str | Path | None = None, jobs: int | None = None,
-                  refresh: bool = False, debug: bool = False) -> Runtime:
-    """装配运行时。
-
-    参数与 CLI 的解耦方式：CLI 把自己的 argparse 值传进来，GUI 直接传自己的值 ——
-    这个函数不认识 argparse，也不认识 Console。
-    """
-    warnings: list[str] = []
+def resolve_runtime_directory(config_dir: str | Path | None) -> tuple[Path, list[str]]:
+    """解析实际配置目录，供入口在读取和写入配置前取得锁。"""
     requested = path_helpers.resolve_config_dir(
         str(config_dir) if config_dir else None, exe_dir=path_helpers.detect_exe_dir())
     resolved, fell_back = path_helpers.ensure_config_dir(requested)
-    if fell_back:
-        warnings.append(t("err.config_dir.not_writable", old=requested, new=resolved))
+    warnings = [t("err.config_dir.not_writable", old=requested, new=resolved)] if fell_back else []
+    return resolved.resolve(), warnings
 
+
+def build_runtime(*, config_dir: str | Path | None = None, jobs: int | None = None,
+                  refresh: bool = False, debug: bool = False,
+                  resolved_directory: Path | None = None) -> Runtime:
+    """装配引擎。会话已锁定配置目录时，按该目录装配。"""
+    resolved, warnings = ((resolved_directory, []) if resolved_directory is not None
+                          else resolve_runtime_directory(config_dir))
     settings = load_settings(path_helpers.settings_path(resolved))
 
     if jobs is not None:
@@ -79,9 +81,10 @@ def build_runtime(*, config_dir: str | Path | None = None, jobs: int | None = No
         cache = None
         warnings.append(t("warn.cache.not_writable"))
 
+    timeout = settings.timeout_seconds
     cfg = HttpConfig(
-        timeout=float(settings.timeout_seconds),
-        retries=int(settings.retries),
+        timeout=min(600.0, timeout) if isfinite(timeout) and timeout >= 1.0 else HttpConfig().timeout,
+        retries=max(0, min(settings.retries, 10)),
         proxy=settings.proxy,
         rate_limit_per_min=RATE_LIMIT_PER_MIN,
         cache_ttl=float(settings.cache_ttl_hours.get("api", 6.0)) * 3600.0,

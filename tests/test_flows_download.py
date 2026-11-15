@@ -19,7 +19,7 @@ from modcheck.core.downloader import (SKIP_NO_JAR, SKIP_NO_VERSION, STATUS_CANCE
 from modcheck.core.models import FileInfo, Loader, ModEntry, ReasonCode, Status, VersionInfo
 from modcheck.core.report import Report, ReportItem
 from modcheck.errors import ProviderHTTPError, ProviderRateLimited, ProviderVerifyError
-from modcheck.providers.http import HttpConfig, HttpClient
+from modcheck.providers.http import MAX_DOWNLOAD_RATE_RETRIES, HttpConfig, HttpClient
 from modcheck.flows.download_flow import (TARGET_IS_FILE, TARGET_MISSING, TARGET_NOT_WRITABLE,
                                           UNKNOWN_FREE, check_target_dir, ensure_target_dir,
                                           looks_like_mods_dir, plan_skips, prepare_download,
@@ -293,6 +293,36 @@ def test_flow_with_real_http_client_sha1_mismatch_retries_and_fails(tmp_path: Pa
     assert outcome.summary.failure_rows[0][:2] == ("carpet-26.3.jar", "download.error.verify")
     assert not (tmp_path / "carpet-26.3.jar").exists()
     assert not list(tmp_path.glob("*.part"))
+
+
+def test_progress_reports_one_final_result_after_retry(tmp_path: Path) -> None:
+    prep = prepare_download(one_ready_report(), tmp_path)
+    fetcher = FakeFetcher(fail_times=1)
+    completed = []
+    run_download_flow(prep, fetcher, sleep=no_sleep,
+                      on_item=lambda item, ok: completed.append((item.status, ok, len(fetcher.calls))))
+    assert completed == [(STATUS_OK, True, 2)]
+
+
+def test_http_rate_limit_exhaustion_does_not_restart_retries(tmp_path: Path) -> None:
+    from test_http_download import FakeStreamTransport, make_stream
+
+    prep = prepare_download(one_ready_report(), tmp_path)
+    transport = FakeStreamTransport(make_stream(b"", status=429))
+    outcome = run_download_flow(prep, real_client(transport), sleep=no_sleep)
+    assert outcome.summary.failed == 1
+    assert transport.count == MAX_DOWNLOAD_RATE_RETRIES + 1
+
+
+def test_file_created_after_preview_requires_overwrite_choice(tmp_path: Path) -> None:
+    prep = prepare_download(one_ready_report(), tmp_path)
+    target = prep.plan.items[0].target
+    target.write_bytes(b"keep existing")
+    fetcher = FakeFetcher()
+    outcome = run_download_flow(prep, fetcher, overwrite={}, sleep=no_sleep)
+    assert outcome.summary.skipped == 1
+    assert not fetcher.calls
+    assert target.read_bytes() == b"keep existing"
 
 
 def test_run_download_flow_ok(tmp_path: Path) -> None:

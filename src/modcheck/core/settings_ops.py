@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Collection, Final
+from urllib.parse import urlsplit
 
 from modcheck.core.mcversion import validate_target_version
 from modcheck.core.models import Loader, Settings
@@ -41,6 +42,8 @@ def clone(settings: Settings) -> Settings:
         retries=int(settings.retries),
         cache_ttl_hours={str(k): float(v) for k, v in settings.cache_ttl_hours.items()},
         providers={str(k): dict(v) for k, v in settings.providers.items()},
+        theme=settings.theme,
+        check_cache=settings.check_cache,
     )
 
 
@@ -102,23 +105,19 @@ def set_color(settings: Settings, value: str) -> Settings:
 
 
 def parse_proxy(raw: str) -> str | None:
-    """解析代理地址：null/none/-/空串 = 清除；其余必须是 scheme://host[:port]。
-
-    实测教训（D42）：config set proxy null 会把字符串 null 写进配置，
-    此后所有网络请求永久失败，而 config show 显示「代理：null」看起来像没设。
-    所以既支持「清除」语义，也拒绝非法值。
-
-    抛出：
-        ConfigError: 不满足 scheme://host 形式。
-    """
+    """解析 HTTP 代理地址，空值和清除标记返回 None。"""
     text = (raw or "").strip()
     if text.lower() in NULL_WORDS:
         return None
-    scheme, sep, rest = text.partition("://")
-    if not sep or not scheme.isalnum() or not rest:   # socks5 这类 scheme 含数字
-        raise ConfigError(t("config.bad_proxy", value=raw))
-    if not rest.split("/", 1)[0]:                     # http:///x 这类没有主机名
-        raise ConfigError(t("config.bad_proxy", value=raw))
+    try:
+        proxy = urlsplit(text)
+        if (not proxy.hostname or proxy.port == 0 or proxy.query or proxy.fragment
+                or any(char.isspace() for char in text)):
+            raise ValueError
+    except ValueError:
+        raise ConfigError(t("err.network.invalid_proxy")) from None
+    if proxy.scheme != "http":
+        raise ConfigError(t("err.network.unsupported_proxy"))
     return text
 
 

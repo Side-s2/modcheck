@@ -8,7 +8,7 @@ os.environ["QT_QPA_PLATFORM"] = "windows"
 
 from PyQt6.QtWidgets import QApplication
 from modcheck.gui import theme
-from modcheck.gui.backend import CliBackend
+from modcheck.gui.backend import GuiBackend
 from modcheck.gui.profiles_dialog import ProfilesDialog
 from modcheck.gui.settings_dialog import SettingsDialog
 
@@ -27,7 +27,7 @@ for name, n in (("服务器A", 30), ("测试服", 8)):
 app = QApplication(sys.argv)
 app.setStyle("Fusion")
 app.setStyleSheet(theme.QSS)
-be = CliBackend(config_dir=cfg)
+be = GuiBackend(config_dir=cfg)
 
 d1 = ProfilesDialog(be); d1.resize(980, 620)
 for _ in range(3):          # setCellWidget 要等一轮布局才定位，否则截图会出现控件叠影假象

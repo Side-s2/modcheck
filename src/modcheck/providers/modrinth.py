@@ -18,9 +18,11 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any, Final, Mapping, Sequence
+from urllib.parse import quote
 
 from modcheck.core.models import Loader, ProjectHit, ProjectInfo, VersionInfo
-from modcheck.errors import ProviderNotFound
+from modcheck.errors import ProviderNotFound, ProviderParseError
+from modcheck.i18n import t
 from modcheck.providers.base import BaseProvider
 from modcheck.providers.http import HttpClient
 
@@ -47,11 +49,14 @@ class ModrinthProvider(BaseProvider):
 
     def _versions(self, project_id: str, params: Mapping[str, str]) -> list[VersionInfo]:
         """请求版本列表；顺序原样保留（API 已按发布时间倒序）。"""
-        url = self.BASE + "/project/" + str(project_id) + "/version"
+        url = self.BASE + "/project/" + quote(str(project_id), safe="") + "/version"
         data = self.client.get_json(url, params)
-        if not isinstance(data, list):
-            return []
-        return [VersionInfo.from_api(item) for item in data if isinstance(item, dict)]
+        if not isinstance(data, list) or not all(_valid_version(item) for item in data):
+            raise ProviderParseError(t("err.parse.provider"), code="BAD_VERSION_LIST")
+        try:
+            return [VersionInfo.from_api(item) for item in data]
+        except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+            raise ProviderParseError(t("err.parse.provider"), code="BAD_VERSION_LIST") from exc
 
     # ---------------------------------------------------------------- 契约实现
     def search(self, query: str, limit: int = 10) -> list[ProjectHit]:
@@ -64,19 +69,29 @@ class ModrinthProvider(BaseProvider):
         data = self.client.get_json(self.BASE + "/search", params)
         hits = data.get("hits") if isinstance(data, dict) else None
         if not isinstance(hits, list):
-            return []
+            raise ProviderParseError(t("err.parse.provider"), code="BAD_SEARCH_RESULT")
         return [ProjectHit.from_api(item, provider=self.name)
                 for item in hits if isinstance(item, dict)]
 
     def get_project(self, project_id: str) -> ProjectInfo | None:
         """取项目详情；404（响应体为空）返回 None，不抛异常。"""
         try:
-            data = self.client.get_json(self.BASE + "/project/" + str(project_id))
+            data = self.client.get_json(self.BASE + "/project/" + quote(str(project_id), safe=""))
         except ProviderNotFound:
             return None
-        if not isinstance(data, dict):
-            return None
+        if not isinstance(data, dict) or not isinstance(data.get("versions"), list):
+            raise ProviderParseError(t("err.parse.provider"), code="BAD_PROJECT")
         return ProjectInfo.from_api(data)
+
+    def get_projects(self, project_ids: Sequence[str]) -> dict[str, ProjectInfo]:
+        """一次取回多个项目详情，按项目 ID 对应指纹识别结果。"""
+        if not project_ids:
+            return {}
+        data = self.client.get_json(self.BASE + "/projects", {"ids": self._json_array(project_ids)})
+        if not isinstance(data, list):
+            raise ProviderParseError(t("err.parse.provider"), code="BAD_PROJECT_LIST")
+        projects = (ProjectInfo.from_api(item) for item in data if isinstance(item, dict))
+        return {info.project_id: info for info in projects if info.project_id}
 
     def get_versions(self, project_id: str, *, window: int | None = None) -> list[VersionInfo]:
         """取版本列表；**必须带 limit**，绝不无限制拉取。"""
@@ -135,12 +150,20 @@ class ModrinthProvider(BaseProvider):
             cache_key=cache_key)
         out: dict[str, VersionInfo] = {}
         if not isinstance(data, dict):
-            return out
+            raise ProviderParseError(t("err.parse.provider"), code="BAD_HASH_RESULT")
         for digest in hashes:
             raw = data.get(digest)
             if isinstance(raw, dict):
                 out[digest] = VersionInfo.from_api(raw)
         return out
+
+
+def _valid_version(item: Any) -> bool:
+    return (isinstance(item, dict) and isinstance(item.get("id"), str) and bool(item["id"])
+            and isinstance(item.get("version_number"), str) and bool(item["version_number"])
+            and item.get("version_type") in ("release", "beta", "alpha")
+            and all(isinstance(item.get(key), list) and all(isinstance(v, str) for v in item[key])
+                    for key in ("loaders", "game_versions")))
 
 
 __all__ = ["ModrinthProvider"]

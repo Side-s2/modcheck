@@ -1,6 +1,10 @@
 """T-11 HTTP 层测试：缓存 / 退避 / 限流 / 404 空体 / 证书错误，全部离线。"""
 from __future__ import annotations
 
+import ssl
+import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -8,7 +12,9 @@ import pytest
 from modcheck.cache import HttpCache
 from modcheck.errors import (ProviderHTTPError, ProviderNetworkError, ProviderNotFound,
                              ProviderParseError, ProviderRateLimited)
-from modcheck.providers.http import HttpConfig, HttpClient, HttpResponse, RateLimiter
+from modcheck.providers.http import (HttpConfig, HttpClient, HttpResponse, RateLimiter,
+                                     default_stream_transport, default_transport)
+from modcheck.providers.network import network_budget
 from fakes import FakeClock, FakeTransport, json_response, sequence, text_response
 
 URL = "https://api.modrinth.com/v2/project/carpet"
@@ -51,6 +57,20 @@ def test_cache_hit_does_not_request(tmp_path: Path) -> None:
     assert client.get_json(URL) == {"n": 1}
     assert client.get_json(URL) == {"n": 1}
     assert transport.count == 1
+
+
+def test_one_operation_bypasses_reads_and_populates_shared_cache(tmp_path: Path) -> None:
+    client, transport, _ = make_client(sequence(json_response({"build": 1}),
+                                                json_response({"build": 2})), cache=HttpCache(tmp_path))
+    assert client.get_json(URL) == {"build": 1}
+    cached = client.for_operation()
+    assert cached.get_json(URL) == {"build": 1}
+    assert cached.stats == (0, 1)
+    refresh = client.for_operation(read_cache=False)
+    assert refresh.get_json(URL) == {"build": 2}
+    assert refresh.stats == (1, 0)
+    assert client.get_json(URL) == {"build": 2}
+    assert client.stats == (1, 1) and transport.count == 2
     assert client.stats == (1, 1)
 
 
@@ -245,3 +265,45 @@ def test_reset_stats() -> None:
     assert client.stats == (1, 0)
     client.reset_stats()
     assert client.stats == (0, 0)
+
+
+@pytest.mark.parametrize("failure,code", [
+    (TimeoutError("timed out"), "TIMEOUT"),
+    (ssl.SSLCertVerificationError("chain rejected"), "CERT"),
+])
+def test_wrapped_transport_errors_have_consistent_codes(monkeypatch, failure, code) -> None:
+    class Opener:
+        def open(self, *args, **kwargs):
+            raise urllib.error.URLError(failure)
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *args: Opener())
+    cfg = HttpConfig()
+    api = default_transport(cfg)
+    stream = default_stream_transport(cfg)
+    for request in (lambda: api("GET", URL, {}, None, 1), lambda: stream(URL, {}, 1)):
+        with pytest.raises(ProviderNetworkError) as err:
+            request()
+        assert err.value.code == code
+        if code == "CERT":
+            assert not err.value.retryable
+            assert "api.modrinth.com" in err.value.message
+
+
+def test_network_budget_expires_with_open_still_blocked(monkeypatch) -> None:
+    finished = threading.Event()
+    release = threading.Event()
+
+    class Opener:
+        def open(self, *args, **kwargs):
+            release.wait(5)
+            finished.set()
+            raise urllib.error.URLError(TimeoutError())
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *args: Opener())
+    try:
+        with network_budget(0.2), pytest.raises(ProviderNetworkError) as err:
+            default_transport(HttpConfig())("GET", URL, {}, None, 5)
+        assert err.value.code == "DEADLINE"
+        assert not finished.is_set()
+    finally:
+        release.set()

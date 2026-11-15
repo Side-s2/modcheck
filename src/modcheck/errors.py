@@ -110,6 +110,11 @@ class ProviderRateLimited(ProviderHTTPError):
 
     retryable = True
 
+    def __init__(self, message: str, *, status: int, url: str, hint: str = "",
+                 retryable: bool = True) -> None:
+        super().__init__(message, status=status, url=url, hint=hint)
+        self.retryable = retryable
+
 
 class ProviderVerifyError(ProviderError):
     """下载内容校验失败（sha1 与预期不符）；坏文件必须已删除。

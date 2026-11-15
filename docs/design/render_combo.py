@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QApplication, QComboBox
 from modcheck.gui import theme
 app = QApplication(sys.argv); app.setStyle("Fusion"); app.setStyleSheet(theme.QSS)
 cb = QComboBox()
-cb.addItems(["26.3（最新正式版）", "26.2", "26.1.2", "26.1", "26.0"])
+cb.addItems(["26.3", "26.2", "26.1.2", "26.1", "26.0"])
 cb.resize(240, 34)
 theme.style_combo_popup(cb)
 cb.show()

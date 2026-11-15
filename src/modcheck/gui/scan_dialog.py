@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog, QHBoxLayou
                              QLineEdit, QListWidget, QMessageBox, QProgressBar, QPushButton,
                              QVBoxLayout, QWidget)
 
-from modcheck.gui import theme
 from modcheck.gui.dialogs import describe, show_info, show_warning
 
 
@@ -20,23 +19,24 @@ class ScanWorker(QThread):
     """扫描在后台跑：30 个 jar 要算哈希，界面不能卡。"""
 
     progressed = pyqtSignal(int, int, str)
+    network_progressed = pyqtSignal(int, int, str)
     done = pyqtSignal(object)
     failed = pyqtSignal(str)
 
     def __init__(self, backend, folders, parent=None) -> None:
         super().__init__(parent)
         self._backend, self._folders = backend, folders
-        self._stop = False
 
     def cancel(self) -> None:
-        self._stop = True
+        self.requestInterruption()
 
     def run(self) -> None:                                   # noqa: D102
         try:
             report = self._backend.scan(
                 self._folders,
                 on_progress=lambda d, t, n: self.progressed.emit(d, t, n),
-                should_stop=lambda: self._stop)
+                should_stop=self.isInterruptionRequested,
+                on_network_progress=lambda d, t, n: self.network_progressed.emit(d, t, n))
             self.done.emit(report)
         except Exception as exc:
             self.failed.emit(f"{type(exc).__name__}: {exc}")
@@ -50,6 +50,7 @@ class ScanDialog(QDialog):
         self._backend = backend
         self._worker: ScanWorker | None = None
         self._report = None
+        self._close_when_finished = False
         self.setWindowTitle("扫描 mods 文件夹")
         self.resize(760, 560)
         self._build()
@@ -63,7 +64,7 @@ class ScanDialog(QDialog):
         title.setObjectName("title")
         outer.addWidget(title)
         hint = QLabel("选一个或多个文件夹（例如服务端根目录下的 mods）。"
-                      "会读取 jar 内信息并联网识别，结果合并进清单。")
+                      "会读取 jar 内信息并联网识别。重复扫描会更新匹配条目的安装信息。")
         hint.setObjectName("sub")
         hint.setWordWrap(True)
         outer.addWidget(hint)
@@ -89,6 +90,7 @@ class ScanDialog(QDialog):
 
         self.lb_progress = QLabel("尚未开始")
         self.lb_progress.setObjectName("sub")
+        self.lb_progress.setWordWrap(True)
         outer.addWidget(self.lb_progress)
         self.bar = QProgressBar()
         self.bar.setTextVisible(False)
@@ -105,7 +107,7 @@ class ScanDialog(QDialog):
         foot.addWidget(self.btn_save)
         foot.addStretch(1)
         close = QPushButton("关闭")
-        close.clicked.connect(self.accept)
+        close.clicked.connect(self.reject)
         foot.addWidget(close)
         outer.addLayout(foot)
 
@@ -126,16 +128,21 @@ class ScanDialog(QDialog):
         if self._worker is not None:
             self._worker.cancel()
             self.lb_progress.setText("正在取消……")
+            self.btn_scan.setEnabled(False)
             return
         folders = [self.list.item(i).text() for i in range(self.list.count())]
         if not folders:
             QMessageBox.information(self, "还没选文件夹", "请先添加至少一个 mods 文件夹。")
             return
+        self._report = None
+        self.lb_progress.setToolTip("")
         self._worker = ScanWorker(self._backend, folders, self)
         self._worker.progressed.connect(self._on_progress)
+        self._worker.network_progressed.connect(self._on_network_progress)
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
         self._worker.finished.connect(self._on_finished)
+        self._worker.finished.connect(self._worker.deleteLater)
         self.bar.setRange(0, 0)
         self.btn_scan.setText("取消")
         self.btn_save.setEnabled(False)
@@ -143,22 +150,21 @@ class ScanDialog(QDialog):
         self._worker.start()
 
     def _on_progress(self, done: int, total: int, name: str) -> None:
-        if self.bar.maximum() != total:
+        if self.btn_scan.isEnabled():
             self.bar.setRange(0, total)
-        self.bar.setValue(done)
-        # ⚠️ 读完最后一个 jar **不等于扫完**：后面还有「联网识别」阶段
-        # （_resolve_slugs / _resolve_by_name），那里没有逐条进度回调，
-        # 而且是**逐个出网搜索**的，几十个模组可能要好几分钟。
-        # 之前界面就停在 "30/30" 一动不动，用户会以为程序卡死了 —— 这是真实反馈。
-        if total and done >= total:
-            self.bar.setRange(0, 0)          # 不确定进度：表明"在忙，但说不准还要多久"
-            self.lb_progress.setText(
-                "正在联网识别还没认出来的模组……（这一步要逐个搜索，可能要一会儿；"
-                "可以点「取消」中止）")
-            return
-        self.lb_progress.setText(f"正在读取 {done}/{total}：{name}")
+            self.bar.setValue(done - 1)
+            self.lb_progress.setText(f"正在读取 {done}/{total}：{name}")
+
+    def _on_network_progress(self, done: int, total: int, operation: str) -> None:
+        if self.btn_scan.isEnabled():
+            self.bar.setRange(0, total)
+            self.bar.setValue(done - 1)
+            self.lb_progress.setText(f"联网识别 {done}/{total}：{operation}")
 
     def _on_done(self, report) -> None:
+        if not self.btn_scan.isEnabled() or report.cancelled:
+            self.lb_progress.setText("扫描已取消。")
+            return
         self._report = report
         entries = len(getattr(report, "entries", []) or [])
         skipped = len(getattr(report, "skipped", []) or [])
@@ -171,16 +177,14 @@ class ScanDialog(QDialog):
             f"（指纹 {by_hash} / jar 信息 {by_meta} / 名称搜索 {by_search}）"
             f"，跳过 {skipped} 个文件"
             + (f"，{subdirs} 个子目录未展开" if subdirs else ""))
-        # ⚠️ 被取消的扫描结果是"半份"的 —— scan_flow 明确要求**绝不许落盘**，
-        # 否则用户会得到一份"看起来正常但实际上少了一半模组"的清单，
-        # 而清单少了模组正是最危险的一类错误（升完级才发现某个模组不见了）。
-        if getattr(report, "cancelled", False):
-            self.lb_progress.setText(self.lb_progress.text() + "　⚠ 已取消，结果不完整，不能保存")
-            self.btn_save.setEnabled(False)
-            return
-        self.btn_save.setEnabled(entries > 0)
+        if report.warnings:
+            detail = "\n".join(report.warnings)
+            self.lb_progress.setText(self.lb_progress.text() + "\n" + report.warnings[0].strip())
+            self.lb_progress.setToolTip(detail)
 
     def _on_failed(self, message: str) -> None:
+        if self._close_when_finished:
+            return
         self.lb_progress.setText("扫描失败")
         show_warning(self, "扫描失败",
                      "扫描没能完成，**没有**写入任何清单。\n"
@@ -189,9 +193,21 @@ class ScanDialog(QDialog):
 
     def _on_finished(self) -> None:
         self._worker = None
+        if self._close_when_finished:
+            super().reject()
+            return
         self.btn_scan.setText("开始扫描")
+        self.btn_scan.setEnabled(True)
+        self.btn_save.setEnabled(bool(self._report and self._report.entries))
         self.bar.setRange(0, 1)
         self.bar.setValue(1 if self._report else 0)
+
+    def done(self, status: int) -> None:
+        if self._worker is not None:
+            self._close_when_finished = True
+            self._on_scan()
+            return
+        super().done(status)
 
     # ---------------------------------------------------------------- 保存
     def _on_save(self) -> None:

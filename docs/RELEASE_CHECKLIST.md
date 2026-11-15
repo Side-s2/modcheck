@@ -27,45 +27,33 @@ PRD、项目简述、工程契约、各期任务书、PM 验收/终审报告、�
 
 ## 2. 发版前
 
-- [ ] 确认 `pyproject.toml` 里的 `version` 已更新
+- [ ] 确认 `src/modcheck/__init__.py` 里的 `__version__` 已更新
 - [ ] 全量测试通过：`pytest`
-- [ ] 逐字快照无意外差异：`docs/research/42_verify_golden_normalized.py` 与 `docs/research/40_flow_output_baseline.py` 的 compare
-- [ ] 分层自检 0 违规：`python docs/research/36_layering_check.py`
+- [ ] 分层测试通过：`python -m pytest tests/test_layering_flows.py`
 - [ ] `publish/` 已重新生成：`python build/make_publish.py`
 
-## 3. 构建产物
+## 3. 构建 Windows 便携版
 
-```bash
-python build/nuitka_build.py --output-dir dist-standalone      # 命令行免安装目录
-python build/nuitka_build.py --gui --output-dir dist-gui       # 图形界面
+```sh
+python -m pip install ".[gui,dev]" nuitka
+python build/nuitka_build.py --output-dir dist-gui
+python build/make_publish.py
 ```
 
-每个产物目录里应自带双击启动脚本（`启动CLI.cmd` / `启动GUI.cmd`），由构建脚本生成。
+## 4. 验证产物
 
-## 4. 验证产物（**不要跳过**）
-
-- [ ] 命令行版跑一次真实检查，结论与源码版**逐字一致**（含退出码）
-- [ ] 图形界面版能启动并显示窗口
-
-
-参考脚本：`docs/research/44_verify_packages.py`
+- [ ] 解压并双击 `启动GUI.cmd`，确认菜单、下拉框和深浅主题均可用。
+- [ ] 扫描一份清单，检查兼容性并下载一个建议版本。
+- [ ] 确认程序目录不可写时能使用用户配置目录。
+- [ ] 将 `LICENSE` 与 `THIRD_PARTY_NOTICES.md` 随便携版一起打包。
 
 ## 5. 上传到 GitHub Release
 
-| 附件 | 说明 |
-|---|---|
-| modcheck-<版本>-cli-standalone.zip | 由 `dist-standalone/` 打包 |
-| modcheck-<版本>-gui.zip | 由 `dist-gui/` 打包 |
+上传 `modcheck-<版本>-gui.zip`。GitHub 会自动附上该标签的源码。
 
-**源码不用传** —— GitHub 会为每个 Release 自动附上 `Source code (zip)` 与 `Source code (tar.gz)`，
-它们是按该 tag 从仓库现场生成的。
+## 6. 核对下载页
 
-发布说明里建议写清：**这次改了什么、有没有行为变化、升级时要注意什么**。
-
-## 6. 把下载引导到官网
-
-- [ ] `README.md` 的「下载」一节留了两处 `<待补充>`（官网下载页、Releases 地址），补齐
-- [ ] 改完**重跑** `python build/make_publish.py`，让 `publish/README.md` 同步
+- [ ] 确认 README 的 Releases 链接可打开，发布页上有 GUI 压缩包。
 
 ---
 
@@ -76,8 +64,7 @@ python build/nuitka_build.py --gui --output-dir dist-gui       # 图形界面
    用户遇到的是「**双击一闪而过、没有任何提示**」（以管理员身份运行反而正常）。
    对新手来说这是**最糟糕的失败模式**：他不会想到是杀毒软件，只会认为"这软件是坏的"。
    所以只发布**免安装目录版** —— 解压即用、启动还更快，代价只是多几个文件。
-   （构建脚本里仍保留 `--onefile` 供开发者自用，但它不是对外产物。）
 2. **启动脚本要纯 ASCII**：cmd.exe 用 OEM 代码页，脚本里的中文注释会变成乱码。
-3. **构建会清空输出目录**：所以启动脚本必须由构建脚本生成，手工放进去的每次都会丢。
+3. **启动脚本由构建脚本生成**。分发时保留压缩包目录结构。
 4. **二进制产物不进版本库**（见 `.gitignore`）：它们该作为 Release 附件分发，
    提交进仓库只会让 `git status` 全是噪音。

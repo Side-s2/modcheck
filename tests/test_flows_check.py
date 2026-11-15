@@ -117,6 +117,26 @@ def test_run_check_flow_uses_given_source_status() -> None:
 
 
 # ---------------------------------------------------------------- 进度回调
+def test_project_with_only_test_builds_checks_target_version() -> None:
+    incompatible = V("alpha", "1.0-a", ("26.4",), vtype="alpha")
+    compatible = V("alpha", "0.9-a", ("26.3",), vtype="alpha")
+    provider = FakeProvider(versions={"alpha": [incompatible, compatible]})
+    outcome = check([entry("alpha")], provider)
+    result = next(outcome.report.iter_items())
+    assert result.status is Status.PRERELEASE
+    assert result.latest_any is compatible
+
+
+@pytest.mark.parametrize("body", [{"message": "upstream error"}, [{}]])
+def test_bad_version_payload_is_unknown(body) -> None:
+    client = HttpClient(HttpConfig(), transport=FakeTransport(
+        lambda *_args: json_response(body)))
+    outcome = check([entry("carpet")], ModrinthProvider(client))
+    result = next(outcome.report.iter_items())
+    assert result.status is Status.UNKNOWN
+    assert "无法解析" in result.provider_message
+
+
 def test_progress_callbacks_are_ordered() -> None:
     """on_progress / on_item 每个模组各一次，done 从 1 递增到 N。"""
     provider = FakeProvider(releases={("m%d" % i): [V("m%d" % i, "26.3", ("26.3",))]

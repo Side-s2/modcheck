@@ -11,7 +11,7 @@ import pytest
 
 from fakes import FakeProvider
 from modcheck.core.models import MatchStatus, ProjectHit, SourceKind
-from modcheck.errors import ConfigError, ProviderUnavailable
+from modcheck.errors import ConfigError, ProviderNetworkError, ProviderUnavailable
 from modcheck.flows.scan_flow import ScanReport, scan_dirs, scan_from_list
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -139,6 +139,19 @@ def test_cancel_during_name_search_phase(tmp_path: Path) -> None:
                        should_stop=lambda: provider.searched)
     assert provider.searched is True
     assert report.cancelled is True
+
+
+def test_online_timeout_keeps_local_entries(tmp_path: Path) -> None:
+    mods = mods_dir(tmp_path)
+    local = scan_dirs([mods], provider=None)
+    slow = FakeProvider(raise_on={"resolve_by_hash": ProviderNetworkError("timed out")})
+    phases = []
+    report = scan_dirs([mods], provider=slow,
+                       on_network_progress=lambda *args: phases.append(args))
+    assert report.offline and not report.cancelled
+    assert "timed out" in report.warnings[0]
+    assert [entry.file_name for entry in report.entries] == [entry.file_name for entry in local.entries]
+    assert phases == [(1, 1, "正在查询文件指纹")]
 
 
 # ---------------------------------------------------------------- --from-list

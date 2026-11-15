@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +21,7 @@ from modcheck.core.profile_ops import INVALID_NAME_CHARS as _CORE_INVALID_NAME_C
 from modcheck.core.profile_ops import validate_profile_name as _core_validate_profile_name
 from modcheck.errors import ConfigError, ProfileError
 from modcheck.i18n import t
+from modcheck.storage.atomic import atomic_text
 
 #: 清单文件名里不允许出现的字符（规则定义在 core/profile_ops.py，这里只做别名导出）
 INVALID_NAME_CHARS = _CORE_INVALID_NAME_CHARS
@@ -103,9 +104,13 @@ def load_profile(path: Path) -> Profile:
     except (OSError, UnicodeDecodeError) as exc:
         raise ProfileError(t("err.profile.read_failed", path=target,
                              detail=type(exc).__name__)) from exc
-    if not isinstance(raw, dict) or "mods" not in raw:
+    mods = raw.get("mods") if isinstance(raw, dict) else None
+    if not isinstance(mods, list) or any(not isinstance(mod, dict) for mod in mods):
         raise ProfileError(t("err.profile.schema", path=target))
-    profile = Profile.from_dict(raw)
+    try:
+        profile = Profile.from_dict(raw)
+    except (ValueError, TypeError, AttributeError, OverflowError) as exc:
+        raise ProfileError(t("err.profile.corrupt", path=target, detail=str(exc))) from exc
     if not profile.name:
         profile.name = target.stem
     return profile
@@ -118,25 +123,16 @@ def save_profile(profile: Profile, path: Path) -> None:
         ProfileError: 目录 / 文件写不进去（磁盘满、只读、没有权限）。
     """
     target = Path(path)
-    profile.updated_at = now_iso()
-    tmp = target.with_name(target.name + ".tmp")
+    stamp = now_iso()
+    payload = profile.to_dict()
+    payload["updated_at"] = stamp
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with tmp.open("w", encoding="utf-8") as handle:
-            json.dump(profile.to_dict(), handle, ensure_ascii=False, indent=2)
+        with atomic_text(target) as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
-        os.replace(tmp, target)
     except OSError as exc:
-        _cleanup_tmp(tmp)
         raise ProfileError(t("err.profile.save_failed", path=target)) from exc
-
-
-def _cleanup_tmp(tmp: Path) -> None:
-    """写盘失败时清掉半成品 .tmp（不留垃圾，也不影响重试）。"""
-    try:
-        Path(tmp).unlink(missing_ok=True)
-    except OSError:
-        pass
+    profile.updated_at = stamp
 
 
 def new_profile(name: str, description: str = "") -> Profile:
@@ -228,90 +224,141 @@ def _merge_two(keep: ModEntry, extra: ModEntry) -> ModEntry:
     if keep.match_status in (MatchStatus.UNMATCHED, MatchStatus.GUESS) and extra.match_status in (
             MatchStatus.EXACT, MatchStatus.MANUAL):
         keep.match_status = extra.match_status
-    note = t("scan.merged_note", file=extra.file_name or extra.display_name or extra.key)
-    keep.notes = (keep.notes + "；" + note) if keep.notes else note
+    for mod_id in extra.detected.mod_ids:
+        if mod_id not in keep.detected.mod_ids:
+            keep.detected.mod_ids.append(mod_id)
+    if not keep.notes:
+        keep.notes = extra.notes
     return keep
 
 
-def merge_entries(existing: list[ModEntry], incoming: list[ModEntry]) -> tuple[list[ModEntry], MergeStats]:
-    """把 incoming 合并进 existing（幂等：合并两次结果相同）。"""
+def _refresh_file(current: ModEntry, scanned: ModEntry) -> None:
+    """用本次实测文件更新安装信息，保留用户维护的字段。"""
+    if not scanned.file_name or (current.sha1 and not scanned.sha1):
+        _merge_two(current, scanned)
+        return
+    names = (current.file_name, current.display_name, scanned.cn_name, *scanned.aliases)
+    for name in names:
+        if name and name not in (scanned.file_name, scanned.display_name) and name not in current.aliases:
+            current.aliases.append(name)
+    current.cn_name = current.cn_name or scanned.cn_name
+    pinned = current.match_status in (MatchStatus.MANUAL, MatchStatus.IGNORED)
+    for provider, slug in scanned.sources.items():
+        if slug and (not pinned or not current.sources.get(provider)):
+            current.sources[provider] = slug
+    if not pinned and (scanned.match_status is MatchStatus.EXACT
+                       or not any(current.sources.values())):
+        current.match_status = scanned.match_status
+    if (current.file_name, current.sha1, current.source_kind) != (
+            scanned.file_name, scanned.sha1, scanned.source_kind):
+        current.updated_at = now_iso()
+    current.file_name = scanned.file_name
+    current.sha1 = scanned.sha1
+    current.mod_id = scanned.mod_id
+    current.display_name = scanned.display_name
+    current.current_version = scanned.current_version or scanned.detected.mod_version
+    current.detected = replace(scanned.detected, mc_versions=list(scanned.detected.mc_versions),
+                               loaders=list(scanned.detected.loaders),
+                               mod_ids=list(scanned.detected.mod_ids))
+    current.source_kind = scanned.source_kind
+    current.key = key_of(current)
+
+
+def merge_entries(existing: list[ModEntry], incoming: list[ModEntry], *,
+                  refresh_files: bool = False) -> tuple[list[ModEntry], MergeStats]:
+    """合并清单。扫描可以用新观察到的文件信息更新已有条目。"""
     stats = MergeStats()
     index: dict[str, ModEntry] = {}
-    #: slug / sha1 / 文件名 的兜底索引：任一相同都说明是同一条记录
-    aliases: dict[str, ModEntry] = {}
+    aliases: dict[str, list[ModEntry]] = {}
     result: list[ModEntry] = []
 
-    def remember(entry: ModEntry) -> None:
-        for provider, slug in (entry.sources or {}).items():
-            if slug:
-                aliases.setdefault("slug:" + provider + ":" + str(slug).lower(), entry)
-        if entry.mod_id:
-            aliases.setdefault("modid:" + entry.mod_id.strip().lower(), entry)
-        if entry.sha1:
-            aliases.setdefault("sha1:" + entry.sha1.lower(), entry)
-        if entry.file_name:
-            aliases.setdefault("file:" + entry.file_name, entry)
+    def index_entry(entry: ModEntry) -> None:
+        index.setdefault(entry.key, entry)
+        for identity in _identities(entry, refresh_files=refresh_files):
+            matches = aliases.setdefault(identity, [])
+            if all(match is not entry for match in matches):
+                matches.append(entry)
 
     for entry in existing:
         key = key_of(entry)
         entry.key = key
         if key in index:
             _merge_two(index[key], entry)
+            index_entry(index[key])
             stats.merged += 1
             stats.warnings.append(t("warn.merge.dupe_key", key=key,
                                     kept=index[key].best_name))
             continue
-        index[key] = entry
-        remember(entry)
+        index_entry(entry)
         result.append(entry)
 
+    seen: set[int] = set()
     for entry in incoming:
         key = key_of(entry)
         entry.key = key
-        current = index.get(key)
+        # 重扫优先用内容指纹认文件，平台项目与模组 ID 用于识别升级前后的同一模组。
+        current = None if refresh_files else index.get(key)
         if current is None:
-            current = _find_by_identity(entry, aliases)
-            if current is not None:
-                _merge_two(current, entry)
-                remember(current)
-                stats.merged += 1
-                continue
+            for identity in _identities(entry, refresh_files=refresh_files):
+                matches = aliases.get(identity, ())
+                if len(matches) != 1:
+                    continue
+                candidate = matches[0]
+                if identity.startswith(("file:", "name:")):
+                    if (entry.mod_id and candidate.mod_id
+                            and entry.mod_id.casefold() != candidate.mod_id.casefold()):
+                        continue
+                    slug = entry.sources.get("modrinth")
+                    old_slug = candidate.sources.get("modrinth")
+                    if (refresh_files and slug and old_slug
+                            and slug.casefold() != old_slug.casefold()):
+                        continue
+                current = candidate
+                break
         if current is None:
-            index[key] = entry
+            current = index.get(key)
+        if current is None:
+            index_entry(entry)
             result.append(entry)
+            seen.add(id(entry))
             stats.added += 1
             continue
-        had_file = bool(current.file_name)
         incoming_file = entry.file_name
-        if had_file and incoming_file and incoming_file != current.file_name:
+        update = refresh_files and id(current) not in seen
+        if not update and current.file_name and incoming_file and incoming_file != current.file_name:
             stats.warnings.append(t("warn.merge.multiple_files", modid=key,
                                     files=current.file_name + " / " + incoming_file))
         elif incoming_file and incoming_file == current.file_name:
             stats.skipped += 1
-        _merge_two(current, entry)
-        remember(current)
+        if update:
+            _refresh_file(current, entry)
+        else:
+            _merge_two(current, entry)
+        index_entry(current)
+        seen.add(id(current))
         stats.merged += 1
     return result, stats
 
 
-def _find_by_identity(entry: ModEntry, aliases: dict[str, ModEntry]) -> ModEntry | None:
-    """按 slug / sha1 / 文件名 找同一条记录（key 对不上时的兜底）。"""
+def _identities(entry: ModEntry, *, refresh_files: bool) -> list[str]:
+    identities = []
+    digest = "sha1:" + entry.sha1.lower() if entry.sha1 else None
+    if refresh_files and digest:
+        identities.append(digest)
     for provider, slug in (entry.sources or {}).items():
         if slug:
-            found = aliases.get("slug:" + provider + ":" + str(slug).lower())
-            if found is not None:
-                return found
+            identities.append("slug:" + provider + ":" + str(slug).lower())
     if entry.mod_id:
-        found = aliases.get("modid:" + entry.mod_id.strip().lower())
-        if found is not None:
-            return found
-    if entry.sha1:
-        found = aliases.get("sha1:" + entry.sha1.lower())
-        if found is not None:
-            return found
+        identities.append("modid:" + entry.mod_id.strip().lower())
+    if digest and not refresh_files:
+        identities.append(digest)
     if entry.file_name:
-        return aliases.get("file:" + entry.file_name)
-    return None
+        identities.append("file:" + os.path.normcase(entry.file_name))
+        if refresh_files and not entry.mod_id:
+            name = normalize(entry.display_name)
+            if name:
+                identities.append("name:" + name)
+    return identities
 
 
 def dedupe_by_key(mods: list[ModEntry]) -> tuple[list[ModEntry], list[str]]:

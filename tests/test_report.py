@@ -180,8 +180,8 @@ def test_action_hints_dynamic() -> None:
                         item("c", Status.UNKNOWN, ReasonCode.ERROR))
     hints = build_action_hints(dirty)
     assert hints[0] == "下一步："
-    assert len(hints) == 5
-    assert "modcheck check --profile 服务器A --mc 26.3 --loader fabric --refresh" in hints[-1]
+    assert len(hints) == 4
+    assert "重新检查或手动核对" in hints[-1]
 
 
 def test_reason_text_no_loader_lists_loaders() -> None:

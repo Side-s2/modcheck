@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Final
+
+from modcheck.storage.atomic import atomic_text
 
 #: 缓存文件名的前缀（一眼能看出是 URL 缓存）
 URL_KEY_PREFIX: Final[str] = "u_"
@@ -74,14 +75,11 @@ class HttpCache:
         """原子写入缓存条目；写不进去也不抛（缓存只是加速手段）。"""
         entry = {"key": key, "url": url, "fetched_at": self._clock(), "body": payload}
         path = self.path_of(key)
-        tmp = path.with_name(path.name + ".tmp")
         try:
-            self.root.mkdir(parents=True, exist_ok=True)
-            with tmp.open("w", encoding="utf-8") as handle:
+            with atomic_text(path) as handle:
                 json.dump(entry, handle, ensure_ascii=False)
-            os.replace(tmp, path)
         except OSError:
-            self._drop(tmp)
+            pass
 
     # ---------------------------------------------------------------- 维护
     def info(self) -> CacheInfo:

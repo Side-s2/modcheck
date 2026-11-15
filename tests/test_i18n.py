@@ -5,11 +5,8 @@ import string
 
 from modcheck import i18n
 
-# R3-A15：菜单 [3]/[4] 的逐字文案 key 由 test_r3_a15_i18n 维护，这里一起守住
-from test_r3_a15_i18n import R3_KEYS as _R3_KEYS
-
 #: T-03 明确要求必须存在的 key（节选 + 实现用到的全部关键 key）
-REQUIRED_KEYS = _R3_KEYS + (
+REQUIRED_KEYS = (
     "app.title", "menu.item.check", "menu.item.scan", "menu.item.manage",
     "menu.item.settings", "menu.item.versions", "menu.item.quit", "menu.hint.no_profile",
     "report.header.title", "report.header.profile", "report.header.target",
@@ -20,7 +17,7 @@ REQUIRED_KEYS = _R3_KEYS + (
     "group.blocked.title", "group.degraded.title", "group.unknown.title",
     "group.ready.title", "group.ignored.title",
     "report.summary", "report.next.title", "report.next.step1", "report.next.step2",
-    "report.next.step3", "report.next.command", "report.next.none",
+    "report.next.step3", "report.next.none",
     "report.empty.next1", "report.empty.next2",
     "report.origin.guess_note", "report.origin.guess_hint",
     "progress.line.full", "progress.line.mid", "progress.line.short", "progress.line.tiny",
@@ -34,7 +31,7 @@ REQUIRED_KEYS = _R3_KEYS + (
     "err.profile.not_found", "err.profile.exists", "err.profile.corrupt",
     "err.profile.schema", "err.dir.not_found", "err.export.failed",
     "err.source.none", "err.net.offline", "err.http.5xx", "err.rate_limited",
-    "err.timeout", "err.parse.provider", "err.cert", "err.hash.miss",
+    "err.network.timeout", "err.parse.provider", "err.network.cert", "err.hash.miss",
     "err.config_dir.not_writable", "err.internal",
 )
 

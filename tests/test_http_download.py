@@ -295,15 +295,26 @@ def test_download_429_gives_up_after_cap(tmp_path: Path) -> None:
     assert not (tmp_path / "always.jar.part").exists()
 
 
-def test_download_429_part_removed_between_attempts(tmp_path: Path) -> None:
-    """第二次尝试前，第一次留下的 .part 必须先被清掉（不能续写坏数据）。"""
+def test_download_ignores_other_parts_when_retried(tmp_path: Path) -> None:
+    """下载使用自己的临时文件，限制后的重试不会读取其他遗留的临时文件。"""
     part = tmp_path / "half.jar.part"
     part.write_bytes(b"OLD-HALF")
     responses = [make_stream(b"", status=429), make_stream(b"FRESH")]
     client, _, _ = make_client(*responses)
     client.download(URL, tmp_path / "half.jar")
     assert (tmp_path / "half.jar").read_bytes() == b"FRESH"
-    assert not part.exists()
+    assert part.read_bytes() == b"OLD-HALF"
+    assert list(tmp_path.glob("*.part")) == [part]
+
+
+def test_create_only_download_preserves_file_created_midstream(tmp_path: Path) -> None:
+    dest = tmp_path / "race.jar"
+    client, _, _ = make_client(make_stream(PAYLOAD))
+    with pytest.raises(FileExistsError):
+        client.download(URL, dest, replace_existing=False,
+                        on_chunk=lambda _size: dest.write_bytes(b"existing"))
+    assert dest.read_bytes() == b"existing"
+    assert not list(tmp_path.glob("*.part"))
 
 
 # ---------------------------------------------------------------- 异常路径

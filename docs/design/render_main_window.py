@@ -53,9 +53,13 @@ for spec in READY:
     rows.append(Row(n, "ready", v, d))
 
 class Demo:
+    def load_settings(self):
+        from modcheck.core.models import Settings
+
+        return Settings()
     def profiles(self): return [("服务器A", 30)]
-    def versions(self): return ["26.3（最新正式版）", "26.2", "26.1"]
-    def run(self, *a, **k): return ("", [])
+    def versions(self, should_stop=None): return ["26.3", "26.2", "26.1"]
+    def run(self, *a, **k): return []
 
 app = QApplication(sys.argv)
 app.setStyle("Fusion")
@@ -64,7 +68,7 @@ w = MainWindow(Demo())
 w.resize(1180, 900)
 app.processEvents()
 w._rows = rows
-w._render("❌  现在还不能升级到 Minecraft 26.3 —— 30 个模组中有 2 个阻塞、0 个未判定")
+w._render()
 w.lb_progress.setText("检查完成，共 30 个模组")
 w.lb_eta.setText("用时 15 秒 · 请求 46 次")
 w.bar.setRange(0, 30); w.bar.setValue(30)

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from math import isfinite
 from typing import Any, Final
 
 from modcheck.errors import ConfigError
@@ -297,20 +298,26 @@ class Detected:
     mc_versions: list[str] = field(default_factory=list)
     loaders: list[str] = field(default_factory=list)
     mod_version: str | None = None
+    mod_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """序列化。"""
-        return {"mc_versions": list(self.mc_versions), "loaders": list(self.loaders),
+        data = {"mc_versions": list(self.mc_versions), "loaders": list(self.loaders),
                 "mod_version": self.mod_version}
+        if self.mod_ids:
+            data["mod_ids"] = list(self.mod_ids)
+        return data
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None) -> "Detected":
         """从字典还原。"""
         raw = raw or {}
+        mod_ids = raw.get("mod_ids")
         return cls(
             mc_versions=[str(v) for v in (raw.get("mc_versions") or ())],
             loaders=[str(v) for v in (raw.get("loaders") or ())],
             mod_version=raw.get("mod_version"),
+            mod_ids=[v for v in mod_ids if isinstance(v, str)] if isinstance(mod_ids, list) else [],
         )
 
 
@@ -487,6 +494,8 @@ class Settings:
             "modrinth": {"enabled": True},
             "curseforge": {"enabled": False, "api_key": None},
         })
+    theme: str = "auto"
+    check_cache: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         """序列化（加载器写字符串值）。"""
@@ -501,23 +510,33 @@ class Settings:
             "retries": int(self.retries),
             "cache_ttl_hours": {str(k): float(v) for k, v in self.cache_ttl_hours.items()},
             "providers": {str(k): dict(v) for k, v in self.providers.items()},
+            "theme": self.theme,
+            "check_cache": self.check_cache,
         }
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Settings":
         """从字典还原；坏的字段用默认值，绝不抛异常。"""
         default = cls()
+
+        def number(value: Any, fallback: float, low: float, high: float) -> float:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError, OverflowError):
+                return fallback
+            if isinstance(value, bool) or not isfinite(parsed) or not low <= parsed <= high:
+                return fallback
+            return parsed
+
         try:
             loader = Loader.parse(str(raw.get("default_loader", default.default_loader.value)))
         except ConfigError:
-            loader = Loader.FABRIC
-        ttl_raw = dict(raw.get("cache_ttl_hours") or {})
+            loader = default.default_loader
+        ttl_raw = raw.get("cache_ttl_hours")
         ttl = dict(default.cache_ttl_hours)
-        for key, value in ttl_raw.items():
-            try:
-                ttl[str(key)] = float(value)
-            except (TypeError, ValueError):
-                continue
+        if isinstance(ttl_raw, dict):
+            for key, value in ttl_raw.items():
+                ttl[key] = number(value, ttl.get(key, 0.0), 0.0, 720.0)
         providers = default.providers
         incoming = raw.get("providers")
         if isinstance(incoming, dict) and incoming:
@@ -526,26 +545,28 @@ class Settings:
                 providers[str(name)] = dict(conf) if isinstance(conf, dict) else {}
             for name, conf in default.providers.items():
                 providers.setdefault(name, dict(conf))
-        def _num(value: Any, fallback: float) -> float:
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return fallback
-
         color = str(raw.get("color") or "auto")
         if color not in ("auto", "always", "never"):
             color = "auto"
+        version = raw.get("default_mc_version")
+        version = version.strip() if isinstance(version, str) else ""
+        proxy = raw.get("proxy")
+        proxy = proxy.strip() if isinstance(proxy, str) else ""
+        theme = raw.get("theme")
+        check_cache = raw.get("check_cache")
         return cls(
-            schema_version=int(_num(raw.get("schema_version"), 1)),
-            default_mc_version=raw.get("default_mc_version") or None,
+            schema_version=int(number(raw.get("schema_version"), default.schema_version, 1, float("inf"))),
+            default_mc_version=version or None,
             default_loader=loader,
             color=color,
-            proxy=raw.get("proxy") or None,
-            concurrency=int(_num(raw.get("concurrency"), default.concurrency)),
-            timeout_seconds=_num(raw.get("timeout_seconds"), default.timeout_seconds),
-            retries=int(_num(raw.get("retries"), default.retries)),
+            proxy=proxy or None,
+            concurrency=int(number(raw.get("concurrency"), default.concurrency, 1, 8)),
+            timeout_seconds=number(raw.get("timeout_seconds"), default.timeout_seconds, 1, 600),
+            retries=int(number(raw.get("retries"), default.retries, 0, 10)),
             cache_ttl_hours=ttl,
             providers=providers,
+            theme=theme if theme in ("auto", "light", "dark") else default.theme,
+            check_cache=check_cache if isinstance(check_cache, bool) else default.check_cache,
         )
 
 

@@ -214,9 +214,7 @@ def reason_text(item: ReportItem, report: Report) -> str:
     version = item.latest_for_loader.version_number if item.latest_for_loader else ""
     loader = report.loader.display_name
     key = item.reason_key
-    if key == "reason.ok":
-        return t(key, loader=loader, version=version, mc=report.mc_version)
-    if key == "reason.old_version_only":
+    if key in ("reason.ok", "reason.ok_same_version", "reason.old_version_only"):
         return t(key, loader=loader, version=version, mc=report.mc_version)
     if key == "reason.prerelease_only":
         return t(key, mc=report.mc_version, loader=loader)
@@ -235,12 +233,6 @@ def reason_text(item: ReportItem, report: Report) -> str:
     if key == "reason.ignored":
         return t(key)
     return t(key)
-
-
-def rerun_command(report: Report) -> str:
-    """报告里可直接复制的重跑命令。"""
-    return "modcheck check --profile " + report.profile_name + " --mc " + report.mc_version \
-        + " --loader " + report.loader.value + " --refresh"
 
 
 def needs_action(item: ReportItem) -> bool:
@@ -280,11 +272,6 @@ def advice_text(item: ReportItem, report: Report) -> str:
                      target=item.latest_compat.version_number)
     key = item.hint_key
     loader = report.loader.display_name
-    if key == "advice.error":
-        return t(key, command=rerun_command(report))
-    if key == "advice.unmatched":
-        return t(key, command="modcheck check --profile " + report.profile_name
-                 + " --mc " + report.mc_version + " --loader " + report.loader.value)
     if key == "advice.no_loader":
         if item.available_loaders:
             suggest = loader_display_list(item.available_loaders[:1]) or loader
@@ -397,6 +384,10 @@ def summary_line(report: Report) -> str:
 def build_action_hints(report: Report) -> list[str]:
     """报告末尾的「下一步」文本行（按实际存在的组动态生成）。"""
     data = report.summary
+    if report.interrupted:
+        return [t("report.next.interrupted")]
+    if not data["total_checked"]:
+        return [t("report.next.empty")]
     lines: list[str] = []
     if data["blocked"] == 0 and actionable_degraded(report) == 0 and data["unknown"] == 0:
         lines.append(t("report.next.none"))
@@ -412,8 +403,6 @@ def build_action_hints(report: Report) -> list[str]:
         steps.append(t("report.next.step2", index=len(steps) + 1, degraded=actionable))
     if data["unknown"] > 0:
         steps.append(t("report.next.step3", index=len(steps) + 1, unknown=data["unknown"]))
-        steps.append(t("report.next.command", profile=report.profile_name,
-                       mc=report.mc_version, loader=report.loader.value))
     lines.extend(steps)
     return lines
 
@@ -422,5 +411,5 @@ __all__ = [
     "GROUP_ORDER", "CHECKED_STATUSES", "Verdict", "ReportItem", "Report",
     "needs_action", "actionable_degraded",
     "reason_text", "advice_text", "verdict_line", "summary_line", "origin_line",
-    "build_action_hints", "loader_display_list", "rerun_command",
+    "build_action_hints", "loader_display_list",
 ]

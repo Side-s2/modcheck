@@ -100,6 +100,30 @@ def test_same_entry_twice_is_merged_not_duplicated(tmp_path: Path) -> None:
     assert outcome.stats.merged == 1
 
 
+def test_rescan_updates_file_but_preserves_user_choices(tmp_path: Path) -> None:
+    from modcheck.core.models import Detected, MatchStatus
+    from modcheck.storage.profiles import load_profile
+
+    old = make_entry("carpet", file_name="carpet-v1.jar")
+    old.sha1, old.current_version = "a" * 40, "1"
+    old.sources["modrinth"] = "hand-picked"
+    old.match_status, old.notes = MatchStatus.IGNORED, "只在旧服使用"
+    missing = make_entry("lithium", file_name="lithium.jar")
+    save_scan_result(make_scan(old, missing), profiles_dir=tmp_path, profile_name="demo")
+
+    scanned = make_entry("carpet", file_name="carpet-v2.jar")
+    scanned.sha1 = "b" * 40
+    scanned.detected = Detected(mc_versions=["26.3"], mod_version="2", mod_ids=["carpet", "extra"])
+    outcome = save_scan_result(make_scan(scanned), profiles_dir=tmp_path, profile_name="demo")
+    current, other = load_profile(outcome.path).mods
+    assert (current.file_name, current.sha1, current.current_version) == ("carpet-v2.jar", "b" * 40, "2")
+    assert current.detected.mod_ids == ["carpet", "extra"]
+    assert current.sources["modrinth"] == "hand-picked"
+    assert current.match_status is MatchStatus.IGNORED and current.notes == old.notes
+    assert other.file_name == missing.file_name
+    assert outcome.stats.added == 0 and not outcome.stats.warnings
+
+
 def test_new_flag_replaces_existing_profile(tmp_path: Path) -> None:
     """--new：整份替换（旧条目清掉、created_at 重来），但仍然不提示"将新建"。"""
     profiles = tmp_path / "profiles"
@@ -126,13 +150,15 @@ def test_new_flag_on_missing_profile_still_notices(tmp_path: Path) -> None:
 
 
 def test_duplicate_file_warning_is_surfaced(tmp_path: Path) -> None:
-    """同名两文件必须给出告警（会让服务器启动失败的真实事故）。"""
+    """同次发现同一个模组的两个文件时会告警。"""
     profiles = tmp_path / "profiles"
     save_scan_result(make_scan(make_entry("carpet", file_name="a.jar")),
                      profiles_dir=profiles, profile_name="demo")
-    outcome = save_scan_result(make_scan(make_entry("carpet", file_name="b.jar")),
+    outcome = save_scan_result(make_scan(make_entry("carpet", file_name="b.jar"),
+                                         make_entry("carpet", file_name="c.jar")),
                                profiles_dir=profiles, profile_name="demo")
     assert outcome.stats.warnings
+    assert outcome.merged[0].file_name == "b.jar"
 
 
 # ---------------------------------------------------------------- 取消 / 失败

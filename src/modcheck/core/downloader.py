@@ -5,27 +5,24 @@
   * 真正落盘只发生在 download_all 注入的 fetcher（HttpClient.download）里；
   * 所有业务规则都在这里，CLI 只负责屏幕与编排（GUI 复用全靠这条）。
 
-下载范围（PRD §14.1，裁决 D49）：
-  🟢 就绪   -> latest_for_loader（目标加载器的最新正式版）
-  🟡 需注意 -> latest_compat（「可用：」那一行的旧稳定版）
-  🟠 仅存测试版 -> **默认跳过**；只有调用方显式要求（include_prerelease=True，
-     菜单 [5] 的询问 / GUI 的勾选）时才取 latest_any（目标加载器 + 目标 MC 的版本，
-     允许 beta/alpha）。默认值绝不能改：把测试版下给用户是在替他做危险决定。
-  🔴 / ⚪ / ⚫ 一律跳过；只下 primary 主文件。
+就绪与需注意使用判定确认的兼容构建。仅存测试版需要显式启用后才选取。
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextvars import copy_context
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Final, Mapping, Sequence
 
 from modcheck.core.models import FileInfo, ModEntry, Status, VersionInfo
 from modcheck.core.report import Report, ReportItem
-from modcheck.errors import (ModcheckError, ProviderError, ProviderRateLimited,
-                             ProviderVerifyError)
+from modcheck.errors import (ConfigError, ModcheckError, ProviderError, ProviderNetworkError,
+                             ProviderRateLimited, ProviderVerifyError, UserCancelled)
+from modcheck.i18n import t
 
 #: **默认**允许下载的两组（PRD §14.1）；🟠 只能由调用方显式要求，不进这个常量
 DOWNLOADABLE: Final[tuple[Status, ...]] = (Status.READY, Status.DEGRADED)
@@ -91,19 +88,9 @@ class DownloadReport:
 
 def pick_version(item: ReportItem, *,
                  include_prerelease: bool = False) -> VersionInfo | None:
-    """按组挑要下载的版本：🟢 取最新版，🟡 取「可用」的那个旧稳定版。
-
-    🟠 仅存测试版默认不给版本（返回 None）：只有调用方显式要求时才取 latest_any。
-
-    ⚠️ 为什么 🟠 取 latest_any 而不是 latest_for_loader：
-      · latest_for_loader 是"该加载器的最新**正式版**"，而 🟠 的定义恰恰是"它不支持
-        目标 MC"（支持的话早就判成 🟢/🟡 了）—— 取它等于下一个装不上的版本，比不下更糟；
-      · latest_any 是请求 B2 的第一条，即"**目标加载器 + 目标 MC**"这个组合下的最新版本
-        （放宽到 beta/alpha），也就是这个模组在目标版本上真正能用的那个测试版；
-      · latest_compat 只认正式版通道，🟠 条目上必然为空。
-    """
+    """优先使用判定层确认的兼容构建。旧的就绪结果可以只提供最新版。"""
     if item.status is Status.READY:
-        return item.latest_for_loader
+        return item.latest_compat or item.latest_for_loader
     if item.status is Status.DEGRADED:
         return item.latest_compat
     if include_prerelease and item.status is Status.PRERELEASE:
@@ -206,7 +193,8 @@ def plan_for(report: Report, target_dir: Path, *,
             skipped.append((entry, "download.skip.status." + status.value))
             continue
         version = pick_version(report_item, include_prerelease=include_prerelease)
-        if version is None:
+        if (version is None or report.mc_version not in version.game_versions
+                or report.loader.value not in version.loaders):
             skipped.append((entry, SKIP_NO_VERSION))
             continue
         file = pick_file(version)
@@ -219,9 +207,18 @@ def plan_for(report: Report, target_dir: Path, *,
     return DownloadPlan(items=tuple(items), skipped=tuple(skipped))
 
 
+def target_groups(plan: DownloadPlan) -> dict[Path, list[int]]:
+    groups: dict[Path, list[int]] = {}
+    for index, item in enumerate(plan.items):
+        target = Path(os.path.abspath(item.target))
+        groups.setdefault(target, []).append(index)
+    return groups
+
+
 def conflicts(plan: DownloadPlan) -> tuple[DownloadItem, ...]:
     """目标目录里已经存在同名文件的条目（只判断，不写盘、不询问）。"""
-    return tuple(item for item in plan.items if Path(item.target).exists())
+    return tuple(item for item in plan.items
+                 if item.target.is_symlink() or item.target.exists())
 
 
 def extra_files_count(plan: DownloadPlan) -> int:
@@ -239,6 +236,7 @@ MAX_RATE_RETRIES: Final[int] = 5
 BACKOFF_SECONDS: Final[tuple[float, ...]] = (1.0, 2.0)
 #: 用户选择跳过
 SKIP_USER: Final[str] = "download.skip.user"
+SKIP_TARGET_APPEARED: Final[str] = "download.skip.target_appeared"
 #: 计划期就注定下不了的两种条目（PRD §14.5 第 2 / 17 条：要在汇总里写明原因）
 SKIP_NO_JAR: Final[str] = "download.skip.no_jar"
 SKIP_NO_VERSION: Final[str] = "download.skip.no_version"
@@ -281,7 +279,9 @@ def cleanup_parts(items: Sequence[DownloadItem]) -> int:
 
 def download_all(plan: DownloadPlan, fetcher, *,
                  overwrite: Mapping[str, bool] | None = None,
+                 selected: Mapping[int, bool] | None = None,
                  on_progress: Callable[[DownloadItem, int, int], None] | None = None,
+                 on_item: Callable[[DownloadItem, bool], None] | None = None,
                  cancel: threading.Event | None = None,
                  retries: int = 2, jobs: int = 3,
                  sleep: Callable[[float], None] | None = None) -> DownloadReport:
@@ -292,7 +292,9 @@ def download_all(plan: DownloadPlan, fetcher, *,
         fetcher: 实现 download(url, dest, *, sha1, on_chunk, timeout) -> int 的对象
             （由 CLI 注入 providers/http.py 的 HttpClient；测试注入假 fetcher）。
         overwrite: 目标文件名 -> 是否覆盖；False 表示用户选择跳过（默认全部覆盖）。
-        on_progress: 进度回调（调用方负责节流）。
+        selected: 按计划下标选择重名候选。启用逐项选择时，覆盖仍需由 overwrite 授权。
+        on_progress: 字节进度回调（调用方负责节流）。
+        on_item: 每个文件最终结束时调用一次，跳过和取消的文件也会回报。
         cancel: 取消事件；置位后停止派发新任务，删掉残留 .part，已下好的文件保留。
         retries: 每个文件最多重试几次（默认 2，退避 1s / 2s）；429 不计入。
         jobs: 同时下载几个文件（默认 3，与限速器无关）。
@@ -301,6 +303,12 @@ def download_all(plan: DownloadPlan, fetcher, *,
     返回：
         DownloadReport；ok + skipped + failed + cancelled == len(items)。
     """
+    groups = target_groups(plan)
+    for target, indexes in groups.items():
+        if len(indexes) > 1 and (selected is None
+                                or any(index not in selected for index in indexes)
+                                or sum(bool(selected[index]) for index in indexes) > 1):
+            raise ConfigError(t("download.target.duplicate", files=target.name))
     started = time.monotonic()
     do_sleep = sleep if sleep is not None else time.sleep
     workers = max(1, int(jobs))
@@ -308,9 +316,16 @@ def download_all(plan: DownloadPlan, fetcher, *,
     plan_items = list(plan.items)
     results: dict[int, DownloadItem] = {}
     queue: list[tuple[int, DownloadItem]] = []
+
+    def finish(index: int, item: DownloadItem) -> None:
+        results[index] = item
+        if on_item is not None:
+            on_item(item, item.status == STATUS_OK)
+
     for index, item in enumerate(plan_items):
-        if overwrite is not None and overwrite.get(overwrite_key(item)) is False:
-            results[index] = replace(item, status=STATUS_SKIPPED, message_key=SKIP_USER)
+        if ((selected is not None and selected.get(index) is False)
+                or (overwrite is not None and overwrite.get(overwrite_key(item)) is False)):
+            finish(index, replace(item, status=STATUS_SKIPPED, message_key=SKIP_USER))
             continue
         queue.append((index, item))
 
@@ -319,25 +334,37 @@ def download_all(plan: DownloadPlan, fetcher, *,
         attempts = 0
         rate_limits = 0
         seen = 0
+        allow_replace = (selected is None
+                         or (overwrite is not None and overwrite.get(overwrite_key(item)) is True))
         while True:
             if cancel is not None and cancel.is_set():
                 return replace(item, status=STATUS_CANCELLED, bytes_done=seen)
             try:
+                if not allow_replace and (item.target.exists() or item.target.is_symlink()):
+                    raise FileExistsError(item.target)
                 written = fetcher.download(item.file.url, item.target,
                                            sha1=item.file.hashes.get("sha1"),
-                                           on_chunk=make_chunk(item))
+                                           on_chunk=make_chunk(item),
+                                           **({} if allow_replace else {"replace_existing": False}))
                 return replace(item, status=STATUS_OK, bytes_done=written)
+            except FileExistsError:
+                if allow_replace:
+                    raise
+                return replace(item, status=STATUS_SKIPPED, message_key=SKIP_TARGET_APPEARED)
+            except UserCancelled:
+                return replace(item, status=STATUS_CANCELLED)
             except ProviderRateLimited as exc:
                 # 限流不是这个文件的问题：不计入重试次数（PRD §14.3）
                 rate_limits += 1
-                if rate_limits > MAX_RATE_RETRIES:
+                if not exc.retryable or rate_limits > MAX_RATE_RETRIES:
                     return replace(item, status=STATUS_FAILED, bytes_done=seen,
                                    message_key="download.error.net",
                                    detail=_error_detail(exc))
                 continue
             except Exception as exc:            # noqa: BLE001 - 单文件失败不能影响其它文件
                 attempts += 1
-                if attempts >= max_tries:
+                permanent = isinstance(exc, ProviderNetworkError) and not exc.retryable
+                if permanent or attempts >= max_tries:
                     status = (STATUS_VERIFY_FAILED
                               if isinstance(exc, ProviderVerifyError) else STATUS_FAILED)
                     # 兜底：fetcher 没清干净的 .part 由这里删掉，绝不留半成品
@@ -367,7 +394,7 @@ def download_all(plan: DownloadPlan, fetcher, *,
                     cancelled = True
                     break
                 index, item = queue[cursor]
-                futures[pool.submit(work, index, item)] = (index, item)
+                futures[pool.submit(copy_context().run, work, index, item)] = (index, item)
                 cursor += 1
             if not futures:
                 break
@@ -375,10 +402,11 @@ def download_all(plan: DownloadPlan, fetcher, *,
             for future in done_futures:
                 index, item = futures.pop(future)
                 try:
-                    results[index] = future.result()
+                    result = future.result()
                 except Exception as exc:        # noqa: BLE001 - 兜底，绝不让线程异常逃逸
-                    results[index] = replace(item, status=STATUS_FAILED,
-                                             message_key=_error_key(exc))
+                    result = replace(item, status=STATUS_FAILED,
+                                     message_key=_error_key(exc), detail=_error_detail(exc))
+                finish(index, result)
             if cancel is not None and cancel.is_set():
                 cancelled = True
 
@@ -386,7 +414,8 @@ def download_all(plan: DownloadPlan, fetcher, *,
         remaining = [item for index, item in queue if index not in results]
         cleanup_parts(remaining)
         for index, item in queue:
-            results.setdefault(index, replace(item, status=STATUS_CANCELLED))
+            if index not in results:
+                finish(index, replace(item, status=STATUS_CANCELLED))
     final = tuple(results.get(index, item) for index, item in enumerate(plan_items))
     ok = sum(1 for item in final if item.status == STATUS_OK)
     skipped = sum(1 for item in final if item.status == STATUS_SKIPPED)

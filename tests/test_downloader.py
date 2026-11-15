@@ -4,7 +4,10 @@ from __future__ import annotations
 import os
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from modcheck.core.downloader import (DOWNLOADABLE, MAX_FILENAME, SKIP_NO_VERSION,
                                       DownloadItem, DownloadPlan, conflicts, download_all,
@@ -13,7 +16,7 @@ from modcheck.core.downloader import (DOWNLOADABLE, MAX_FILENAME, SKIP_NO_VERSIO
                                       safe_filename)
 from modcheck.core.models import FileInfo, Loader, ModEntry, ReasonCode, Status, VersionInfo
 from modcheck.core.report import Report, ReportItem
-from modcheck.errors import ProviderRateLimited, ProviderVerifyError
+from modcheck.errors import ConfigError, ProviderRateLimited, ProviderVerifyError
 
 OLD = "2000-01-01T00:00:00+08:00"
 
@@ -81,18 +84,45 @@ def test_plan_only_takes_ready_and_degraded(tmp_path: Path) -> None:
     assert DOWNLOADABLE == (Status.READY, Status.DEGRADED)
 
 
-def test_ready_takes_latest_and_degraded_takes_compat(tmp_path: Path) -> None:
-    """🟢 取 latest_for_loader，🟡 取 latest_compat（PRD §14.1）。"""
-    latest = version("26.3", files=(file_info("new-26.3.jar", primary=True),))
-    compat = version("26.1", files=(file_info("old-26.1.jar", primary=True),))
+def test_ready_and_degraded_use_the_compatible_build(tmp_path: Path) -> None:
+    latest = replace(version("1.2.3", files=(file_info("new-build.jar", primary=True),)),
+                     game_versions=("26.4",))
+    compat = replace(version("1.2.3", files=(file_info("compatible-build.jar", primary=True),)),
+                     version_id="V-different-build")
     report = make_report(
         report_item(entry("a"), Status.READY, latest=latest, compat=compat),
-        report_item(entry("b"), Status.DEGRADED, latest=latest, compat=compat),
+        report_item(entry("b"), Status.DEGRADED, latest=latest,
+                    compat=version("1.0", files=(file_info("b-build.jar", primary=True),))),
     )
     plan = plan_for(report, tmp_path)
     by_key = {item.entry.key: item for item in plan.items}
-    assert by_key["a"].version is latest and by_key["a"].target.name == "new-26.3.jar"
-    assert by_key["b"].version is compat and by_key["b"].target.name == "old-26.1.jar"
+    assert by_key["a"].version is compat and by_key["a"].target.name == "compatible-build.jar"
+    assert by_key["b"].target.name == "b-build.jar"
+
+
+def test_duplicate_targets_require_one_or_no_selected_candidate(tmp_path: Path) -> None:
+    first = version("1.0", files=(file_info("same.jar", primary=True),))
+    second = version("2.0", files=(file_info("same.jar", primary=True),))
+    report = make_report(report_item(entry("a"), Status.READY, latest=first),
+                         report_item(entry("b"), Status.READY, latest=second))
+    plan = plan_for(report, tmp_path)
+    fetcher = FakeFetcher()
+    with pytest.raises(ConfigError, match="same.jar"):
+        download_all(plan, fetcher)
+    with pytest.raises(ConfigError, match="same.jar"):
+        download_all(plan, fetcher, selected={0: True, 1: True})
+    assert not list(tmp_path.iterdir())
+    target = tmp_path / "same.jar"
+    target.write_bytes(b"existing")
+    skipped = download_all(plan, fetcher, selected={0: False, 1: False})
+    assert skipped.skipped == 2 and not fetcher.calls
+    assert target.read_bytes() == b"existing"
+    result = download_all(plan, fetcher, selected={0: False, 1: True},
+                          overwrite={"same.jar": True})
+    assert result.ok == result.skipped == 1
+    assert result.items[1].version is second
+    assert fetcher.calls == ["same.jar"]
+    assert target.read_bytes() == fetcher.payload
 
 
 def test_degraded_without_compat_is_skipped(tmp_path: Path) -> None:
@@ -201,7 +231,7 @@ def test_pick_version_prerelease_needs_explicit_flag() -> None:
     assert pick_version(item, include_prerelease=True) is item.latest_any
     ready = report_item(entry("a"), Status.READY, latest=version("26.3"),
                         compat=version("26.1"))
-    assert pick_version(ready, include_prerelease=True) is ready.latest_for_loader
+    assert pick_version(ready, include_prerelease=True) is ready.latest_compat
 
 
 def test_prerelease_without_latest_any_is_skipped(tmp_path: Path) -> None:

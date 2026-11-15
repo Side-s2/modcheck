@@ -4,29 +4,38 @@
 
 ## 运行时依赖
 
-### CLI 版（`modcheck`）
-
-**零第三方运行时依赖** —— 只使用 Python 标准库。
-因此 CLI 产物里不含任何第三方代码，分发时只需随附本项目的 LICENSE。
-
-### GUI 版（`modcheck-gui`，规划中）
-
 | 组件 | 许可证 | 说明 |
 |---|---|---|
 | **PyQt6** | **GPL v3** | Riverbank 的 Qt 绑定。**正是它决定了本项目必须采用 GPL** |
 | **Qt 6** | LGPL v3 / GPL v3 / 商业 | PyQt6 底层依赖；以 LGPL 方式链接 |
+| [truststore](https://github.com/sethmlarson/truststore) | MIT | 使用系统证书信任链验证 HTTPS |
 | Python 标准库 | PSF License | 随 Python 分发 |
 
-## 为什么本项目是 GPL 而不是 MIT
+### truststore 许可
 
-PyQt6 以 **GPL v3** 授权（另有付费商业许可）。GPL 具有传染性：**分发链接了 PyQt6 的程序，
-整个程序就必须以 GPL 兼容的许可证发布并提供源码**。
-既然本项目本就开源，采用 GPL-3.0 是最简单、也最合规的选择。
+```text
+The MIT License (MIT)
 
-> 如果将来希望 GUI 以**闭源**方式分发，有两条路：
-> ① 改用 **PySide6**（Qt 官方，LGPL，闭源分发友好，API 与本项目用法几乎一致）；
-> ② 向 Riverbank 购买 PyQt6 商业许可。
-> 两者的**界面效果完全相同**，切换成本约为改一行 import。
+Copyright (c) 2022 Seth Michael Larson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
 
 ## 构建期依赖（不随产物分发）
 

@@ -30,6 +30,15 @@ class BaseProvider(ABC):
     def get_project(self, project_id: str) -> ProjectInfo | None:
         """取项目详情；项目不存在返回 None。"""
 
+    def get_projects(self, project_ids: Sequence[str]) -> dict[str, ProjectInfo]:
+        """按项目 ID 查找详情，支持批量查询的数据源可覆盖。"""
+        projects = {}
+        for project_id in project_ids:
+            info = self.get_project(project_id)
+            if info is not None:
+                projects[project_id] = info
+        return projects
+
     @abstractmethod
     def get_versions(self, project_id: str) -> list[VersionInfo]:
         """取版本列表（**顺序即 API 返回顺序，禁止重排**）。"""
